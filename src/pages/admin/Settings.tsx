@@ -19,6 +19,7 @@ import { useSession } from "@/lib/session";
 interface SettingsForm {
   company_name: string;
   timezone: string;
+  uptiq_company_id: string;
   owner_name: string;
   owner_contact_id: string;
   owner_phone: string;
@@ -46,6 +47,7 @@ function blankForm(): SettingsForm {
   return {
     company_name: "",
     timezone: "America/Boise",
+    uptiq_company_id: "",
     owner_name: "",
     owner_contact_id: "",
     owner_phone: "",
@@ -74,6 +76,7 @@ function toForm(location: SettingsLocation, settings: CompanySettings): Settings
   return {
     company_name: location.company_name,
     timezone: location.timezone,
+    uptiq_company_id: location.uptiq_company_id ?? "",
     owner_name: settings.owner_name ?? "",
     owner_contact_id: settings.owner_contact_id ?? "",
     owner_phone: settings.owner_phone ?? "",
@@ -158,6 +161,7 @@ export default function AdminSettings() {
   const officeReady = Boolean(form.office_email.trim() || form.office_phone.trim());
   const ownerReady = Boolean(form.owner_email.trim() || form.owner_phone.trim());
   const supplyReady = Boolean(form.default_supply_house_contact_id || supplyHouses.length);
+  const companyIdReady = Boolean(form.uptiq_company_id.trim());
 
   function updateForm(patch: Partial<SettingsForm>) {
     setNotice(null);
@@ -185,6 +189,7 @@ export default function AdminSettings() {
         location: {
           company_name: form.company_name.trim(),
           timezone: form.timezone.trim(),
+          uptiq_company_id: nullable(form.uptiq_company_id),
         },
         settings: {
           owner_name: nullable(form.owner_name),
@@ -297,6 +302,7 @@ export default function AdminSettings() {
             </SettingsSection>
 
             <SettingsSection title="External IDs">
+              <TextField label="Uptiq company ID" value={form.uptiq_company_id} disabled={!canManage || saving} onChange={(value) => updateForm({ uptiq_company_id: value })} />
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
           </main>
@@ -311,6 +317,7 @@ export default function AdminSettings() {
               <HealthRow label="Office contact" ok={officeReady} />
               <HealthRow label="Check-in schedule" ok={Boolean(form.check_in_send_time && form.check_in_weekdays.length)} />
               <HealthRow label="Supply settings" ok={supplyReady && Boolean(form.supply_house_pickup_time)} />
+              <HealthRow label="Uptiq company ID" ok={companyIdReady} />
               <HealthRow label="Inspection calendar" ok={Boolean(form.inspections_calendar_id)} />
               <HealthRow label="Brand theme" ok={Boolean(form.brand_primary_color && form.brand_secondary_color && form.brand_font)} />
               {!canManage && (

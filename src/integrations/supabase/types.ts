@@ -841,6 +841,7 @@ export type Database = {
           id: string
           timezone: string
           updated_at: string
+          uptiq_company_id: string | null
           uptiq_location_id: string
         }
         Insert: {
@@ -849,6 +850,7 @@ export type Database = {
           id?: string
           timezone?: string
           updated_at?: string
+          uptiq_company_id?: string | null
           uptiq_location_id: string
         }
         Update: {
@@ -857,6 +859,7 @@ export type Database = {
           id?: string
           timezone?: string
           updated_at?: string
+          uptiq_company_id?: string | null
           uptiq_location_id?: string
         }
         Relationships: []

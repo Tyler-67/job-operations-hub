@@ -4,6 +4,7 @@ import type { SupplyHouse } from "@/lib/expenses";
 export interface SettingsLocation {
   id: string;
   uptiq_location_id: string;
+  uptiq_company_id: string | null;
   company_name: string;
   timezone: string;
   created_at: string;
@@ -45,7 +46,7 @@ export interface SettingsResponse {
 }
 
 export interface SaveSettingsPayload {
-  location: Pick<SettingsLocation, "company_name" | "timezone">;
+  location: Pick<SettingsLocation, "company_name" | "timezone" | "uptiq_company_id">;
   settings: Partial<CompanySettings>;
 }
 

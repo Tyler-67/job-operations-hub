@@ -19,6 +19,7 @@
    ```sql
    UPDATE public.locations
    SET
+     uptiq_company_id = '<UPTIQ_COMPANY_ID>',
      uptiq_location_id = '<UPTIQ_SUBACCOUNT_ID>',
      company_name = '<Company Name>',
      timezone = '<IANA_TIMEZONE>'

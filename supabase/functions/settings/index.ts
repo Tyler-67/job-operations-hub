@@ -88,7 +88,7 @@ function canAccess(role: unknown) {
 async function loadLocation(sb: any, locationId: string) {
   const { data, error } = await sb
     .from("locations")
-    .select("id, uptiq_location_id, company_name, timezone, created_at, updated_at")
+    .select("id, uptiq_location_id, uptiq_company_id, company_name, timezone, created_at, updated_at")
     .eq("id", locationId)
     .maybeSingle();
   if (error) throw error;
@@ -160,6 +160,9 @@ async function updateSettings(sb: any, locationId: string, body: Record<string, 
     const timezone = validateTimezone(locationBody.timezone);
     if (!timezone) throw new Error("timezone_required");
     locationPatch.timezone = timezone;
+  }
+  if ("uptiq_company_id" in locationBody) {
+    locationPatch.uptiq_company_id = cleanText(locationBody.uptiq_company_id);
   }
   if (Object.keys(locationPatch).length) {
     const { error } = await sb.from("locations").update(locationPatch).eq("id", locationId);
