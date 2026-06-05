@@ -8,7 +8,7 @@ export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-cron-secret, x-app-session",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
   "Content-Security-Policy": `frame-ancestors ${ALLOWED_FRAME_ANCESTORS}`,
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
