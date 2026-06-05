@@ -27,14 +27,15 @@ Deno.serve(async (req) => {
   const desiredRole = (bootstrap && bootstrap === lowerEmail) || isDemoBootstrap ? "owner_admin" : null;
 
   const { data: existing } = await sb.from("app_users")
-    .select("id, role").eq("location_id", loc.id).eq("email", user_email).maybeSingle();
+    .select("id, role, active").eq("location_id", loc.id).eq("email", user_email).maybeSingle();
 
   let appUserId: string; let role: string;
   if (existing) {
+    if (!existing.active && !desiredRole) return json({ error: "inactive_user" }, 403);
     appUserId = existing.id; role = desiredRole ?? existing.role;
     await sb.from("app_users").update({
       name: user_name ?? null, phone: phone ?? null,
-      role, last_seen_at: new Date().toISOString(), active: true,
+      role, last_seen_at: new Date().toISOString(), active: existing.active || Boolean(desiredRole),
     }).eq("id", appUserId);
   } else {
     const { data: created, error: cErr } = await sb.from("app_users").insert({

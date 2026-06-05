@@ -11,6 +11,7 @@ import JobsList from "@/pages/jobs/JobsList";
 import SearchPage from "@/pages/Search";
 import AdminExpenses from "@/pages/admin/Expenses";
 import AdminJobStates from "@/pages/admin/JobStates";
+import AdminUsers from "@/pages/admin/Users";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
 import NotFound from "./pages/NotFound.tsx";
@@ -47,7 +48,7 @@ const App = () => (
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<PlaceholderPage title="Supply Houses" />} />
               <Route path="/admin/expenses" element={<AdminExpenses />} />
-              <Route path="/admin/users" element={<PlaceholderPage title="App Users & Roles" />} />
+              <Route path="/admin/users" element={<AdminUsers />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />
