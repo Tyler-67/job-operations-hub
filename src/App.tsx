@@ -9,6 +9,7 @@ import Dashboard from "@/pages/Dashboard";
 import JobDetail from "@/pages/jobs/JobDetail";
 import JobsList from "@/pages/jobs/JobsList";
 import SearchPage from "@/pages/Search";
+import AdminExpenses from "@/pages/admin/Expenses";
 import AdminJobStates from "@/pages/admin/JobStates";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
@@ -45,7 +46,7 @@ const App = () => (
               <Route path="/admin/settings" element={<PlaceholderPage title="Company Settings" note="Company variables (check-in time, owner/office/supply contacts, brand, defaults) land in Phase 2." />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<PlaceholderPage title="Supply Houses" />} />
-              <Route path="/admin/expenses" element={<PlaceholderPage title="Expenses & PO Value Entry" />} />
+              <Route path="/admin/expenses" element={<AdminExpenses />} />
               <Route path="/admin/users" element={<PlaceholderPage title="App Users & Roles" />} />
             </Route>
 
