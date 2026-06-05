@@ -147,6 +147,7 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -157,6 +158,7 @@ export default function AdminSettings() {
         setData(next);
         setForm(toForm(next.location, next.settings));
         setError(null);
+        setNotice(null);
       })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Could not load settings"); })
       .finally(() => { if (active) setLoading(false); });
@@ -170,10 +172,12 @@ export default function AdminSettings() {
   const supplyReady = Boolean(form.default_supply_house_contact_id || supplyHouses.length);
 
   function updateForm(patch: Partial<SettingsForm>) {
+    setNotice(null);
     setForm((current) => ({ ...current, ...patch }));
   }
 
   function toggleWeekday(value: number) {
+    setNotice(null);
     setForm((current) => {
       const exists = current.check_in_weekdays.includes(value);
       const next = exists
@@ -187,6 +191,7 @@ export default function AdminSettings() {
     if (!canManage) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const next = await saveSettings({
         location: {
@@ -223,6 +228,7 @@ export default function AdminSettings() {
       });
       setData(next);
       setForm(toForm(next.location, next.settings));
+      setNotice("Settings saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save settings");
     } finally {
@@ -255,6 +261,7 @@ export default function AdminSettings() {
       </div>
 
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
+      {notice && <div className="border-b border-success/30 bg-success/10 px-4 py-2 text-xs text-success">{notice}</div>}
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading settings...</div>}
 
       {!loading && (
