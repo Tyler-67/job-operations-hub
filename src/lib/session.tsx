@@ -17,6 +17,23 @@ const Ctx = createContext<SessionCtx>({ loading: true, user: null, location: nul
 const STORAGE_KEY = "uptiq.session";
 interface EdgeResponse { error?: string; session?: string; user?: AppUser; location?: AppLocation }
 
+function saveSessionToken(token: string | undefined) {
+  if (!token) throw new Error("missing_session");
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ session: token }));
+  return token;
+}
+
+async function issueDemoSession() {
+  const out = await callEdge("iframe-session", {
+    body: {
+      location_id: "DEMO_LOCATION",
+      user_email: "dev-admin@uptiq.local",
+      user_name: "Dev Admin",
+    },
+  });
+  return saveSessionToken(out.session);
+}
+
 async function callEdge(name: string, opts: { body?: unknown; query?: Record<string, string | number | boolean | null | undefined>; session?: string | null; method?: "GET" | "POST" | "PATCH" } = {}) {
   const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`);
   Object.entries(opts.query ?? {}).forEach(([key, value]) => {
@@ -63,8 +80,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               phone: params.get("phone") || undefined,
             },
           });
-          token = out.session;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ session: token }));
+          token = saveSessionToken(out.session);
           // clean iframe params from URL
           ["location_id", "user_email", "user_name", "phone"].forEach((k) => params.delete(k));
           const cleanUrl = url.pathname + (params.toString() ? `?${params}` : "") + url.hash;
@@ -73,18 +89,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (!token) {
           // Phase 1 dev fallback: silently bootstrap demo session so /dashboard is usable outside iframe.
-          const out = await callEdge("iframe-session", {
-            body: {
-              location_id: "DEMO_LOCATION",
-              user_email: "dev-admin@uptiq.local",
-              user_name: "Dev Admin",
-            },
-          });
-          token = out.session;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ session: token }));
+          token = await issueDemoSession();
         }
 
-        const me = await callEdge("me", { session: token });
+        let me: EdgeResponse;
+        try {
+          me = await callEdge("me", { session: token });
+        } catch (e) {
+          if (!(e instanceof Error) || e.message !== "unauthorized" || fromIframe) throw e;
+          localStorage.removeItem(STORAGE_KEY);
+          token = await issueDemoSession();
+          me = await callEdge("me", { session: token });
+        }
         if (!active) return;
         setState({
           loading: false, user: me.user, location: me.location, error: null,
