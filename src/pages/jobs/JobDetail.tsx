@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Archive, Save } from "lucide-react";
+import { ArrowLeft, Archive, RotateCcw, Save } from "lucide-react";
 import {
   canManageJobs,
   createJob,
@@ -59,6 +59,22 @@ function splitCrew(value: string) {
   return value.split(",").map((name) => name.trim()).filter(Boolean);
 }
 
+function numberInput(value: number | null | undefined) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function percent(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, parsed));
+}
+
+function nonNegative(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="space-y-1 text-xs">
@@ -95,6 +111,7 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -111,6 +128,7 @@ export default function JobDetail() {
         const nextStates = loadedDetail?.states ?? data?.states ?? [];
         setStates(nextStates);
         setDetail(loadedDetail);
+        setNotice(null);
         if (isNew) {
           setForm({ ...emptyForm, current_state_id: nextStates[0]?.id ?? "" });
         } else if (loadedDetail) {
@@ -125,7 +143,7 @@ export default function JobDetail() {
             state_progress_pct: String(job.state_progress_pct),
             job_completion_pct: String(job.job_completion_pct),
             total_hours: String(job.total_hours),
-            original_estimate: job.original_estimate ? String(job.original_estimate) : "",
+            original_estimate: numberInput(job.original_estimate),
             start_date: dateInput(job.start_date),
             inspection_date: dateInput(job.inspection_date),
             scope_of_work: job.scope_of_work ?? "",
@@ -146,6 +164,7 @@ export default function JobDetail() {
   );
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setNotice(null);
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -158,10 +177,10 @@ export default function JobDetail() {
       const payload = {
         address: form.address,
         current_state_id: form.current_state_id || null,
-        state_progress_pct: Number(form.state_progress_pct),
-        job_completion_pct: Number(form.job_completion_pct),
-        total_hours: Number(form.total_hours),
-        original_estimate: form.original_estimate ? Number(form.original_estimate) : null,
+        state_progress_pct: percent(form.state_progress_pct),
+        job_completion_pct: percent(form.job_completion_pct),
+        total_hours: nonNegative(form.total_hours),
+        original_estimate: form.original_estimate ? nonNegative(form.original_estimate) : null,
         start_date: form.start_date || null,
         inspection_date: form.inspection_date || null,
         scope_of_work: form.scope_of_work || null,
@@ -175,7 +194,16 @@ export default function JobDetail() {
         crew_names: splitCrew(form.crew_names),
       };
       const saved = isNew ? await createJob(payload) : await updateJob(id as string, payload);
-      navigate(`/jobs/${saved.job.id}`);
+      setDetail(saved);
+      setStates(saved.states);
+      setForm((current) => ({ ...current, ...{
+        state_progress_pct: String(saved.job.state_progress_pct),
+        job_completion_pct: String(saved.job.job_completion_pct),
+        total_hours: String(saved.job.total_hours),
+        original_estimate: numberInput(saved.job.original_estimate),
+      } }));
+      setNotice("Job saved.");
+      if (isNew) navigate(`/jobs/${saved.job.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save job");
     } finally {
@@ -183,15 +211,18 @@ export default function JobDetail() {
     }
   }
 
-  async function archive() {
+  async function setArchived(archived: boolean) {
     if (!canManage || isNew || !id) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
-      await updateJob(id, { id, active: false, address: form.address });
-      navigate("/jobs");
+      const saved = await updateJob(id, { id, active: !archived, address: form.address });
+      setDetail(saved);
+      update("active", !archived);
+      setNotice(archived ? "Job archived." : "Job restored.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not archive job");
+      setError(err instanceof Error ? err.message : "Could not update job status");
     } finally {
       setSaving(false);
     }
@@ -220,14 +251,20 @@ export default function JobDetail() {
             {currentState?.label ?? "No state"}
           </span>
         )}
-        {!readOnly && !isNew && (
-          <button type="button" onClick={archive} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
+        {!readOnly && !isNew && form.active && (
+          <button type="button" onClick={() => setArchived(true)} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
             <Archive className="h-3.5 w-3.5" />
             Archive
           </button>
         )}
+        {!readOnly && !isNew && !form.active && (
+          <button type="button" onClick={() => setArchived(false)} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
+            <RotateCcw className="h-3.5 w-3.5" />
+            Restore
+          </button>
+        )}
         {!readOnly && (
-          <button type="submit" disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+          <button type="submit" disabled={saving || !form.address.trim() || !form.current_state_id} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <Save className="h-3.5 w-3.5" />
             {saving ? "Saving..." : "Save"}
           </button>
@@ -235,13 +272,19 @@ export default function JobDetail() {
       </div>
 
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
+      {notice && <div className="border-b border-success/30 bg-success/10 px-4 py-2 text-xs text-success">{notice}</div>}
       {readOnly && (
         <div className="border-b border-border bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
           View-only role. Owner admins and office managers can edit job records.
         </div>
       )}
+      {!form.active && (
+        <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning">
+          This job is archived. Restore it before sending crew check-ins or managing active work.
+        </div>
+      )}
 
-      <div className="grid flex-1 grid-cols-[minmax(520px,1fr)_360px] overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(520px,1fr)_360px]">
         <div className="overflow-auto p-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Job address">

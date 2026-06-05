@@ -224,6 +224,46 @@ async function getRows(sb: any, table: string, jobId: string, orderColumn: strin
   return data ?? [];
 }
 
+async function updateExistingJob(sb: any, locationId: string, body: any) {
+  const jobId = cleanText(body.id);
+  if (!jobId) return { error: "id_required", status: 400 };
+
+  const { data: existing, error: existingErr } = await sb
+    .from("jobs")
+    .select("id, state_set_id")
+    .eq("location_id", locationId)
+    .eq("id", jobId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+  if (!existing) return { error: "not_found", status: 404 };
+
+  const patch: Record<string, unknown> = {};
+  if ("address" in body) {
+    const address = cleanText(body.address);
+    if (!address) return { error: "address_required", status: 400 };
+    patch.address = address;
+  }
+  if ("current_state_id" in body) {
+    patch.current_state_id = await ensureStateBelongsToSet(sb, cleanText(body.current_state_id), existing.state_set_id);
+  }
+  if ("state_progress_pct" in body) patch.state_progress_pct = Math.max(0, Math.min(100, numberValue(body.state_progress_pct)));
+  if ("job_completion_pct" in body) patch.job_completion_pct = Math.max(0, Math.min(100, numberValue(body.job_completion_pct)));
+  if ("total_hours" in body) patch.total_hours = Math.max(0, numberValue(body.total_hours));
+  if ("original_estimate" in body) patch.original_estimate = nullableNumber(body.original_estimate);
+  if ("start_date" in body) patch.start_date = cleanText(body.start_date);
+  if ("inspection_date" in body) patch.inspection_date = cleanText(body.inspection_date);
+  if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
+  if ("notes" in body) patch.notes = cleanText(body.notes);
+  if ("active" in body) patch.active = body.active !== false;
+
+  if (Object.keys(patch).length) {
+    const { error } = await sb.from("jobs").update(patch).eq("id", jobId).eq("location_id", locationId);
+    if (error) throw error;
+  }
+  await replaceJobPeople(sb, locationId, jobId, body);
+  return await getJobDetail(sb, locationId, jobId);
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -266,6 +306,12 @@ Deno.serve(async (req) => {
 
     if (req.method === "POST") {
       const body = await req.json();
+      if (cleanText(body.id)) {
+        const updated = await updateExistingJob(sb, locationId, body);
+        if (updated?.error) return json({ error: updated.error }, updated.status);
+        return json(updated);
+      }
+
       const stateSetId = await defaultStateSet(sb, locationId);
       if (!stateSetId) return json({ error: "missing_state_set" }, 400);
       const stateId = await ensureStateBelongsToSet(
@@ -304,43 +350,9 @@ Deno.serve(async (req) => {
 
     if (req.method === "PATCH") {
       const body = await req.json();
-      const jobId = cleanText(body.id);
-      if (!jobId) return json({ error: "id_required" }, 400);
-
-      const { data: existing, error: existingErr } = await sb
-        .from("jobs")
-        .select("id, state_set_id")
-        .eq("location_id", locationId)
-        .eq("id", jobId)
-        .maybeSingle();
-      if (existingErr) throw existingErr;
-      if (!existing) return json({ error: "not_found" }, 404);
-
-      const patch: Record<string, unknown> = {};
-      if ("address" in body) {
-        const address = cleanText(body.address);
-        if (!address) return json({ error: "address_required" }, 400);
-        patch.address = address;
-      }
-      if ("current_state_id" in body) {
-        patch.current_state_id = await ensureStateBelongsToSet(sb, cleanText(body.current_state_id), existing.state_set_id);
-      }
-      if ("state_progress_pct" in body) patch.state_progress_pct = Math.max(0, Math.min(100, numberValue(body.state_progress_pct)));
-      if ("job_completion_pct" in body) patch.job_completion_pct = Math.max(0, Math.min(100, numberValue(body.job_completion_pct)));
-      if ("total_hours" in body) patch.total_hours = Math.max(0, numberValue(body.total_hours));
-      if ("original_estimate" in body) patch.original_estimate = nullableNumber(body.original_estimate);
-      if ("start_date" in body) patch.start_date = cleanText(body.start_date);
-      if ("inspection_date" in body) patch.inspection_date = cleanText(body.inspection_date);
-      if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
-      if ("notes" in body) patch.notes = cleanText(body.notes);
-      if ("active" in body) patch.active = body.active !== false;
-
-      if (Object.keys(patch).length) {
-        const { error } = await sb.from("jobs").update(patch).eq("id", jobId).eq("location_id", locationId);
-        if (error) throw error;
-      }
-      await replaceJobPeople(sb, locationId, jobId, body);
-      return json(await getJobDetail(sb, locationId, jobId));
+      const updated = await updateExistingJob(sb, locationId, body);
+      if (updated?.error) return json({ error: updated.error }, updated.status);
+      return json(updated);
     }
 
     return json({ error: "method_not_allowed" }, 405);

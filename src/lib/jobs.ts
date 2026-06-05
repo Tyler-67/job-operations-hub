@@ -89,7 +89,7 @@ export async function createJob(payload: SaveJobPayload) {
 }
 
 export async function updateJob(id: string, payload: SaveJobPayload) {
-  return callEdge("jobs", { body: { ...payload, id }, method: "PATCH" }) as Promise<JobDetailResponse>;
+  return callEdge("jobs", { body: { ...payload, id }, method: "POST" }) as Promise<JobDetailResponse>;
 }
 
 export function canManageJobs(role?: string | null) {
