@@ -153,6 +153,117 @@ export type Database = {
           },
         ]
       }
+      company_settings: {
+        Row: {
+          brand_font: string
+          brand_logo_url: string | null
+          brand_primary_color: string
+          brand_secondary_color: string
+          check_in_send_time: string
+          check_in_weekdays: number[]
+          created_at: string
+          daily_checkin_form_id: string | null
+          default_supply_house_contact_id: string | null
+          id: string
+          inspection_date_form_id: string | null
+          inspection_fix_form_id: string | null
+          inspection_reminder_time: string
+          inspections_calendar_id: string | null
+          location_id: string
+          office_contact_id: string | null
+          office_email: string | null
+          office_phone: string | null
+          owner_contact_id: string | null
+          owner_email: string | null
+          owner_name: string | null
+          owner_phone: string | null
+          parts_cost_ceiling: number
+          review_request_delay_days: number
+          supply_house_pickup_time: string | null
+          updated_at: string
+          walkthrough_punch_list_form_id: string | null
+          weekly_report_day: number
+          weekly_report_time: string
+        }
+        Insert: {
+          brand_font?: string
+          brand_logo_url?: string | null
+          brand_primary_color?: string
+          brand_secondary_color?: string
+          check_in_send_time?: string
+          check_in_weekdays?: number[]
+          created_at?: string
+          daily_checkin_form_id?: string | null
+          default_supply_house_contact_id?: string | null
+          id?: string
+          inspection_date_form_id?: string | null
+          inspection_fix_form_id?: string | null
+          inspection_reminder_time?: string
+          inspections_calendar_id?: string | null
+          location_id: string
+          office_contact_id?: string | null
+          office_email?: string | null
+          office_phone?: string | null
+          owner_contact_id?: string | null
+          owner_email?: string | null
+          owner_name?: string | null
+          owner_phone?: string | null
+          parts_cost_ceiling?: number
+          review_request_delay_days?: number
+          supply_house_pickup_time?: string | null
+          updated_at?: string
+          walkthrough_punch_list_form_id?: string | null
+          weekly_report_day?: number
+          weekly_report_time?: string
+        }
+        Update: {
+          brand_font?: string
+          brand_logo_url?: string | null
+          brand_primary_color?: string
+          brand_secondary_color?: string
+          check_in_send_time?: string
+          check_in_weekdays?: number[]
+          created_at?: string
+          daily_checkin_form_id?: string | null
+          default_supply_house_contact_id?: string | null
+          id?: string
+          inspection_date_form_id?: string | null
+          inspection_fix_form_id?: string | null
+          inspection_reminder_time?: string
+          inspections_calendar_id?: string | null
+          location_id?: string
+          office_contact_id?: string | null
+          office_email?: string | null
+          office_phone?: string | null
+          owner_contact_id?: string | null
+          owner_email?: string | null
+          owner_name?: string | null
+          owner_phone?: string | null
+          parts_cost_ceiling?: number
+          review_request_delay_days?: number
+          supply_house_pickup_time?: string | null
+          updated_at?: string
+          walkthrough_punch_list_form_id?: string | null
+          weekly_report_day?: number
+          weekly_report_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_settings_default_supply_house_contact_id_fkey"
+            columns: ["default_supply_house_contact_id"]
+            isOneToOne: false
+            referencedRelation: "supply_house_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_settings_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: true
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           active: boolean
