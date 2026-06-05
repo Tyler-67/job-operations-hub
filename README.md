@@ -37,7 +37,7 @@ Retired v1 behavior:
 
 These are intentionally still open and must be finished before customer production:
 
-- Verify iframe users against Uptiq server-side before issuing app sessions
+- Validate iframe user verification against a real Uptiq company ID and token before customer launch
 - Lock down broad read policies and route sensitive reads through authenticated Edge Functions
 - Replace remaining cron, inbound SMS, and weekly report stubs
 - Split action-token validation from token consumption for form pages
