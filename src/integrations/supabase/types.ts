@@ -112,8 +112,8 @@ export type Database = {
           created_at: string
           email: string
           id: string
-          last_verified_at: string | null
           last_seen_at: string | null
+          last_verified_at: string | null
           location_id: string
           name: string | null
           phone: string | null
@@ -126,8 +126,8 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
-          last_verified_at?: string | null
           last_seen_at?: string | null
+          last_verified_at?: string | null
           location_id: string
           name?: string | null
           phone?: string | null
@@ -140,8 +140,8 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
-          last_verified_at?: string | null
           last_seen_at?: string | null
+          last_verified_at?: string | null
           location_id?: string
           name?: string | null
           phone?: string | null
