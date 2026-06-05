@@ -347,7 +347,7 @@ export default function JobDetail() {
                 <div key={po.id} className="flex justify-between gap-2 py-2">
                   <div>
                     <div className="font-medium">{po.description ?? "Purchase order"}</div>
-                    <div className="text-muted-foreground">{po.status.replaceAll("_", " ")}</div>
+                    <div className="text-muted-foreground">{po.status.replace(/_/g, " ")}</div>
                   </div>
                   <div className="font-mono-num">{currency(po.final_amount ?? po.estimated_amount ?? 0)}</div>
                 </div>

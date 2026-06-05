@@ -122,7 +122,7 @@ export default function SearchPage() {
               {data.pos.map((po) => (
                 <Link key={po.id} to={`/jobs/${po.job_id}`} className="block px-3 py-2 hover:bg-muted">
                   <div className="font-medium">{po.description ?? "Purchase order"}</div>
-                  <div className="mt-0.5 text-muted-foreground">{po.status.replaceAll("_", " ")} - {currency(po.final_amount ?? po.estimated_amount ?? 0)}</div>
+                  <div className="mt-0.5 text-muted-foreground">{po.status.replace(/_/g, " ")} - {currency(po.final_amount ?? po.estimated_amount ?? 0)}</div>
                 </Link>
               ))}
               {!data.pos.length && <Empty />}
