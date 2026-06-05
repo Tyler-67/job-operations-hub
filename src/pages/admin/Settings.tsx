@@ -36,10 +36,6 @@ interface SettingsForm {
   parts_cost_ceiling: string;
   supply_house_pickup_time: string;
   inspections_calendar_id: string;
-  daily_checkin_form_id: string;
-  inspection_date_form_id: string;
-  inspection_fix_form_id: string;
-  walkthrough_punch_list_form_id: string;
   brand_primary_color: string;
   brand_secondary_color: string;
   brand_font: string;
@@ -67,10 +63,6 @@ function blankForm(): SettingsForm {
     parts_cost_ceiling: "500",
     supply_house_pickup_time: "7AM",
     inspections_calendar_id: "",
-    daily_checkin_form_id: "",
-    inspection_date_form_id: "",
-    inspection_fix_form_id: "",
-    walkthrough_punch_list_form_id: "",
     brand_primary_color: "#0f172a",
     brand_secondary_color: "#0ea5e9",
     brand_font: "Inter",
@@ -99,10 +91,6 @@ function toForm(location: SettingsLocation, settings: CompanySettings): Settings
     parts_cost_ceiling: String(settings.parts_cost_ceiling ?? 500),
     supply_house_pickup_time: settings.supply_house_pickup_time ?? "",
     inspections_calendar_id: settings.inspections_calendar_id ?? "",
-    daily_checkin_form_id: settings.daily_checkin_form_id ?? "",
-    inspection_date_form_id: settings.inspection_date_form_id ?? "",
-    inspection_fix_form_id: settings.inspection_fix_form_id ?? "",
-    walkthrough_punch_list_form_id: settings.walkthrough_punch_list_form_id ?? "",
     brand_primary_color: settings.brand_primary_color ?? "#0f172a",
     brand_secondary_color: settings.brand_secondary_color ?? "#0ea5e9",
     brand_font: settings.brand_font ?? "Inter",
@@ -216,10 +204,6 @@ export default function AdminSettings() {
           parts_cost_ceiling: Number(form.parts_cost_ceiling),
           supply_house_pickup_time: nullable(form.supply_house_pickup_time),
           inspections_calendar_id: nullable(form.inspections_calendar_id),
-          daily_checkin_form_id: nullable(form.daily_checkin_form_id),
-          inspection_date_form_id: nullable(form.inspection_date_form_id),
-          inspection_fix_form_id: nullable(form.inspection_fix_form_id),
-          walkthrough_punch_list_form_id: nullable(form.walkthrough_punch_list_form_id),
           brand_primary_color: form.brand_primary_color,
           brand_secondary_color: form.brand_secondary_color,
           brand_font: form.brand_font.trim(),
@@ -312,12 +296,8 @@ export default function AdminSettings() {
               <TextField label="Logo URL" value={form.brand_logo_url} disabled={!canManage || saving} onChange={(value) => updateForm({ brand_logo_url: value })} />
             </SettingsSection>
 
-            <SettingsSection title="Uptiq IDs">
+            <SettingsSection title="External IDs">
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
-              <TextField label="Daily check-in form ID" value={form.daily_checkin_form_id} disabled={!canManage || saving} onChange={(value) => updateForm({ daily_checkin_form_id: value })} />
-              <TextField label="Inspection date form ID" value={form.inspection_date_form_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspection_date_form_id: value })} />
-              <TextField label="Inspection fix form ID" value={form.inspection_fix_form_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspection_fix_form_id: value })} />
-              <TextField label="Walkthrough punch list form ID" value={form.walkthrough_punch_list_form_id} disabled={!canManage || saving} onChange={(value) => updateForm({ walkthrough_punch_list_form_id: value })} />
             </SettingsSection>
           </main>
 

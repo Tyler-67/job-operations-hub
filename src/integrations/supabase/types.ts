@@ -162,11 +162,8 @@ export type Database = {
           check_in_send_time: string
           check_in_weekdays: number[]
           created_at: string
-          daily_checkin_form_id: string | null
           default_supply_house_contact_id: string | null
           id: string
-          inspection_date_form_id: string | null
-          inspection_fix_form_id: string | null
           inspection_reminder_time: string
           inspections_calendar_id: string | null
           location_id: string
@@ -181,7 +178,6 @@ export type Database = {
           review_request_delay_days: number
           supply_house_pickup_time: string | null
           updated_at: string
-          walkthrough_punch_list_form_id: string | null
           weekly_report_day: number
           weekly_report_time: string
         }
@@ -193,11 +189,8 @@ export type Database = {
           check_in_send_time?: string
           check_in_weekdays?: number[]
           created_at?: string
-          daily_checkin_form_id?: string | null
           default_supply_house_contact_id?: string | null
           id?: string
-          inspection_date_form_id?: string | null
-          inspection_fix_form_id?: string | null
           inspection_reminder_time?: string
           inspections_calendar_id?: string | null
           location_id: string
@@ -212,7 +205,6 @@ export type Database = {
           review_request_delay_days?: number
           supply_house_pickup_time?: string | null
           updated_at?: string
-          walkthrough_punch_list_form_id?: string | null
           weekly_report_day?: number
           weekly_report_time?: string
         }
@@ -224,11 +216,8 @@ export type Database = {
           check_in_send_time?: string
           check_in_weekdays?: number[]
           created_at?: string
-          daily_checkin_form_id?: string | null
           default_supply_house_contact_id?: string | null
           id?: string
-          inspection_date_form_id?: string | null
-          inspection_fix_form_id?: string | null
           inspection_reminder_time?: string
           inspections_calendar_id?: string | null
           location_id?: string
@@ -243,7 +232,6 @@ export type Database = {
           review_request_delay_days?: number
           supply_house_pickup_time?: string | null
           updated_at?: string
-          walkthrough_punch_list_form_id?: string | null
           weekly_report_day?: number
           weekly_report_time?: string
         }

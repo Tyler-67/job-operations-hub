@@ -175,10 +175,6 @@ async function updateSettings(sb: any, locationId: string, body: Record<string, 
     "office_phone",
     "supply_house_pickup_time",
     "inspections_calendar_id",
-    "daily_checkin_form_id",
-    "inspection_date_form_id",
-    "inspection_fix_form_id",
-    "walkthrough_punch_list_form_id",
   ];
   for (const key of textFields) {
     if (key in settingsBody) patch[key] = cleanText(settingsBody[key]);

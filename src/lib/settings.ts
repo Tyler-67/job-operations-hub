@@ -30,10 +30,6 @@ export interface CompanySettings {
   parts_cost_ceiling: number;
   supply_house_pickup_time: string | null;
   inspections_calendar_id: string | null;
-  daily_checkin_form_id: string | null;
-  inspection_date_form_id: string | null;
-  inspection_fix_form_id: string | null;
-  walkthrough_punch_list_form_id: string | null;
   brand_primary_color: string;
   brand_secondary_color: string;
   brand_font: string;
