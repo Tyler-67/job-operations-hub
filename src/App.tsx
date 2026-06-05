@@ -34,7 +34,7 @@ const App = () => (
             <Route path="/forms/walkthrough-punch-list" element={<TokenForm tokenAction="walkthrough_punch_list" title="Walkthrough Punch List" />} />
             <Route path="/forms/quick-log" element={<TokenForm tokenAction="quick_log" title="Quick Log" />} />
             <Route path="/crew-completion" element={<TokenForm tokenAction="crew_completion" title="Crew Completion" />} />
-            <Route path="/action/confirm" element={<TokenForm tokenAction="confirm" title="Confirm Action" />} />
+            <Route path="/action/confirm" element={<TokenForm tokenAction="confirm" title="Confirm Action" consumeOnLoad />} />
 
             {/* App shell (session required) */}
             <Route element={<AppShell />}>

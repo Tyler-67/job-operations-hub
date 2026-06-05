@@ -10,10 +10,11 @@ interface TokenPayload {
 interface Props {
   tokenAction: string;
   title: string;
+  consumeOnLoad?: boolean;
   children?: (payload: TokenPayload) => ReactNode;
 }
 
-export default function TokenForm({ tokenAction, title, children }: Props) {
+export default function TokenForm({ tokenAction, title, consumeOnLoad = false, children }: Props) {
   const [status, setStatus] = useState<"loading" | "ok" | "invalid">("loading");
   const [payload, setPayload] = useState<TokenPayload | null>(null);
 
@@ -33,20 +34,20 @@ export default function TokenForm({ tokenAction, title, children }: Props) {
             apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
-          body: JSON.stringify({ token, action: tokenAction }),
+          body: JSON.stringify({ token, action: tokenAction, consume: consumeOnLoad }),
         });
         const json = await res.json() as TokenPayload;
         if (!res.ok) {
           setStatus("invalid");
           return;
         }
-        setPayload(json);
+        setPayload({ ...json, token });
         setStatus("ok");
       } catch {
         setStatus("invalid");
       }
     })();
-  }, [tokenAction]);
+  }, [consumeOnLoad, tokenAction]);
 
   return (
     <div className="mx-auto max-w-md p-6">
