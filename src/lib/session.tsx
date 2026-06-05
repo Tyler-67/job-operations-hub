@@ -15,20 +15,24 @@ interface SessionCtx {
 
 const Ctx = createContext<SessionCtx>({ loading: true, user: null, location: null, error: null, signOut: () => {} });
 const STORAGE_KEY = "uptiq.session";
+interface EdgeResponse { error?: string; session?: string; user?: AppUser; location?: AppLocation }
 
-async function callEdge(name: string, opts: { body?: unknown; session?: string | null } = {}) {
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`;
+async function callEdge(name: string, opts: { body?: unknown; query?: Record<string, string | number | boolean | null | undefined>; session?: string | null; method?: "GET" | "POST" | "PATCH" } = {}) {
+  const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`);
+  Object.entries(opts.query ?? {}).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, String(value));
+  });
   const res = await fetch(url, {
-    method: opts.body ? "POST" : "GET",
+    method: opts.method ?? (opts.body ? "POST" : "GET"),
     headers: {
       "content-type": "application/json",
       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      ...(opts.session ? { "x-app-session": opts.session } : {}),
+      ...(opts.session || getSessionToken() ? { "x-app-session": opts.session ?? getSessionToken() ?? "" } : {}),
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  const json = await res.json().catch(() => ({}));
+  const json = await res.json().catch(() => ({})) as EdgeResponse;
   if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
   return json;
 }
@@ -72,8 +76,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const out = await callEdge("iframe-session", {
             body: {
               location_id: "DEMO_LOCATION",
-              user_email: "dev@uptiq.local",
-              user_name: "Dev User",
+              user_email: "dev-admin@uptiq.local",
+              user_name: "Dev Admin",
             },
           });
           token = out.session;
@@ -86,13 +90,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           loading: false, user: me.user, location: me.location, error: null,
           signOut: () => { localStorage.removeItem(STORAGE_KEY); window.location.reload(); },
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!active) return;
-        setState((s) => ({ ...s, loading: false, error: e?.message || "Session error" }));
+        setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : "Session error" }));
       }
     })();
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <Ctx.Provider value={state}>{children}</Ctx.Provider>;

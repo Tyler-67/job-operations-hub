@@ -1,0 +1,378 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Archive, Save } from "lucide-react";
+import {
+  canManageJobs,
+  createJob,
+  currency,
+  fetchJob,
+  fetchJobs,
+  shortDate,
+  updateJob,
+  type JobDetailResponse,
+  type JobState,
+} from "@/lib/jobs";
+import { useSession } from "@/lib/session";
+
+interface FormState {
+  address: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  crew_names: string;
+  current_state_id: string;
+  state_progress_pct: string;
+  job_completion_pct: string;
+  total_hours: string;
+  original_estimate: string;
+  start_date: string;
+  inspection_date: string;
+  scope_of_work: string;
+  notes: string;
+  active: boolean;
+}
+
+const emptyForm: FormState = {
+  address: "",
+  customer_name: "",
+  customer_email: "",
+  customer_phone: "",
+  crew_names: "",
+  current_state_id: "",
+  state_progress_pct: "0",
+  job_completion_pct: "0",
+  total_hours: "0",
+  original_estimate: "",
+  start_date: "",
+  inspection_date: "",
+  scope_of_work: "",
+  notes: "",
+  active: true,
+};
+
+function dateInput(value: string | null | undefined) {
+  if (!value) return "";
+  return value.slice(0, 10);
+}
+
+function splitCrew(value: string) {
+  return value.split(",").map((name) => name.trim()).filter(Boolean);
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="space-y-1 text-xs">
+      <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function inputClass(disabled: boolean) {
+  return [
+    "h-8 w-full rounded-sm border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring",
+    disabled ? "cursor-not-allowed opacity-70" : "",
+  ].join(" ");
+}
+
+function textAreaClass(disabled: boolean) {
+  return [
+    "min-h-20 w-full rounded-sm border border-input bg-background px-2 py-2 text-xs outline-none focus:ring-1 focus:ring-ring",
+    disabled ? "cursor-not-allowed opacity-70" : "",
+  ].join(" ");
+}
+
+export default function JobDetail() {
+  const { id } = useParams();
+  const isNew = id === "new";
+  const navigate = useNavigate();
+  const { user } = useSession();
+  const canManage = canManageJobs(user?.role);
+
+  const [detail, setDetail] = useState<JobDetailResponse | null>(null);
+  const [states, setStates] = useState<JobState[]>([]);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    const load = isNew
+      ? fetchJobs().then((data) => ({ data, detail: null }))
+      : fetchJob(id as string).then((data) => ({ data: null, detail: data }));
+
+    load
+      .then(({ data, detail: loadedDetail }) => {
+        if (!active) return;
+        const nextStates = loadedDetail?.states ?? data?.states ?? [];
+        setStates(nextStates);
+        setDetail(loadedDetail);
+        if (isNew) {
+          setForm({ ...emptyForm, current_state_id: nextStates[0]?.id ?? "" });
+        } else if (loadedDetail) {
+          const job = loadedDetail.job;
+          setForm({
+            address: job.address,
+            customer_name: job.customers[0]?.name ?? "",
+            customer_email: job.customers[0]?.email ?? "",
+            customer_phone: job.customers[0]?.phone ?? "",
+            crew_names: job.crew.map((contact) => contact.name).join(", "),
+            current_state_id: job.current_state_id ?? "",
+            state_progress_pct: String(job.state_progress_pct),
+            job_completion_pct: String(job.job_completion_pct),
+            total_hours: String(job.total_hours),
+            original_estimate: job.original_estimate ? String(job.original_estimate) : "",
+            start_date: dateInput(job.start_date),
+            inspection_date: dateInput(job.inspection_date),
+            scope_of_work: job.scope_of_work ?? "",
+            notes: job.notes ?? "",
+            active: job.active,
+          });
+        }
+      })
+      .catch((err) => { if (active) setError(err?.message ?? "Could not load job"); })
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => { active = false; };
+  }, [id, isNew]);
+
+  const currentState = useMemo(
+    () => states.find((state) => state.id === form.current_state_id) ?? null,
+    [form.current_state_id, states],
+  );
+
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!canManage) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        address: form.address,
+        current_state_id: form.current_state_id || null,
+        state_progress_pct: Number(form.state_progress_pct),
+        job_completion_pct: Number(form.job_completion_pct),
+        total_hours: Number(form.total_hours),
+        original_estimate: form.original_estimate ? Number(form.original_estimate) : null,
+        start_date: form.start_date || null,
+        inspection_date: form.inspection_date || null,
+        scope_of_work: form.scope_of_work || null,
+        notes: form.notes || null,
+        active: form.active,
+        customer: {
+          name: form.customer_name || null,
+          email: form.customer_email || null,
+          phone: form.customer_phone || null,
+        },
+        crew_names: splitCrew(form.crew_names),
+      };
+      const saved = isNew ? await createJob(payload) : await updateJob(id as string, payload);
+      navigate(`/jobs/${saved.job.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save job");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function archive() {
+    if (!canManage || isNew || !id) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateJob(id, { id, active: false, address: form.address });
+      navigate("/jobs");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive job");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="p-6 text-xs text-muted-foreground">Loading job...</div>;
+
+  const readOnly = !canManage;
+  const job = detail?.job;
+
+  return (
+    <form onSubmit={save} className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border bg-card px-4 py-2">
+        <Link to="/jobs" className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-border hover:bg-muted" aria-label="Back to jobs">
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <div>
+          <h1 className="text-sm font-semibold">{isNew ? "New Job" : form.address || "Job"}</h1>
+          <p className="text-xs text-muted-foreground">
+            {isNew ? "Create the job record the office and field teams will work from." : "Update the job state, schedule, crew, scope, and office context."}
+          </p>
+        </div>
+        <div className="flex-1" />
+        {!isNew && job && (
+          <span className="pill" style={{ backgroundColor: `${currentState?.color ?? "#64748b"}22`, color: currentState?.color ?? "#64748b" }}>
+            {currentState?.label ?? "No state"}
+          </span>
+        )}
+        {!readOnly && !isNew && (
+          <button type="button" onClick={archive} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
+            <Archive className="h-3.5 w-3.5" />
+            Archive
+          </button>
+        )}
+        {!readOnly && (
+          <button type="submit" disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+            <Save className="h-3.5 w-3.5" />
+            {saving ? "Saving..." : "Save"}
+          </button>
+        )}
+      </div>
+
+      {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
+      {readOnly && (
+        <div className="border-b border-border bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
+          View-only role. Owner admins and office managers can edit job records.
+        </div>
+      )}
+
+      <div className="grid flex-1 grid-cols-[minmax(520px,1fr)_360px] overflow-hidden">
+        <div className="overflow-auto p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Job address">
+              <input required disabled={readOnly} value={form.address} onChange={(event) => update("address", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Current state">
+              <select disabled={readOnly} value={form.current_state_id} onChange={(event) => update("current_state_id", event.target.value)} className={inputClass(readOnly)}>
+                {states.map((state) => <option key={state.id} value={state.id}>{state.sort_order}. {state.label}</option>)}
+              </select>
+            </Field>
+
+            <Field label="Customer name">
+              <input disabled={readOnly} value={form.customer_name} onChange={(event) => update("customer_name", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Crew">
+              <input disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
+            </Field>
+
+            <Field label="Customer email">
+              <input disabled={readOnly} type="email" value={form.customer_email} onChange={(event) => update("customer_email", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Customer phone">
+              <input disabled={readOnly} value={form.customer_phone} onChange={(event) => update("customer_phone", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+
+            <Field label="Start date">
+              <input disabled={readOnly} type="date" value={form.start_date} onChange={(event) => update("start_date", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Inspection date">
+              <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+
+            <Field label="State progress %">
+              <input disabled={readOnly} type="number" min="0" max="100" value={form.state_progress_pct} onChange={(event) => update("state_progress_pct", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Job completion %">
+              <input disabled={readOnly} type="number" min="0" max="100" value={form.job_completion_pct} onChange={(event) => update("job_completion_pct", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+
+            <Field label="Hours">
+              <input disabled={readOnly} type="number" min="0" step="0.25" value={form.total_hours} onChange={(event) => update("total_hours", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Estimate">
+              <input disabled={readOnly} type="number" min="0" step="1" value={form.original_estimate} onChange={(event) => update("original_estimate", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+
+            <div className="col-span-2">
+              <Field label="Scope of work">
+                <textarea disabled={readOnly} value={form.scope_of_work} onChange={(event) => update("scope_of_work", event.target.value)} className={textAreaClass(readOnly)} />
+              </Field>
+            </div>
+            <div className="col-span-2">
+              <Field label="Office notes">
+                <textarea disabled={readOnly} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={textAreaClass(readOnly)} />
+              </Field>
+            </div>
+          </div>
+        </div>
+
+        <aside className="overflow-auto border-l border-border bg-card">
+          <div className="border-b border-border p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Job totals</h2>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-sm border border-border p-2">
+                <div className="font-mono-num text-sm font-semibold">{currency(job?.total_expenses ?? 0)}</div>
+                <div className="text-muted-foreground">Expenses</div>
+              </div>
+              <div className="rounded-sm border border-border p-2">
+                <div className="font-mono-num text-sm font-semibold">{currency(job?.original_estimate ?? Number(form.original_estimate || 0))}</div>
+                <div className="text-muted-foreground">Estimate</div>
+              </div>
+              <div className="rounded-sm border border-border p-2">
+                <div className="font-mono-num text-sm font-semibold">{job?.total_hours ?? form.total_hours}</div>
+                <div className="text-muted-foreground">Hours</div>
+              </div>
+              <div className="rounded-sm border border-border p-2">
+                <div className="font-mono-num text-sm font-semibold">{detail?.purchase_orders.filter((po) => po.status === "pending_value").length ?? 0}</div>
+                <div className="text-muted-foreground">PO values due</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-b border-border p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent logs</h2>
+            <div className="mt-2 divide-y divide-border text-xs">
+              {(detail?.daily_logs ?? []).slice(0, 5).map((log) => (
+                <div key={log.id} className="py-2">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium">{shortDate(log.log_date)}</span>
+                    <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">{log.issues || log.parts_list || "Daily check-in submitted"}</div>
+                </div>
+              ))}
+              {(detail?.daily_logs ?? []).length === 0 && <div className="py-3 text-muted-foreground">No daily logs yet.</div>}
+            </div>
+          </div>
+
+          <div className="border-b border-border p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Purchase orders</h2>
+            <div className="mt-2 divide-y divide-border text-xs">
+              {(detail?.purchase_orders ?? []).slice(0, 5).map((po) => (
+                <div key={po.id} className="flex justify-between gap-2 py-2">
+                  <div>
+                    <div className="font-medium">{po.description ?? "Purchase order"}</div>
+                    <div className="text-muted-foreground">{po.status.replaceAll("_", " ")}</div>
+                  </div>
+                  <div className="font-mono-num">{currency(po.final_amount ?? po.estimated_amount ?? 0)}</div>
+                </div>
+              ))}
+              {(detail?.purchase_orders ?? []).length === 0 && <div className="py-3 text-muted-foreground">No purchase orders.</div>}
+            </div>
+          </div>
+
+          <div className="p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expenses</h2>
+            <div className="mt-2 divide-y divide-border text-xs">
+              {(detail?.expenses ?? []).slice(0, 5).map((expense) => (
+                <div key={expense.id} className="flex justify-between gap-2 py-2">
+                  <div>
+                    <div className="font-medium">{expense.vendor ?? expense.kind}</div>
+                    <div className="text-muted-foreground">{expense.description ?? expense.kind}</div>
+                  </div>
+                  <div className="font-mono-num">{currency(expense.amount)}</div>
+                </div>
+              ))}
+              {(detail?.expenses ?? []).length === 0 && <div className="py-3 text-muted-foreground">No expenses recorded.</div>}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </form>
+  );
+}

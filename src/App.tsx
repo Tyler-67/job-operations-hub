@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SessionProvider } from "@/lib/session";
 import AppShell from "@/components/AppShell";
 import Dashboard from "@/pages/Dashboard";
+import JobDetail from "@/pages/jobs/JobDetail";
+import JobsList from "@/pages/jobs/JobsList";
 import SearchPage from "@/pages/Search";
 import AdminJobStates from "@/pages/admin/JobStates";
 import PlaceholderPage from "@/pages/PlaceholderPage";
@@ -35,6 +37,8 @@ const App = () => (
             <Route element={<AppShell />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/jobs" element={<JobsList />} />
+              <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/reports/completion" element={<PlaceholderPage title="Completion Reports" />} />
               <Route path="/reports/weekly-preview" element={<PlaceholderPage title="Weekly Report Preview" />} />

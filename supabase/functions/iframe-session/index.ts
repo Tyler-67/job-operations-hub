@@ -8,7 +8,7 @@ Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
   const { location_id, user_email, user_name, phone } = body ?? {};
   if (!location_id || !user_email) return json({ error: "missing_params" }, 400);
@@ -22,7 +22,9 @@ Deno.serve(async (req) => {
 
   // Determine role: bootstrap admin if matches env, else upsert as viewer.
   const bootstrap = (Deno.env.get("BOOTSTRAP_ADMIN_EMAIL") ?? "").toLowerCase();
-  const desiredRole = bootstrap && bootstrap === String(user_email).toLowerCase() ? "owner_admin" : null;
+  const lowerEmail = String(user_email).toLowerCase();
+  const isDemoBootstrap = location_id === "DEMO_LOCATION" && lowerEmail === "dev-admin@uptiq.local";
+  const desiredRole = (bootstrap && bootstrap === lowerEmail) || isDemoBootstrap ? "owner_admin" : null;
 
   const { data: existing } = await sb.from("app_users")
     .select("id, role").eq("location_id", loc.id).eq("email", user_email).maybeSingle();
