@@ -1,5 +1,6 @@
-// POST /inbound-sms  — Uptiq SMS webhook intake. Idempotent via dedupe_key.
-// Phase 1: stores event, parses LOG/PASS/FAIL keyword stub. Full handlers in Phase 2.
+// POST /inbound-sms - Uptiq SMS webhook intake. Idempotent via dedupe_key.
+// Current behavior: stores event and parses LOG/PASS/FAIL keyword stubs.
+// Production hardening: route parsed keywords to real handlers.
 import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
 
 Deno.serve(async (req) => {

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Uptiq — operations-first design tokens. Dense, quiet, work-focused. */
+/* Uptiq - operations-first design tokens. Dense, quiet, work-focused. */
 
 @layer base {
   :root {

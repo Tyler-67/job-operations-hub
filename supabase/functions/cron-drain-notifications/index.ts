@@ -1,5 +1,6 @@
 // Every 15 minutes: send any due rows in scheduled_notifications.
-// Phase 1: marks them sent without actually dispatching.
+// Current behavior: marks rows sent without dispatching.
+// Production hardening: dispatch through the Uptiq wrapper before marking sent.
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 
 Deno.serve(async (req) => {
@@ -15,7 +16,7 @@ Deno.serve(async (req) => {
 
   let sent = 0;
   for (const row of due ?? []) {
-    // Phase 2: dispatch via uptiq wrapper based on row.channel
+    // Pending production behavior: dispatch via Uptiq wrapper based on row.channel.
     await sb.from("scheduled_notifications").update({
       status: "sent", sent_at: now, attempts: 1,
     }).eq("id", row.id);

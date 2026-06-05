@@ -1,7 +1,7 @@
 // POST /iframe-session
 // Body: { location_id, user_email, user_name?, phone? }
-// Phase 1: trust params + verify location matches the deployed tenant.
-// Phase 2: also verify user_email is an active Uptiq user via users-by-location.
+// Current behavior: verify location matches the deployed tenant.
+// Production hardening: verify user_email is an active Uptiq user via users-by-location.
 import { corsHeaders, json, preflight, serviceClient, signSession, logEvent } from "../_shared/util.ts";
 
 Deno.serve(async (req) => {

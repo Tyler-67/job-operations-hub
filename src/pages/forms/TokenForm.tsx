@@ -57,7 +57,7 @@ export default function TokenForm({ tokenAction, title, children }: Props) {
           This link is invalid or has expired. Request a new one.
         </div>
       )}
-      {status === "ok" && (children && payload ? children(payload) : <div className="text-sm">Form coming in Phase 2.</div>)}
+      {status === "ok" && (children && payload ? children(payload) : <div className="text-sm">Form handler pending.</div>)}
     </div>
   );
 }

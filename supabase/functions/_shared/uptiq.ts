@@ -1,5 +1,5 @@
 // Server-side only Uptiq API wrapper.
-// Phase 1: every method is a stub. Real calls land in Phase 2.
+// Current production gap: without UPTIQ_API_TOKEN, methods return typed stubs.
 // Different Uptiq endpoints require different API versions; isolate per method.
 
 const UPTIQ_BASE = "https://services.leadconnectorhq.com";
@@ -14,7 +14,7 @@ async function callUptiq(
 ): Promise<{ ok: boolean; status: number; data: unknown; error?: string }> {
   const t = token();
   if (!t) {
-    // Phase 1: no token configured. Return a typed stub.
+    // Development/preview mode: no token configured, so return a typed stub.
     return { ok: true, status: 200, data: { stub: true, path, version: init.version } };
   }
   try {

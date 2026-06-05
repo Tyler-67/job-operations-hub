@@ -88,7 +88,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
 
         if (!token) {
-          // Phase 1 dev fallback: silently bootstrap demo session so /dashboard is usable outside iframe.
+          // Development fallback: bootstrap demo access so the app can be reviewed outside the Uptiq iframe.
           token = await issueDemoSession();
         }
 

@@ -1,4 +1,5 @@
-// Enqueues daily check-in messages per company config. Phase 1 stub.
+// Enqueues daily check-in messages per company config.
+// Current behavior: heartbeat stub until production check-in dispatch is wired.
 import { json, preflight, requireCronSecret, logEvent } from "../_shared/util.ts";
 
 Deno.serve(async (req) => {
