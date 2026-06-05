@@ -11,6 +11,7 @@ import JobsList from "@/pages/jobs/JobsList";
 import SearchPage from "@/pages/Search";
 import AdminExpenses from "@/pages/admin/Expenses";
 import AdminJobStates from "@/pages/admin/JobStates";
+import AdminSettings from "@/pages/admin/Settings";
 import AdminUsers from "@/pages/admin/Users";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
@@ -44,7 +45,7 @@ const App = () => (
               <Route path="/search" element={<SearchPage />} />
               <Route path="/reports/completion" element={<PlaceholderPage title="Completion Reports" />} />
               <Route path="/reports/weekly-preview" element={<PlaceholderPage title="Weekly Report Preview" />} />
-              <Route path="/admin/settings" element={<PlaceholderPage title="Company Settings" note="Company variables (check-in time, owner/office/supply contacts, brand, defaults) land in Phase 2." />} />
+              <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<PlaceholderPage title="Supply Houses" />} />
               <Route path="/admin/expenses" element={<AdminExpenses />} />
