@@ -113,11 +113,13 @@ export type Database = {
           email: string
           id: string
           last_seen_at: string | null
+          last_verified_at: string | null
           location_id: string
           name: string | null
           phone: string | null
           role: Database["public"]["Enums"]["app_role"]
           updated_at: string
+          uptiq_user_id: string | null
         }
         Insert: {
           active?: boolean
@@ -125,11 +127,13 @@ export type Database = {
           email: string
           id?: string
           last_seen_at?: string | null
+          last_verified_at?: string | null
           location_id: string
           name?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
+          uptiq_user_id?: string | null
         }
         Update: {
           active?: boolean
@@ -137,11 +141,13 @@ export type Database = {
           email?: string
           id?: string
           last_seen_at?: string | null
+          last_verified_at?: string | null
           location_id?: string
           name?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
+          uptiq_user_id?: string | null
         }
         Relationships: [
           {
