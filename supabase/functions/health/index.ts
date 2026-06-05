@@ -10,6 +10,6 @@ Deno.serve(async (req) => {
     db: error ? "error" : "ok",
     locations: count ?? 0,
     time: new Date().toISOString(),
-    version: "phase-1",
+    version: "v2",
   }, error ? 500 : 200);
 });

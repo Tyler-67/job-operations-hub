@@ -103,7 +103,7 @@ export default function AppShell() {
           )}
           <div className="mt-auto flex items-center gap-1 p-2 text-2xs text-sidebar-foreground/40">
             <Wifi className="h-3 w-3" />
-            phase-1 scaffold
+            v2 operations app
           </div>
         </nav>
       </aside>
