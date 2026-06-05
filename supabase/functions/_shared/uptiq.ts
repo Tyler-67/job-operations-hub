@@ -1,5 +1,5 @@
 // Server-side only Uptiq API wrapper.
-// Current production gap: without UPTIQ_API_TOKEN, methods return typed stubs.
+// Missing UPTIQ_API_TOKEN fails closed unless demo stubs are explicitly enabled.
 // Different Uptiq endpoints require different API versions; isolate per method.
 
 const UPTIQ_BASE = "https://services.leadconnectorhq.com";
@@ -8,14 +8,21 @@ function token() {
   return Deno.env.get("UPTIQ_API_TOKEN");
 }
 
+function stubsEnabled() {
+  return Deno.env.get("UPTIQ_ALLOW_STUBS")?.toLowerCase() === "true";
+}
+
 async function callUptiq(
   path: string,
   init: RequestInit & { version: string },
 ): Promise<{ ok: boolean; status: number; data: unknown; error?: string }> {
   const t = token();
   if (!t) {
-    // Development/preview mode: no token configured, so return a typed stub.
-    return { ok: true, status: 200, data: { stub: true, path, version: init.version } };
+    if (stubsEnabled()) {
+      // Development/preview mode: no token configured, so return a typed stub.
+      return { ok: true, status: 200, data: { stub: true, path, version: init.version } };
+    }
+    return { ok: false, status: 503, data: null, error: "missing_uptiq_api_token" };
   }
   try {
     const res = await fetch(`${UPTIQ_BASE}${path}`, {

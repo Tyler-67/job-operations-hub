@@ -39,7 +39,7 @@ These are intentionally still open and must be finished before customer producti
 
 - Verify iframe users against Uptiq server-side before issuing app sessions
 - Lock down broad read policies and route sensitive reads through authenticated Edge Functions
-- Replace remaining cron, inbound SMS, weekly report, and Uptiq wrapper stubs
+- Replace remaining cron, inbound SMS, and weekly report stubs
 - Split action-token validation from token consumption for form pages
 - Implement photo upload and storage policies
 - Finish app-owned form submission handlers end to end

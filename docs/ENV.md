@@ -9,6 +9,7 @@ Required for production. All secrets live in Lovable/Supabase project settings o
 | `SUPABASE_URL` | every function | Supabase project URL. |
 | `SUPABASE_SERVICE_ROLE_KEY` | every function | Server-side only. Never expose to the frontend. |
 | `UPTIQ_API_TOKEN` | `_shared/uptiq.ts` | Uptiq private integration token. Required production scopes include users read, contacts, conversations, calendars, and tag actions used by the app. |
+| `UPTIQ_ALLOW_STUBS` | `_shared/uptiq.ts` | Optional local/demo-only flag. Set to `true` only when a preview should return typed Uptiq stubs without a token. Do not set in production. |
 | `ACTION_TOKEN_SECRET` | action tokens and link generation | HMAC pepper for tap-link and form-link tokens. |
 | `APP_SESSION_SECRET` | `iframe-session`, `me`, `search`, admin functions | HMAC pepper for app session tokens. |
 | `BOOTSTRAP_ADMIN_EMAIL` | `iframe-session` | Email for the first `owner_admin` during setup. |

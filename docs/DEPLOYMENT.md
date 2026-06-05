@@ -41,7 +41,7 @@ Do not treat a company instance as production-ready until these are complete:
 - `iframe-session` verifies the iframe user against Uptiq server-side.
 - App RBAC is enforced for every admin and manager action.
 - Broad anon read policies are removed or replaced by authenticated Edge Function access.
-- The Uptiq wrapper fails closed when `UPTIQ_API_TOKEN` is missing in production.
+- `UPTIQ_API_TOKEN` is set and `UPTIQ_ALLOW_STUBS` is not enabled.
 - Cron and webhook functions perform real work and write auditable events.
 - Action-token form pages validate tokens without consuming them until submit.
 - Photo uploads use Supabase Storage with explicit bucket and retention policy.
