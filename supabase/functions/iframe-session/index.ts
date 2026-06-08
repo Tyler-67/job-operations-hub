@@ -23,12 +23,9 @@ function usersFromResponse(data: unknown): Record<string, unknown>[] {
   return Array.isArray(users) ? users.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [];
 }
 
-async function verifyUptiqUser(companyId: string, locationId: string, email: string): Promise<VerifiedUptiqUser | null> {
-  const result = await uptiq.searchUsers({ companyId, locationId, query: email, limit: 10 });
-  if (!result.ok) throw new Error(result.error || `uptiq_user_lookup_${result.status}`);
-
+function verifiedUserFromResponse(data: unknown, email: string): VerifiedUptiqUser | null {
   const lowerEmail = email.toLowerCase();
-  const user = usersFromResponse(result.data).find((candidate) => {
+  const user = usersFromResponse(data).find((candidate) => {
     const candidateEmail = stringOrNull(candidate.email)?.toLowerCase();
     return candidateEmail === lowerEmail && candidate.deleted !== true;
   });
@@ -41,6 +38,20 @@ async function verifyUptiqUser(companyId: string, locationId: string, email: str
     name: stringOrNull(user.name) ?? (fallbackName || null),
     phone: stringOrNull(user.phone),
   };
+}
+
+async function verifyUptiqUser(locationId: string, email: string, companyId?: string | null): Promise<VerifiedUptiqUser | null> {
+  const locationResult = await uptiq.getUsersByLocation({ locationId });
+  if (locationResult.ok) {
+    const user = verifiedUserFromResponse(locationResult.data, email);
+    if (user || !companyId) return user;
+  } else if (!companyId) {
+    throw new Error(locationResult.error || `uptiq_user_lookup_${locationResult.status}`);
+  }
+
+  const companyResult = await uptiq.searchUsers({ companyId: companyId!, locationId, query: email, limit: 10 });
+  if (!companyResult.ok) throw new Error(companyResult.error || `uptiq_user_lookup_${companyResult.status}`);
+  return verifiedUserFromResponse(companyResult.data, email);
 }
 
 Deno.serve(async (req) => {
@@ -66,9 +77,8 @@ Deno.serve(async (req) => {
   let verifiedUser: VerifiedUptiqUser | null = null;
 
   if (!isDemoBootstrap) {
-    if (!loc.uptiq_company_id) return json({ error: "missing_uptiq_company_id" }, 500);
     try {
-      verifiedUser = await verifyUptiqUser(loc.uptiq_company_id, String(location_id), lowerEmail);
+      verifiedUser = await verifyUptiqUser(String(location_id), lowerEmail, loc.uptiq_company_id);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "uptiq_user_verification_failed" }, 502);
     }

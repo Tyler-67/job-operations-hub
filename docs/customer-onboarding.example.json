@@ -1,0 +1,9 @@
+{
+  "companyName": "Acme Plumbing",
+  "uptiqCompanyId": "UPTIQ_COMPANY_ID",
+  "uptiqLocationId": "UPTIQ_SUBACCOUNT_ID",
+  "ownerEmail": "owner@example.com",
+  "timezone": "America/Denver",
+  "appBaseUrl": "https://acme.apps.uptiq.net",
+  "supabaseProjectRef": "optional-existing-project-ref"
+}

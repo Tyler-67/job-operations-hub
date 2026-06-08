@@ -43,6 +43,13 @@ async function callUptiq(
 }
 
 export const uptiq = {
+  async getUsersByLocation(params: { locationId: string }) {
+    const query = new URLSearchParams({ locationId: params.locationId });
+    return callUptiq(`/users/?${query.toString()}`, {
+      method: "GET",
+      version: "2023-02-21",
+    });
+  },
   async searchUsers(params: { companyId: string; locationId?: string; query?: string; limit?: number }) {
     const query = new URLSearchParams({
       companyId: params.companyId,
