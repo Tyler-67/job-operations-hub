@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Archive, RotateCcw, Save } from "lucide-react";
+import { ArrowLeft, Archive, DollarSign, RotateCcw, Save } from "lucide-react";
 import {
   canManageJobs,
   createJob,
   currency,
   fetchJob,
   fetchJobs,
+  markJobPaid,
   shortDate,
   updateJob,
   type JobDetailResponse,
@@ -25,6 +26,7 @@ interface FormState {
   job_completion_pct: string;
   total_hours: string;
   original_estimate: string;
+  invoice_number: string;
   start_date: string;
   inspection_date: string;
   scope_of_work: string;
@@ -43,6 +45,7 @@ const emptyForm: FormState = {
   job_completion_pct: "0",
   total_hours: "0",
   original_estimate: "",
+  invoice_number: "",
   start_date: "",
   inspection_date: "",
   scope_of_work: "",
@@ -98,6 +101,13 @@ function textAreaClass(disabled: boolean) {
   ].join(" ");
 }
 
+function paymentSourceLabel(source: string | null | undefined) {
+  if (source === "quickbooks") return "QuickBooks";
+  if (source === "uptiq_invoice") return "Uptiq invoice";
+  if (source === "manual") return "Manual";
+  return "-";
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const isNew = id === "new";
@@ -144,6 +154,7 @@ export default function JobDetail() {
             job_completion_pct: String(job.job_completion_pct),
             total_hours: String(job.total_hours),
             original_estimate: numberInput(job.original_estimate),
+            invoice_number: job.invoice_number ?? "",
             start_date: dateInput(job.start_date),
             inspection_date: dateInput(job.inspection_date),
             scope_of_work: job.scope_of_work ?? "",
@@ -181,6 +192,7 @@ export default function JobDetail() {
         job_completion_pct: percent(form.job_completion_pct),
         total_hours: nonNegative(form.total_hours),
         original_estimate: form.original_estimate ? nonNegative(form.original_estimate) : null,
+        invoice_number: form.invoice_number || null,
         start_date: form.start_date || null,
         inspection_date: form.inspection_date || null,
         scope_of_work: form.scope_of_work || null,
@@ -201,6 +213,7 @@ export default function JobDetail() {
         job_completion_pct: String(saved.job.job_completion_pct),
         total_hours: String(saved.job.total_hours),
         original_estimate: numberInput(saved.job.original_estimate),
+        invoice_number: saved.job.invoice_number ?? "",
       } }));
       setNotice("Job saved.");
       if (isNew) navigate(`/jobs/${saved.job.id}`);
@@ -228,10 +241,43 @@ export default function JobDetail() {
     }
   }
 
+  async function handleMarkPaid() {
+    if (!canManage || isNew || !id) return;
+    const invoiceNumber = window.prompt("Invoice number (optional)", form.invoice_number);
+    if (invoiceNumber === null) return;
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const saved = await markJobPaid(id, {
+        invoice_number: invoiceNumber.trim() || null,
+        payment_notes: "Marked paid manually from job detail.",
+      });
+      setDetail(saved);
+      setStates(saved.states);
+      setForm((current) => ({
+        ...current,
+        current_state_id: saved.job.current_state_id ?? "",
+        state_progress_pct: String(saved.job.state_progress_pct),
+        job_completion_pct: String(saved.job.job_completion_pct),
+        invoice_number: saved.job.invoice_number ?? current.invoice_number,
+        active: saved.job.active,
+      }));
+      setNotice("Job marked paid.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not mark job paid");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div className="p-6 text-xs text-muted-foreground">Loading job...</div>;
 
   const readOnly = !canManage;
   const job = detail?.job;
+  const isPaid = currentState?.slug === "paid" || Boolean(job?.paid_at);
+  const canMarkPaid = !readOnly && !isNew && job && !isPaid && currentState?.slug === "complete";
 
   return (
     <form onSubmit={save} className="flex h-full flex-col">
@@ -255,6 +301,12 @@ export default function JobDetail() {
           <button type="button" onClick={() => setArchived(true)} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
             <Archive className="h-3.5 w-3.5" />
             Archive
+          </button>
+        )}
+        {canMarkPaid && (
+          <button type="button" onClick={handleMarkPaid} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-sm border border-success/40 px-3 text-xs text-success hover:bg-success/10">
+            <DollarSign className="h-3.5 w-3.5" />
+            Mark Paid
           </button>
         )}
         {!readOnly && !isNew && !form.active && (
@@ -331,6 +383,10 @@ export default function JobDetail() {
               <input disabled={readOnly} type="number" min="0" step="1" value={form.original_estimate} onChange={(event) => update("original_estimate", event.target.value)} className={inputClass(readOnly)} />
             </Field>
 
+            <Field label="Invoice number">
+              <input disabled={readOnly} value={form.invoice_number} onChange={(event) => update("invoice_number", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+
             <div className="col-span-2">
               <Field label="Scope of work">
                 <textarea disabled={readOnly} value={form.scope_of_work} onChange={(event) => update("scope_of_work", event.target.value)} className={textAreaClass(readOnly)} />
@@ -345,6 +401,29 @@ export default function JobDetail() {
         </div>
 
         <aside className="overflow-auto border-l border-border bg-card">
+          {job?.paid_at && (
+            <div className="border-b border-border p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment</h2>
+              <div className="mt-3 space-y-2 text-xs">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Paid date</span>
+                  <span className="font-medium">{shortDate(job.paid_at)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Source</span>
+                  <span className="font-medium">{paymentSourceLabel(job.paid_source)}</span>
+                </div>
+                {job.invoice_number && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Invoice</span>
+                    <span className="font-medium">{job.invoice_number}</span>
+                  </div>
+                )}
+                {job.payment_notes && <div className="text-muted-foreground">{job.payment_notes}</div>}
+              </div>
+            </div>
+          )}
+
           <div className="border-b border-border p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Job totals</h2>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">

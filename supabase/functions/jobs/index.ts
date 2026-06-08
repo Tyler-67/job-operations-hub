@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { markJobPaid } from "../_shared/job-payments.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
@@ -21,6 +22,12 @@ function nullableNumber(value: unknown) {
 
 function canWrite(role: unknown) {
   return ADMIN_ROLES.has(String(role ?? ""));
+}
+
+function errorStatus(message: string) {
+  if (message === "not_found") return 404;
+  if (["id_required", "invalid_state", "invalid_paid_source", "missing_paid_state"].includes(message)) return 400;
+  return 500;
 }
 
 async function defaultStateSet(sb: any, locationId: string) {
@@ -250,6 +257,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   if ("job_completion_pct" in body) patch.job_completion_pct = Math.max(0, Math.min(100, numberValue(body.job_completion_pct)));
   if ("total_hours" in body) patch.total_hours = Math.max(0, numberValue(body.total_hours));
   if ("original_estimate" in body) patch.original_estimate = nullableNumber(body.original_estimate);
+  if ("invoice_number" in body) patch.invoice_number = cleanText(body.invoice_number);
   if ("start_date" in body) patch.start_date = cleanText(body.start_date);
   if ("inspection_date" in body) patch.inspection_date = cleanText(body.inspection_date);
   if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
@@ -334,6 +342,7 @@ Deno.serve(async (req) => {
           job_completion_pct: Math.max(0, Math.min(100, numberValue(body.job_completion_pct))),
           total_hours: Math.max(0, numberValue(body.total_hours)),
           original_estimate: nullableNumber(body.original_estimate),
+          invoice_number: cleanText(body.invoice_number),
           start_date: cleanText(body.start_date),
           inspection_date: cleanText(body.inspection_date),
           scope_of_work: cleanText(body.scope_of_work),
@@ -350,6 +359,21 @@ Deno.serve(async (req) => {
 
     if (req.method === "PATCH") {
       const body = await req.json();
+      if (cleanText(body.action) === "mark_paid") {
+        const updatedJob = await markJobPaid(sb, {
+          locationId,
+          jobId: cleanText(body.id),
+          paidSource: body.paid_source ?? "manual",
+          actorAppUserId: cleanText(claims.sub),
+          invoiceId: body.invoice_id,
+          invoiceNumber: body.invoice_number,
+          paymentEventId: body.payment_event_id,
+          paymentNotes: body.payment_notes,
+          eventSource: "admin",
+        });
+        return json(await getJobDetail(sb, locationId, updatedJob.id));
+      }
+
       const updated = await updateExistingJob(sb, locationId, body);
       if (updated?.error) return json({ error: updated.error }, updated.status);
       return json(updated);
@@ -358,6 +382,6 @@ Deno.serve(async (req) => {
     return json({ error: "method_not_allowed" }, 405);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return json({ error: message }, message === "invalid_state" ? 400 : 500);
+    return json({ error: message }, errorStatus(message));
   }
 });

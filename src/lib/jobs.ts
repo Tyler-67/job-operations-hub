@@ -32,6 +32,13 @@ export interface JobSummary {
   notes: string | null;
   inspection_date: string | null;
   latest_po: string | null;
+  paid_at: string | null;
+  paid_source: string | null;
+  paid_by_app_user_id: string | null;
+  invoice_id: string | null;
+  invoice_number: string | null;
+  payment_event_id: string | null;
+  payment_notes: string | null;
   updated_at: string;
   current_state: JobState | null;
   customers: JobContact[];
@@ -63,6 +70,7 @@ export interface SaveJobPayload {
   job_completion_pct?: number;
   total_hours?: number;
   original_estimate?: number | null;
+  invoice_number?: string | null;
   start_date?: string | null;
   inspection_date?: string | null;
   scope_of_work?: string | null;
@@ -74,6 +82,12 @@ export interface SaveJobPayload {
     phone?: string | null;
   };
   crew_names?: string[];
+}
+
+export interface MarkJobPaidPayload {
+  invoice_id?: string | null;
+  invoice_number?: string | null;
+  payment_notes?: string | null;
 }
 
 export async function fetchJobs(includeArchived = false) {
@@ -90,6 +104,13 @@ export async function createJob(payload: SaveJobPayload) {
 
 export async function updateJob(id: string, payload: SaveJobPayload) {
   return callEdge("jobs", { body: { ...payload, id }, method: "POST" }) as Promise<JobDetailResponse>;
+}
+
+export async function markJobPaid(id: string, payload: MarkJobPaidPayload = {}) {
+  return callEdge("jobs", {
+    body: { action: "mark_paid", id, paid_source: "manual", ...payload },
+    method: "PATCH",
+  }) as Promise<JobDetailResponse>;
 }
 
 export function canManageJobs(role?: string | null) {

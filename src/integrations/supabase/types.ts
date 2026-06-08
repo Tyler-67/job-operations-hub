@@ -760,6 +760,13 @@ export type Database = {
           location_id: string
           notes: string | null
           original_estimate: number | null
+          paid_at: string | null
+          paid_by_app_user_id: string | null
+          paid_source: string | null
+          payment_event_id: string | null
+          payment_notes: string | null
+          invoice_id: string | null
+          invoice_number: string | null
           scope_of_work: string | null
           start_date: string | null
           state_progress_pct: number
@@ -783,6 +790,13 @@ export type Database = {
           location_id: string
           notes?: string | null
           original_estimate?: number | null
+          paid_at?: string | null
+          paid_by_app_user_id?: string | null
+          paid_source?: string | null
+          payment_event_id?: string | null
+          payment_notes?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
           scope_of_work?: string | null
           start_date?: string | null
           state_progress_pct?: number
@@ -806,6 +820,13 @@ export type Database = {
           location_id?: string
           notes?: string | null
           original_estimate?: number | null
+          paid_at?: string | null
+          paid_by_app_user_id?: string | null
+          paid_source?: string | null
+          payment_event_id?: string | null
+          payment_notes?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
           scope_of_work?: string | null
           start_date?: string | null
           state_progress_pct?: number
