@@ -157,6 +157,41 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("Caulk the tub; re-hang the closet door.");
   });
 
+  it("renders the weekly report digest email with all four sections and the preview link", () => {
+    const msg = renderNotification("weekly_report_digest", {
+      company_name: "Canyon Plumbing",
+      period_start: "2026-06-03",
+      period_end: "2026-06-09",
+      preview_url: "https://app.example.com/reports/weekly-preview",
+      totals: { active_jobs: 5, completed_jobs: 2, stalled_jobs: 1, hours_logged: 73 },
+      active_by_phase: [{ label: "Rough-in", count: 3 }, { label: "Finish", count: 2 }],
+      completed: [{ address: "1420 Canyon Rd" }],
+      stalled: [{ address: "88 Mesa Dr", days_since: 6 }],
+    });
+    expect(msg.subject).toBe("Canyon Plumbing — Weekly report (2026-06-03 – 2026-06-09)");
+    expect(msg.body).toContain("Active jobs: 5");
+    expect(msg.body).toContain("Completed: 2");
+    expect(msg.body).toContain("Stalled: 1");
+    expect(msg.body).toContain("Hours logged: 73");
+    expect(msg.body).toContain("Rough-in: 3");
+    expect(msg.body).toContain("1420 Canyon Rd");
+    expect(msg.body).toContain("88 Mesa Dr — 6d since last log");
+    expect(msg.body).toContain("https://app.example.com/reports/weekly-preview");
+  });
+
+  it("renders the weekly report digest with 'None' sections when the week was empty", () => {
+    const msg = renderNotification("weekly_report_digest", {
+      company_name: "Canyon Plumbing",
+      period_start: "2026-06-03",
+      period_end: "2026-06-09",
+      totals: { active_jobs: 0, completed_jobs: 0, stalled_jobs: 0, hours_logged: 0 },
+      active_by_phase: [],
+      completed: [],
+      stalled: [],
+    });
+    expect(msg.body).toContain("None");
+  });
+
   it("falls back to the template key + serialized payload for unknown templates", () => {
     const msg = renderNotification("mystery", { a: 1 });
     expect(msg.subject).toBe("mystery");

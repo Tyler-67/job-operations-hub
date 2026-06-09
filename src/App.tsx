@@ -21,6 +21,7 @@ import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
 import WalkthroughPunchListForm from "@/pages/forms/WalkthroughPunchListForm";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
 import CompletionReports from "@/pages/reports/CompletionReports";
+import WeeklyReport from "@/pages/reports/WeeklyReport";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -67,7 +68,7 @@ const App = () => (
               <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/reports/completion" element={<CompletionReports />} />
-              <Route path="/reports/weekly-preview" element={<PlaceholderPage title="Weekly Report Preview" />} />
+              <Route path="/reports/weekly-preview" element={<WeeklyReport />} />
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<PlaceholderPage title="Supply Houses" />} />

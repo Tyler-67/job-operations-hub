@@ -164,6 +164,63 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       };
       return { subject: null, body: copy[action] ?? `Job update${where}.` };
     }
+    // Weekly owner email digest enqueued by the weekly-report cron. Summarizes the four
+    // sections from the stored snapshot and links to the preview page for the full detail.
+    case "weekly_report_digest": {
+      const company = str(payload.company_name);
+      const periodStart = str(payload.period_start);
+      const periodEnd = str(payload.period_end);
+      const previewUrl = str(payload.preview_url);
+      const totals = (payload.totals ?? {}) as Record<string, unknown>;
+      const phases = Array.isArray(payload.active_by_phase) ? (payload.active_by_phase as any[]) : [];
+      const completed = Array.isArray(payload.completed) ? (payload.completed as any[]) : [];
+      const stalled = Array.isArray(payload.stalled) ? (payload.stalled as any[]) : [];
+
+      const range = periodStart && periodEnd ? `${periodStart} – ${periodEnd}` : (periodStart || periodEnd);
+      const subject = `${company ? `${company} — ` : ""}Weekly report${range ? ` (${range})` : ""}`;
+
+      // Each entry is a final HTML fragment (dynamic values escaped at construction), joined
+      // by <br>. Numeric totals come straight from the snapshot but are escaped for safety.
+      const lines: string[] = [];
+      lines.push(`<strong>Week totals</strong>`);
+      lines.push(
+        `Active jobs: ${escapeHtml(str(totals.active_jobs) || "0")} · ` +
+        `Completed: ${escapeHtml(str(totals.completed_jobs) || "0")} · ` +
+        `Stalled: ${escapeHtml(str(totals.stalled_jobs) || "0")} · ` +
+        `Hours logged: ${escapeHtml(str(totals.hours_logged) || "0")}`,
+      );
+
+      lines.push("");
+      lines.push(`<strong>Active jobs by phase</strong>`);
+      if (phases.length) {
+        for (const p of phases) lines.push(`${escapeHtml(str(p.label) || "(no phase)")}: ${escapeHtml(str(p.count) || "0")}`);
+      } else {
+        lines.push("None");
+      }
+
+      lines.push("");
+      lines.push(`<strong>Completed this week</strong>`);
+      if (completed.length) {
+        for (const c of completed) lines.push(escapeHtml(str(c.address) || "(no address)"));
+      } else {
+        lines.push("None");
+      }
+
+      lines.push("");
+      lines.push(`<strong>Stalled / needs attention</strong>`);
+      if (stalled.length) {
+        for (const s of stalled) {
+          const days = str(s.days_since);
+          lines.push(`${escapeHtml(str(s.address) || "(no address)")}${days ? ` — ${escapeHtml(days)}d since last log` : ""}`);
+        }
+      } else {
+        lines.push("None");
+      }
+
+      let html = lines.join("<br>");
+      if (previewUrl) html += `<br><br>Full report: <a href="${escapeHtml(previewUrl)}">${escapeHtml(previewUrl)}</a>`;
+      return { subject, body: html };
+    }
     default:
       return { subject: templateKey, body: escapeHtml(JSON.stringify(payload)) };
   }
