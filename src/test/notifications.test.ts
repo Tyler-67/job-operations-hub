@@ -69,6 +69,28 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("https://app.example.com/forms/check-in?token=abc");
   });
 
+  it("renders the inspection-date link as a subject-less SMS with the address and link", () => {
+    const msg = renderNotification("inspection_date_link", {
+      address: "1420 Canyon Rd",
+      link: "https://app.example.com/forms/inspection-date?token=abc",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Pick the inspection date at 1420 Canyon Rd");
+    expect(msg.body).toContain("https://app.example.com/forms/inspection-date?token=abc");
+  });
+
+  it("renders the inspection result ask with both PASS and FAIL links", () => {
+    const msg = renderNotification("inspection_result_ask", {
+      address: "1420 Canyon Rd",
+      pass_link: "https://app.example.com/action/decision?token=pass",
+      fail_link: "https://app.example.com/action/decision?token=fail",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Inspection result at 1420 Canyon Rd?");
+    expect(msg.body).toContain("PASS https://app.example.com/action/decision?token=pass");
+    expect(msg.body).toContain("FAIL https://app.example.com/action/decision?token=fail");
+  });
+
   it("falls back to the template key + serialized payload for unknown templates", () => {
     const msg = renderNotification("mystery", { a: 1 });
     expect(msg.subject).toBe("mystery");

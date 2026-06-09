@@ -81,6 +81,25 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       );
       return { subject, body };
     }
+    // The inspection-reminder cron enqueues this as an SMS to the owner when a job has
+    // reached an inspection phase but has no date yet. The link is a single-use
+    // inspection_date token that opens the branded date picker. Re-sent daily until set.
+    case "inspection_date_link": {
+      const link = str(payload.link);
+      const where = address ? ` at ${address}` : "";
+      return { subject: null, body: `Pick the inspection date${where}: ${link}`.trim() };
+    }
+    // Day-of-inspection SMS to the owner: two single-use decision links (PASS / FAIL),
+    // each a token the action-decision spine consumes to advance or revert the job.
+    case "inspection_result_ask": {
+      const where = address ? ` at ${address}` : "";
+      const pass = str(payload.pass_link);
+      const fail = str(payload.fail_link);
+      return {
+        subject: null,
+        body: `Inspection result${where}? Tap PASS ${pass} or FAIL ${fail}`.trim(),
+      };
+    }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
     // advances a job. Copy is keyed off the decision's action so one template serves
     // every owner/crew decision outcome.
