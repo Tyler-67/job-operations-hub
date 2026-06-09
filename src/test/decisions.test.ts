@@ -34,6 +34,16 @@ describe("resolveDecision", () => {
     expect(d.followups[0].audience).toBe("office");
   });
 
+  it("maps walkthrough_punch_list to an acknowledge-only decision handing the owner a form link", () => {
+    const d = resolveDecision("walkthrough_punch_list")!;
+    expect(d.trigger).toBeNull();
+    expect(d.followups[0].audience).toBe("owner");
+    expect(d.followups[0].link).toEqual({
+      action: "walkthrough_punch_details",
+      path: "/forms/walkthrough-punch-list",
+    });
+  });
+
   it("returns null for an unknown action", () => {
     expect(resolveDecision("not_a_decision")).toBeNull();
   });

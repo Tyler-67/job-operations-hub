@@ -74,6 +74,20 @@ const REGISTRY: Record<string, DecisionSpec> = {
     trigger: "walkthrough_approved",
     followups: [{ audience: "office", channel: "sms", template_key: "decision_outcome" }],
   },
+  // The owner tapped PUNCH LIST during the final walkthrough: acknowledge only (the job
+  // stays in walkthrough, not yet approved) and hand the owner a link to the form where
+  // they record the items still to fix. Mirrors inspection_fail → fix-details. The crew
+  // lead is notified with the actual list once the owner submits that form.
+  walkthrough_punch_list: {
+    action: "walkthrough_punch_list",
+    trigger: null,
+    followups: [
+      {
+        audience: "owner", channel: "sms", template_key: "walkthrough_punch_list_link",
+        link: { action: "walkthrough_punch_details", path: "/forms/walkthrough-punch-list" },
+      },
+    ],
+  },
 };
 
 export function resolveDecision(action: string): DecisionSpec | null {

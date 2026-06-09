@@ -125,6 +125,38 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("NO https://app.example.com/action/decision?token=no");
   });
 
+  it("renders the walkthrough result ask with both APPROVE and PUNCH-LIST links", () => {
+    const msg = renderNotification("walkthrough_result_ask", {
+      address: "1420 Canyon Rd",
+      approve_link: "https://app.example.com/action/decision?token=appr",
+      punch_link: "https://app.example.com/action/decision?token=punch",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Final walkthrough at 1420 Canyon Rd");
+    expect(msg.body).toContain("APPROVE https://app.example.com/action/decision?token=appr");
+    expect(msg.body).toContain("PUNCH LIST https://app.example.com/action/decision?token=punch");
+  });
+
+  it("renders the walkthrough punch-list link to the owner with address and link", () => {
+    const msg = renderNotification("walkthrough_punch_list_link", {
+      address: "1420 Canyon Rd",
+      link: "https://app.example.com/forms/walkthrough-punch-list?token=abc",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Walkthrough at 1420 Canyon Rd");
+    expect(msg.body).toContain("https://app.example.com/forms/walkthrough-punch-list?token=abc");
+  });
+
+  it("renders the crew punch-list notice with the actual item list", () => {
+    const msg = renderNotification("walkthrough_punch_list_notice", {
+      address: "1420 Canyon Rd",
+      details: "Caulk the tub; re-hang the closet door.",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Walkthrough punch list at 1420 Canyon Rd:");
+    expect(msg.body).toContain("Caulk the tub; re-hang the closet door.");
+  });
+
   it("falls back to the template key + serialized payload for unknown templates", () => {
     const msg = renderNotification("mystery", { a: 1 });
     expect(msg.subject).toBe("mystery");

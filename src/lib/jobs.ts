@@ -14,6 +14,28 @@ export interface JobContact {
   role: string | null;
 }
 
+export interface CompletionReportParty {
+  name: string;
+  phone: string | null;
+  uptiq_contact_id: string | null;
+}
+
+// Snapshot written to jobs.completion_report when a job is approved into a billing state
+// (see supabase/functions/_shared/completion-report.ts). Null until the job closes.
+export interface CompletionReport {
+  generated_at: string;
+  job_id: string;
+  address: string;
+  final_state: { slug: string; label: string };
+  scope_of_work: string | null;
+  notes: string | null;
+  start_date: string | null;
+  completed_pct: number;
+  totals: { hours: number; expenses: number; original_estimate: number | null };
+  customer: CompletionReportParty | null;
+  crew_lead: CompletionReportParty | null;
+}
+
 export interface JobSummary {
   id: string;
   active: boolean;
@@ -32,6 +54,7 @@ export interface JobSummary {
   notes: string | null;
   inspection_date: string | null;
   latest_po: string | null;
+  completion_report: CompletionReport | null;
   paid_at: string | null;
   paid_source: string | null;
   paid_by_app_user_id: string | null;

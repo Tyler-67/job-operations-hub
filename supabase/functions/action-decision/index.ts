@@ -10,6 +10,8 @@ import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.t
 import { applyTransition } from "../_shared/state-machine.ts";
 import { resolveDecision } from "../_shared/decisions.ts";
 import { enqueueFollowups } from "../_shared/decision-followups.ts";
+import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
+import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -39,7 +41,7 @@ Deno.serve(async (req) => {
   if (!tok.job_id) return json({ error: "token_missing_job" }, 422);
 
   const { data: job, error: jErr } = await sb.from("jobs")
-    .select("id, location_id, address, current_state_id").eq("id", tok.job_id).maybeSingle();
+    .select("id, location_id, address, state_set_id, current_state_id").eq("id", tok.job_id).maybeSingle();
   if (jErr) return json({ error: jErr.message }, 500);
   if (!job) return json({ error: "job_not_found" }, 404);
 
@@ -65,12 +67,27 @@ Deno.serve(async (req) => {
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
   const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job, { appBaseUrl }) : 0;
 
+  // If this decision advanced the job into the final walkthrough state, hand the owner
+  // the APPROVE / PUNCH-LIST links. Gated inside on the new state offering a
+  // walkthrough_approved transition, so it only fires on a genuine walkthrough entry.
+  let walkthroughAsked = false;
+  let completionReportBuilt = false;
+  if (changed && toStateId) {
+    walkthroughAsked = await enqueueWalkthroughResultAsk(
+      sb,
+      { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: toStateId, address: job.address },
+      { appBaseUrl },
+    );
+    // Entering a billing state (walkthrough approved → complete) snapshots the closed job.
+    completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
+  }
+
   await logEvent({
     source: "action",
     kind: `decision.${tok.action}`,
     location_id: job.location_id,
-    payload: { job_id: job.id, trigger: decision.trigger, changed, to_state_id: toStateId, enqueued },
+    payload: { job_id: job.id, trigger: decision.trigger, changed, to_state_id: toStateId, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt },
   });
 
-  return json({ ok: true, action: tok.action, changed, to_state_id: toStateId, reason, enqueued });
+  return json({ ok: true, action: tok.action, changed, to_state_id: toStateId, reason, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt });
 });

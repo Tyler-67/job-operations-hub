@@ -125,6 +125,31 @@ export function renderNotification(templateKey: string, payload: NotificationPay
         body: `Crew marked the job${where} 100% complete. Ready for the final walkthrough? YES ${yes} NO ${no}`.trim(),
       };
     }
+    // Enqueued to the owner when a job enters the final walkthrough state: two single-use
+    // decision links (APPROVE advances the job to complete/invoice-ready, PUNCH LIST opens
+    // the form to record outstanding fixes and keeps the job in walkthrough).
+    case "walkthrough_result_ask": {
+      const where = address ? ` at ${address}` : "";
+      const approve = str(payload.approve_link);
+      const punch = str(payload.punch_link);
+      return {
+        subject: null,
+        body: `Final walkthrough${where}. APPROVE ${approve} or start a PUNCH LIST ${punch}`.trim(),
+      };
+    }
+    // Sent to the owner after they tap PUNCH LIST: a single-use link to the form where
+    // they list the items still to fix. Minted by the decision spine on walkthrough_punch_list.
+    case "walkthrough_punch_list_link": {
+      const link = str(payload.link);
+      const where = address ? ` at ${address}` : "";
+      return { subject: null, body: `Walkthrough${where}: list the punch items here: ${link}`.trim() };
+    }
+    // Sent to the crew lead once the owner submits the punch list: the actual item list.
+    case "walkthrough_punch_list_notice": {
+      const where = address ? ` at ${address}` : "";
+      const details = str(payload.details) || "(see owner)";
+      return { subject: null, body: `Walkthrough punch list${where}: ${details}`.trim() };
+    }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
     // advances a job. Copy is keyed off the decision's action so one template serves
     // every owner/crew decision outcome.

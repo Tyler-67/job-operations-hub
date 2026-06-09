@@ -18,7 +18,9 @@ import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import InspectionDateForm from "@/pages/forms/InspectionDateForm";
 import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
+import WalkthroughPunchListForm from "@/pages/forms/WalkthroughPunchListForm";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
+import CompletionReports from "@/pages/reports/CompletionReports";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -48,7 +50,11 @@ const App = () => (
                 {(payload) => <InspectionFixDetailsForm payload={payload} />}
               </TokenForm>
             } />
-            <Route path="/forms/walkthrough-punch-list" element={<TokenForm tokenAction="walkthrough_punch_list" title="Walkthrough Punch List" />} />
+            <Route path="/forms/walkthrough-punch-list" element={
+              <TokenForm tokenAction="walkthrough_punch_details" title="Walkthrough Punch List">
+                {(payload) => <WalkthroughPunchListForm payload={payload} />}
+              </TokenForm>
+            } />
             <Route path="/forms/quick-log" element={<TokenForm tokenAction="quick_log" title="Quick Log" />} />
             <Route path="/crew-completion" element={<TokenForm tokenAction="crew_completion" title="Crew Completion" />} />
             <Route path="/action/confirm" element={<TokenForm tokenAction="confirm" title="Confirm Action" consumeOnLoad />} />
@@ -60,7 +66,7 @@ const App = () => (
               <Route path="/jobs" element={<JobsList />} />
               <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/search" element={<SearchPage />} />
-              <Route path="/reports/completion" element={<PlaceholderPage title="Completion Reports" />} />
+              <Route path="/reports/completion" element={<CompletionReports />} />
               <Route path="/reports/weekly-preview" element={<PlaceholderPage title="Weekly Report Preview" />} />
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
