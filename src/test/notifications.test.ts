@@ -91,6 +91,27 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("FAIL https://app.example.com/action/decision?token=fail");
   });
 
+  it("renders the inspection fix-details link to the owner with address and link", () => {
+    const msg = renderNotification("inspection_fix_details_link", {
+      address: "1420 Canyon Rd",
+      link: "https://app.example.com/forms/inspection-fix-details?token=abc",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Inspection failed at 1420 Canyon Rd.");
+    expect(msg.body).toContain("Tell the crew what to fix:");
+    expect(msg.body).toContain("https://app.example.com/forms/inspection-fix-details?token=abc");
+  });
+
+  it("renders the crew fix-details notice with the actual fix list", () => {
+    const msg = renderNotification("inspection_fix_details_notice", {
+      address: "1420 Canyon Rd",
+      details: "Re-strap the vent stack; cap the unused tee.",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Inspection fixes needed at 1420 Canyon Rd:");
+    expect(msg.body).toContain("Re-strap the vent stack; cap the unused tee.");
+  });
+
   it("falls back to the template key + serialized payload for unknown templates", () => {
     const msg = renderNotification("mystery", { a: 1 });
     expect(msg.subject).toBe("mystery");

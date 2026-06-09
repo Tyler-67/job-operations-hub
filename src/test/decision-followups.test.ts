@@ -18,6 +18,7 @@ function makeSb(opts: {
   insertError?: (row: Record<string, unknown>) => { message: string } | null;
 }) {
   const inserts: Record<string, unknown>[] = [];
+  const mintedTokens: Record<string, unknown>[] = [];
   const sb = {
     from(table: string) {
       if (table === "company_settings") {
@@ -38,10 +39,20 @@ function makeSb(opts: {
           },
         };
       }
+      if (table === "action_tokens") {
+        return {
+          insert(row: Record<string, unknown>) {
+            mintedTokens.push(row);
+            return {
+              select: () => ({ single: () => Promise.resolve({ data: { id: `tok-${mintedTokens.length}` }, error: null }) }),
+            };
+          },
+        };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };
-  return { sb, inserts };
+  return { sb, inserts, mintedTokens };
 }
 
 // Minimal Supabase query-builder stub: every filter returns `this`, terminals resolve data.
@@ -98,6 +109,32 @@ describe("enqueueFollowups for inspection outcomes", () => {
     expect(count).toBe(1);
     expect(inserts.map((r) => r.recipient)).toEqual(["demo-crew-tyrell"]);
     expect(inserts[0].payload).toMatchObject({ action: "inspection_fail", audience: "crew_lead" });
+  });
+
+  it("mints a token and embeds a fix-details link for the owner on inspection_fail", async () => {
+    const { sb, inserts, mintedTokens } = makeSb({ owner: "demo-owner-cj", crewLead: "demo-crew-tyrell" });
+    const count = await enqueueFollowups(sb, resolveDecision("inspection_fail")!, JOB, {
+      appBaseUrl: "https://app.example.com",
+    });
+    expect(count).toBe(2);
+    // One token minted for the owner's fix-details link.
+    expect(mintedTokens).toHaveLength(1);
+    expect(mintedTokens[0]).toMatchObject({ action: "inspection_fix_details", job_id: "job-1" });
+    const ownerRow = inserts.find((r) => r.recipient === "demo-owner-cj")!;
+    expect(ownerRow.template_key).toBe("inspection_fix_details_link");
+    expect(String((ownerRow.payload as any).link)).toContain("https://app.example.com/forms/inspection-fix-details?token=");
+    // The crew lead still gets the plain failed-outcome notice (no link, no token).
+    const crewRow = inserts.find((r) => r.recipient === "demo-crew-tyrell")!;
+    expect(crewRow.template_key).toBe("decision_outcome");
+    expect((crewRow.payload as any).link).toBeUndefined();
+  });
+
+  it("skips a link follow-up when no appBaseUrl is provided", async () => {
+    const { sb, inserts, mintedTokens } = makeSb({ owner: "demo-owner-cj", crewLead: "demo-crew-tyrell" });
+    const count = await enqueueFollowups(sb, resolveDecision("inspection_fail")!, JOB);
+    expect(count).toBe(1); // only the crew_lead notice; owner link skipped
+    expect(mintedTokens).toHaveLength(0);
+    expect(inserts.map((r) => r.recipient)).toEqual(["demo-crew-tyrell"]);
   });
 
   it("swallows a duplicate-key insert (replayed tap) without throwing or counting it", async () => {

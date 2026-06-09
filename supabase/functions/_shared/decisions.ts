@@ -13,6 +13,10 @@ export interface FollowupSpec {
   audience: FollowupAudience;
   channel: "sms" | "email";
   template_key: string;
+  // When set, the follow-up carries a single-use action link: enqueueFollowups mints a
+  // job-bound token for `action` and embeds the URL (APP_BASE_URL + path) in the payload,
+  // so a decision can hand its recipient the next branded form without a separate cron.
+  link?: { action: string; path: string };
 }
 
 export interface DecisionSpec {
@@ -44,7 +48,12 @@ const REGISTRY: Record<string, DecisionSpec> = {
     action: "inspection_fail",
     trigger: "fail",
     followups: [
-      { audience: "owner", channel: "sms", template_key: "decision_outcome" },
+      // The owner gets a link to record what the inspector flagged; the crew lead is told
+      // it failed now and receives the actual fix list once the owner submits the form.
+      {
+        audience: "owner", channel: "sms", template_key: "inspection_fix_details_link",
+        link: { action: "inspection_fix_details", path: "/forms/inspection-fix-details" },
+      },
       { audience: "crew_lead", channel: "sms", template_key: "decision_outcome" },
     ],
   },

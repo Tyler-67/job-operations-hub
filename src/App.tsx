@@ -17,6 +17,7 @@ import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import InspectionDateForm from "@/pages/forms/InspectionDateForm";
+import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -42,7 +43,11 @@ const App = () => (
               </TokenForm>
             } />
             <Route path="/action/decision" element={<DecisionConfirm />} />
-            <Route path="/forms/inspection-fix-details" element={<TokenForm tokenAction="inspection_fix_details" title="Inspection Fix Details" />} />
+            <Route path="/forms/inspection-fix-details" element={
+              <TokenForm tokenAction="inspection_fix_details" title="Inspection Fix Details">
+                {(payload) => <InspectionFixDetailsForm payload={payload} />}
+              </TokenForm>
+            } />
             <Route path="/forms/walkthrough-punch-list" element={<TokenForm tokenAction="walkthrough_punch_list" title="Walkthrough Punch List" />} />
             <Route path="/forms/quick-log" element={<TokenForm tokenAction="quick_log" title="Quick Log" />} />
             <Route path="/crew-completion" element={<TokenForm tokenAction="crew_completion" title="Crew Completion" />} />

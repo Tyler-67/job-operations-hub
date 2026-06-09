@@ -62,7 +62,8 @@ Deno.serve(async (req) => {
   // Notify only when the job actually moved (or a no-trigger ack, or an explicit
   // opt-in). A replayed tap that changed nothing stays silent.
   const shouldEnqueue = changed || !decision.trigger || decision.followupsOnNoChange === true;
-  const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job) : 0;
+  const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+  const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job, { appBaseUrl }) : 0;
 
   await logEvent({
     source: "action",

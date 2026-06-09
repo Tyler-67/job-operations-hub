@@ -100,6 +100,19 @@ export function renderNotification(templateKey: string, payload: NotificationPay
         body: `Inspection result${where}? Tap PASS ${pass} or FAIL ${fail}`.trim(),
       };
     }
+    // Sent to the owner after a FAILED inspection: a single-use link to the form where
+    // the owner records what the inspector flagged. Minted by the decision spine on fail.
+    case "inspection_fix_details_link": {
+      const link = str(payload.link);
+      const where = address ? ` at ${address}` : "";
+      return { subject: null, body: `Inspection failed${where}. Tell the crew what to fix: ${link}`.trim() };
+    }
+    // Sent to the crew lead once the owner submits the fix details: the actual fix list.
+    case "inspection_fix_details_notice": {
+      const where = address ? ` at ${address}` : "";
+      const details = str(payload.details) || "(see owner)";
+      return { subject: null, body: `Inspection fixes needed${where}: ${details}`.trim() };
+    }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
     // advances a job. Copy is keyed off the decision's action so one template serves
     // every owner/crew decision outcome.

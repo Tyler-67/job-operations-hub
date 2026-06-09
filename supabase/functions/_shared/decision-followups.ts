@@ -6,6 +6,12 @@
 // rather than importing the Deno client, so it runs under vitest.
 
 import { followupDedupeKey, type DecisionSpec, type FollowupAudience } from "./decisions.ts";
+import { buildActionLink, mintActionToken } from "./action-tokens.ts";
+
+export interface EnqueueFollowupsOptions {
+  // Required only for link-bearing follow-ups; without it those are skipped (can't build a URL).
+  appBaseUrl?: string;
+}
 
 export interface DecisionJob {
   id: string;
@@ -40,18 +46,36 @@ export async function resolveRecipient(
 
 // Enqueues every follow-up whose audience resolves to a recipient. A duplicate
 // dedupe_key (a replayed tap) is swallowed silently; any other insert error throws.
-export async function enqueueFollowups(sb: any, decision: DecisionSpec, job: DecisionJob): Promise<number> {
+export async function enqueueFollowups(
+  sb: any,
+  decision: DecisionSpec,
+  job: DecisionJob,
+  opts: EnqueueFollowupsOptions = {},
+): Promise<number> {
   let enqueued = 0;
   for (const f of decision.followups) {
     const recipient = await resolveRecipient(sb, f.audience, job);
     if (!recipient) continue; // no contact configured for this audience — skip silently
+
+    const payload: Record<string, unknown> = {
+      address: job.address ?? null, action: decision.action, audience: f.audience,
+    };
+    if (f.link) {
+      if (!opts.appBaseUrl) continue; // can't build a link without the app base URL — skip
+      const minted = await mintActionToken(sb, {
+        action: f.link.action, jobId: job.id, contactId: null,
+        payload: { address: job.address ?? null },
+      });
+      payload.link = buildActionLink(opts.appBaseUrl, f.link.path, minted.token);
+    }
+
     const { error } = await sb.from("scheduled_notifications").insert({
       location_id: job.location_id,
       job_id: job.id,
       channel: f.channel,
       recipient,
       template_key: f.template_key,
-      payload: { address: job.address ?? null, action: decision.action, audience: f.audience },
+      payload,
       scheduled_for: new Date().toISOString(),
       dedupe_key: followupDedupeKey(decision.action, job.id, f.audience),
     });
