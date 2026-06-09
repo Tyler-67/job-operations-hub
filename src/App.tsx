@@ -19,6 +19,7 @@ import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import InspectionDateForm from "@/pages/forms/InspectionDateForm";
 import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
 import WalkthroughPunchListForm from "@/pages/forms/WalkthroughPunchListForm";
+import QuickLogForm from "@/pages/forms/QuickLogForm";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
 import CompletionReports from "@/pages/reports/CompletionReports";
 import WeeklyReport from "@/pages/reports/WeeklyReport";
@@ -56,7 +57,11 @@ const App = () => (
                 {(payload) => <WalkthroughPunchListForm payload={payload} />}
               </TokenForm>
             } />
-            <Route path="/forms/quick-log" element={<TokenForm tokenAction="quick_log" title="Quick Log" />} />
+            <Route path="/forms/quick-log" element={
+              <TokenForm tokenAction="quick_log" title="Quick Log">
+                {(payload) => <QuickLogForm payload={payload} />}
+              </TokenForm>
+            } />
             <Route path="/crew-completion" element={<TokenForm tokenAction="crew_completion" title="Crew Completion" />} />
             <Route path="/action/confirm" element={<TokenForm tokenAction="confirm" title="Confirm Action" consumeOnLoad />} />
 

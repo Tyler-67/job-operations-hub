@@ -73,6 +73,21 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const lead = company ? `${company}: ` : "";
       return { subject: null, body: `${lead}Time for today's job check-in${where}. Submit here: ${link}`.trim() };
     }
+    // Reply the inbound-sms handler enqueues when a crew member texts LOG. The link is a
+    // single-use, contact-bound quick_log token that opens the lightweight hours/progress
+    // form. Sent via the same drain path as the check-in link.
+    case "quick_log_link": {
+      const company = str(payload.company_name);
+      const link = str(payload.link);
+      const lead = company ? `${company}: ` : "";
+      return { subject: null, body: `${lead}Log today's hours and progress here: ${link}`.trim() };
+    }
+    // Reply when a texting crew member has no active job to log against.
+    case "quick_log_no_job": {
+      const company = str(payload.company_name);
+      const lead = company ? `${company}: ` : "";
+      return { subject: null, body: `${lead}We couldn't find an active job for you to log. Check with the office.`.trim() };
+    }
     case "daily_check_in_summary": {
       const logDate = str(payload.log_date);
       const subject = `Daily check-in${logDate ? ` — ${logDate}` : ""}`;
