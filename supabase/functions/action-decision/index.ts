@@ -8,60 +8,8 @@
 import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { applyTransition } from "../_shared/state-machine.ts";
-import { resolveDecision, followupDedupeKey, type DecisionSpec, type FollowupAudience } from "../_shared/decisions.ts";
-
-interface JobRow {
-  id: string;
-  location_id: string;
-  address: string | null;
-  current_state_id: string | null;
-}
-
-// Resolves an abstract audience to the Uptiq contact id the drain cron will text.
-// crew_lead/customer come off the job; owner/office are the text contact ids stored
-// directly on company_settings (already Uptiq ids, mirroring scheduled_notifications.recipient).
-// deno-lint-ignore no-explicit-any
-async function resolveRecipient(sb: any, audience: FollowupAudience, job: JobRow): Promise<string | null> {
-  if (audience === "crew_lead") {
-    const { data } = await sb.from("job_crew")
-      .select("contacts(uptiq_contact_id)").eq("job_id", job.id).eq("is_lead", true).limit(1).maybeSingle();
-    return (data?.contacts?.uptiq_contact_id ?? "").trim() || null;
-  }
-  if (audience === "customer") {
-    const { data } = await sb.from("job_customers")
-      .select("contacts(uptiq_contact_id)").eq("job_id", job.id).eq("is_primary", true).limit(1).maybeSingle();
-    return (data?.contacts?.uptiq_contact_id ?? "").trim() || null;
-  }
-  const { data: cs } = await sb.from("company_settings")
-    .select("owner_contact_id, office_contact_id").eq("location_id", job.location_id).maybeSingle();
-  const id = audience === "owner" ? cs?.owner_contact_id : cs?.office_contact_id;
-  return (id ?? "").trim() || null;
-}
-
-// deno-lint-ignore no-explicit-any
-async function enqueueFollowups(sb: any, decision: DecisionSpec, job: JobRow): Promise<number> {
-  let enqueued = 0;
-  for (const f of decision.followups) {
-    const recipient = await resolveRecipient(sb, f.audience, job);
-    if (!recipient) continue; // no contact configured for this audience — skip silently
-    const { error } = await sb.from("scheduled_notifications").insert({
-      location_id: job.location_id,
-      job_id: job.id,
-      channel: f.channel,
-      recipient,
-      template_key: f.template_key,
-      payload: { address: job.address ?? null, action: decision.action, audience: f.audience },
-      scheduled_for: new Date().toISOString(),
-      dedupe_key: followupDedupeKey(decision.action, job.id, f.audience),
-    });
-    if (error) {
-      if (String(error.message ?? error).toLowerCase().includes("duplicate")) continue;
-      throw error;
-    }
-    enqueued++;
-  }
-  return enqueued;
-}
+import { resolveDecision } from "../_shared/decisions.ts";
+import { enqueueFollowups } from "../_shared/decision-followups.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;

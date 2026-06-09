@@ -29,15 +29,24 @@ export interface DecisionSpec {
 // Every tap-link decision the system understands. Adding a decision here is what
 // lets a new owner/crew link flow through the spine without touching the handler.
 const REGISTRY: Record<string, DecisionSpec> = {
+  // Inspection outcomes notify the owner (it happened) and the crew lead (advance
+  // to the next phase on pass, redo the work on fail). On fail the job reverts to
+  // its work state, reopening the fix-details path the owner fills in separately.
   inspection_pass: {
     action: "inspection_pass",
     trigger: "pass",
-    followups: [{ audience: "crew_lead", channel: "sms", template_key: "decision_outcome" }],
+    followups: [
+      { audience: "owner", channel: "sms", template_key: "decision_outcome" },
+      { audience: "crew_lead", channel: "sms", template_key: "decision_outcome" },
+    ],
   },
   inspection_fail: {
     action: "inspection_fail",
     trigger: "fail",
-    followups: [{ audience: "crew_lead", channel: "sms", template_key: "decision_outcome" }],
+    followups: [
+      { audience: "owner", channel: "sms", template_key: "decision_outcome" },
+      { audience: "crew_lead", channel: "sms", template_key: "decision_outcome" },
+    ],
   },
   finish_walkthrough_yes: {
     action: "finish_walkthrough_yes",

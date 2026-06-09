@@ -2,17 +2,20 @@ import { describe, it, expect } from "vitest";
 import { resolveDecision, followupDedupeKey } from "../../supabase/functions/_shared/decisions";
 
 describe("resolveDecision", () => {
-  it("maps inspection_pass to the pass trigger with a crew_lead SMS followup", () => {
+  it("maps inspection_pass to the pass trigger, notifying owner then crew_lead by SMS", () => {
     const d = resolveDecision("inspection_pass");
     expect(d).not.toBeNull();
     expect(d!.trigger).toBe("pass");
     expect(d!.followups).toEqual([
+      { audience: "owner", channel: "sms", template_key: "decision_outcome" },
       { audience: "crew_lead", channel: "sms", template_key: "decision_outcome" },
     ]);
   });
 
-  it("maps inspection_fail to the fail trigger", () => {
-    expect(resolveDecision("inspection_fail")!.trigger).toBe("fail");
+  it("maps inspection_fail to the fail trigger, notifying owner and crew_lead", () => {
+    const d = resolveDecision("inspection_fail")!;
+    expect(d.trigger).toBe("fail");
+    expect(d.followups.map((f) => f.audience)).toEqual(["owner", "crew_lead"]);
   });
 
   it("maps finish_walkthrough_yes to the progress_100_owner_yes trigger", () => {
