@@ -62,6 +62,13 @@ const REGISTRY: Record<string, DecisionSpec> = {
     trigger: "progress_100_owner_yes",
     followups: [{ audience: "crew_lead", channel: "sms", template_key: "decision_outcome" }],
   },
+  // The owner says the job isn't ready yet: acknowledge only, no state change. The crew
+  // keeps working and the ask re-fires on the next 100% check-in (a new day's dedupe key).
+  finish_walkthrough_no: {
+    action: "finish_walkthrough_no",
+    trigger: null,
+    followups: [],
+  },
   walkthrough_approve: {
     action: "walkthrough_approve",
     trigger: "walkthrough_approved",

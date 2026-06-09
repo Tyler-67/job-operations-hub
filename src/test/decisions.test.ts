@@ -22,6 +22,12 @@ describe("resolveDecision", () => {
     expect(resolveDecision("finish_walkthrough_yes")!.trigger).toBe("progress_100_owner_yes");
   });
 
+  it("maps finish_walkthrough_no to an acknowledge-only decision (no trigger, no followups)", () => {
+    const d = resolveDecision("finish_walkthrough_no")!;
+    expect(d.trigger).toBeNull();
+    expect(d.followups).toEqual([]);
+  });
+
   it("maps walkthrough_approve to walkthrough_approved with an office followup", () => {
     const d = resolveDecision("walkthrough_approve")!;
     expect(d.trigger).toBe("walkthrough_approved");

@@ -13,6 +13,7 @@ const COPY: Record<string, string> = {
   inspection_pass: "Inspection marked PASSED. The job has advanced to the next phase.",
   inspection_fail: "Inspection marked FAILED. The crew has been notified to review the fixes.",
   finish_walkthrough_yes: "Marked ready for the final walkthrough.",
+  finish_walkthrough_no: "Noted — not ready yet. The crew will keep working.",
   walkthrough_approve: "Walkthrough approved. The job is ready to invoice.",
 };
 

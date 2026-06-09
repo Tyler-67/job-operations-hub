@@ -113,6 +113,18 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const details = str(payload.details) || "(see owner)";
       return { subject: null, body: `Inspection fixes needed${where}: ${details}`.trim() };
     }
+    // Enqueued to the owner when the crew reports the work 100% complete: two single-use
+    // decision links (YES advances the job to the final walkthrough, NO just acknowledges
+    // and the crew keeps working). Minted inline by the daily check-in handler.
+    case "finish_walkthrough_ask": {
+      const where = address ? ` at ${address}` : "";
+      const yes = str(payload.yes_link);
+      const no = str(payload.no_link);
+      return {
+        subject: null,
+        body: `Crew marked the job${where} 100% complete. Ready for the final walkthrough? YES ${yes} NO ${no}`.trim(),
+      };
+    }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
     // advances a job. Copy is keyed off the decision's action so one template serves
     // every owner/crew decision outcome.

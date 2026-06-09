@@ -112,6 +112,19 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("Re-strap the vent stack; cap the unused tee.");
   });
 
+  it("renders the finish-walkthrough ask with both YES and NO links", () => {
+    const msg = renderNotification("finish_walkthrough_ask", {
+      address: "1420 Canyon Rd",
+      yes_link: "https://app.example.com/action/decision?token=yes",
+      no_link: "https://app.example.com/action/decision?token=no",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("100% complete");
+    expect(msg.body).toContain("at 1420 Canyon Rd");
+    expect(msg.body).toContain("YES https://app.example.com/action/decision?token=yes");
+    expect(msg.body).toContain("NO https://app.example.com/action/decision?token=no");
+  });
+
   it("falls back to the template key + serialized payload for unknown templates", () => {
     const msg = renderNotification("mystery", { a: 1 });
     expect(msg.subject).toBe("mystery");

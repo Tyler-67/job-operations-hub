@@ -12,6 +12,7 @@ import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { applyTransition } from "../_shared/state-machine.ts";
 import { buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
+import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
 
@@ -290,6 +291,27 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 4b. Crew reporting the work 100% complete (and NOT requesting an inspection) asks
+    //     the owner whether the job is ready for the final walkthrough. The ask is gated
+    //     on the current state actually offering a progress_100_owner_yes transition, so
+    //     inspection/terminal states never fire it. One ask per job per log date.
+    let finishWalkthroughAsked = false;
+    if (!input.inspectionRequested) {
+      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+      finishWalkthroughAsked = await enqueueFinishWalkthroughAsk(
+        sb,
+        {
+          id: jobId,
+          location_id: job.location_id,
+          state_set_id: job.state_set_id,
+          current_state_id: job.current_state_id,
+          address: job.address,
+        },
+        input.stateProgressPct,
+        { appBaseUrl, logDate: input.logDate },
+      );
+    }
+
     // 5. Notify owner/office of the daily check-in, and — when the crew placed an
     //    order — fire the warehouse email + owner/office "parts ordered" notice.
     await queueOwnerOfficeNotices(sb, {
@@ -338,6 +360,7 @@ Deno.serve(async (req) => {
       purchase_order_id: purchaseOrderId,
       state_changed: transition?.changed ?? false,
       to_state_id: transition?.toStateId ?? null,
+      finish_walkthrough_asked: finishWalkthroughAsked,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
