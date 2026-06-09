@@ -1,7 +1,8 @@
 // POST /action-token-consume  { token, action, consume? }
 // Validates a token and optionally marks it used. Tap links consume immediately;
 // form pages validate on load and should consume only on successful submit.
-import { json, preflight, serviceClient, sha256Hex, logEvent } from "../_shared/util.ts";
+import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
+import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -9,8 +10,7 @@ Deno.serve(async (req) => {
   const { token, action, consume = true } = await req.json().catch(() => ({}));
   if (!token || !action) return json({ error: "missing_params" }, 400);
 
-  const secret = Deno.env.get("ACTION_TOKEN_SECRET") ?? "dev-action-secret-change-me";
-  const hash = await sha256Hex(`${token}.${secret}`);
+  const hash = await hashActionToken(token, resolveActionSecret());
   const now = new Date().toISOString();
 
   const sb = serviceClient();

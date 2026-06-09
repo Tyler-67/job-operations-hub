@@ -15,6 +15,7 @@ import AdminSettings from "@/pages/admin/Settings";
 import AdminUsers from "@/pages/admin/Users";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
+import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -28,7 +29,11 @@ const App = () => (
         <SessionProvider>
           <Routes>
             {/* Token-gated forms (no app shell, no session required) */}
-            <Route path="/forms/daily-check-in" element={<TokenForm tokenAction="daily_check_in" title="Daily Check-In" />} />
+            <Route path="/forms/daily-check-in" element={
+              <TokenForm tokenAction="daily_check_in" title="Daily Check-In">
+                {(payload) => <DailyCheckInForm payload={payload} />}
+              </TokenForm>
+            } />
             <Route path="/forms/inspection-date" element={<TokenForm tokenAction="inspection_date" title="Set Inspection Date" />} />
             <Route path="/forms/inspection-fix-details" element={<TokenForm tokenAction="inspection_fix_details" title="Inspection Fix Details" />} />
             <Route path="/forms/walkthrough-punch-list" element={<TokenForm tokenAction="walkthrough_punch_list" title="Walkthrough Punch List" />} />
