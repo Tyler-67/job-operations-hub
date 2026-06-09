@@ -1,8 +1,9 @@
 // Every 15 minutes: dispatch any due rows in scheduled_notifications through Uptiq.
-// Each sms/email row is addressed by the recipient Uptiq contact ID; the message is
-// rendered from its template_key + payload. Transient failures stay 'pending' (retried
-// next tick) until MAX_ATTEMPTS, then 'failed'. Non-contact channels (task/tag/webhook)
-// are left for their own handlers.
+// sms/email rows are addressed by the recipient Uptiq contact ID and rendered from their
+// template_key + payload; tag rows apply payload.tag to the recipient contact (which fires
+// Uptiq automations such as the review request). Transient failures stay 'pending' (retried
+// next tick) until MAX_ATTEMPTS, then 'failed'. Other channels (task/webhook) are left for
+// their own handlers.
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 import { renderNotification } from "../_shared/notifications.ts";
@@ -26,8 +27,8 @@ Deno.serve(async (req) => {
     const attempts = Number(row.attempts ?? 0) + 1;
     const recipient = typeof row.recipient === "string" ? row.recipient.trim() : "";
 
-    // Only contact-addressable channels are dispatched here.
-    if (row.channel !== "sms" && row.channel !== "email") {
+    // Channels dispatched here: sms/email (rendered messages) and tag (apply a contact tag).
+    if (row.channel !== "sms" && row.channel !== "email" && row.channel !== "tag") {
       skipped++;
       continue;
     }
@@ -41,10 +42,18 @@ Deno.serve(async (req) => {
 
     let result: { ok: boolean; error?: string };
     try {
-      const msg = renderNotification(row.template_key, (row.payload ?? {}) as Record<string, unknown>);
-      result = row.channel === "sms"
-        ? await uptiq.sendSms(recipient, msg.body)
-        : await uptiq.sendEmail(recipient, msg.subject ?? "", msg.body);
+      const payload = (row.payload ?? {}) as Record<string, unknown>;
+      if (row.channel === "tag") {
+        const tag = typeof payload.tag === "string" ? payload.tag.trim() : "";
+        result = tag
+          ? await uptiq.applyTag(recipient, tag)
+          : { ok: false, error: "missing_tag" };
+      } else {
+        const msg = renderNotification(row.template_key, payload);
+        result = row.channel === "sms"
+          ? await uptiq.sendSms(recipient, msg.body)
+          : await uptiq.sendEmail(recipient, msg.subject ?? "", msg.body);
+      }
     } catch (e) {
       result = { ok: false, error: String(e) };
     }

@@ -12,6 +12,7 @@ import { resolveDecision } from "../_shared/decisions.ts";
 import { enqueueFollowups } from "../_shared/decision-followups.ts";
 import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
 import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
+import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -72,22 +73,25 @@ Deno.serve(async (req) => {
   // walkthrough_approved transition, so it only fires on a genuine walkthrough entry.
   let walkthroughAsked = false;
   let completionReportBuilt = false;
+  let reviewRequestQueued = false;
   if (changed && toStateId) {
     walkthroughAsked = await enqueueWalkthroughResultAsk(
       sb,
       { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: toStateId, address: job.address },
       { appBaseUrl },
     );
-    // Entering a billing state (walkthrough approved → complete) snapshots the closed job.
+    // Entering a billing state (walkthrough approved → complete) snapshots the closed job
+    // and schedules the delayed customer review-request tag.
     completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
+    reviewRequestQueued = await maybeEnqueueReviewRequest(sb, job.id, toStateId);
   }
 
   await logEvent({
     source: "action",
     kind: `decision.${tok.action}`,
     location_id: job.location_id,
-    payload: { job_id: job.id, trigger: decision.trigger, changed, to_state_id: toStateId, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt },
+    payload: { job_id: job.id, trigger: decision.trigger, changed, to_state_id: toStateId, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt, review_request_queued: reviewRequestQueued },
   });
 
-  return json({ ok: true, action: tok.action, changed, to_state_id: toStateId, reason, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt });
+  return json({ ok: true, action: tok.action, changed, to_state_id: toStateId, reason, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt, review_request_queued: reviewRequestQueued });
 });
