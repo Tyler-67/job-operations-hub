@@ -1,5 +1,7 @@
 # Environment Variables
 
+> **DEPRECATED (2026-06-11): Lovable is no longer used.** Frontend env vars live in **Vercel** project settings; Edge Function secrets live in Supabase. Read "Lovable" below as "Vercel" until this doc is rewritten.
+
 Required for production. All secrets live in Lovable/Supabase project settings or Edge Function secrets. Never commit secrets.
 
 ## Edge Function Runtime

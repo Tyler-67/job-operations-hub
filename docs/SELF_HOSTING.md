@@ -2,7 +2,7 @@
 
 Use this checklist to move the app from Lovable Cloud's managed Supabase backend to a Supabase project owned by Uptiq.
 
-This is the recommended production path. Lovable Cloud is acceptable for preview, but production needs direct access to migrations, RLS, backups, logs, secrets, Edge Functions, and incident response.
+This is the production path. (As of 2026-06-11 Lovable is deprecated and no longer used even for preview; the app is hosted on Vercel.) Production needs direct access to migrations, RLS, backups, logs, secrets, Edge Functions, and incident response.
 
 ## Target Architecture
 

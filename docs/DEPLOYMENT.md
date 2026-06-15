@@ -1,5 +1,7 @@
 # Deployment
 
+> **DEPRECATED (2026-06-11): Lovable is no longer part of this project.** The app deploys to **Vercel** (auto-deploys on push to `main`); the Supabase backend is owned directly per `SELF_HOSTING.md`. The Lovable-specific steps below are retained for history pending a full rewrite — ignore them and treat every "Lovable project/deployment/hosting" reference as "Vercel deployment."
+
 ## Model
 
 - One Lovable project and one Supabase project per company.

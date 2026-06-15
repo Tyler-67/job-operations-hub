@@ -1,5 +1,7 @@
 # Uptiq - Tradesman Snapshot v2
 
+> **DEPRECATED (2026-06-11): Lovable is no longer part of this stack.** The app deploys to **Vercel** (auto-deploy on push to `main`); Supabase is owned directly. References to Lovable below are stale and pending a rewrite.
+
 Operational job hub for trades companies. This app replaces the distributed v1 workflow system with one stable codebase, one Lovable deployment, and one Supabase project per company.
 
 > Single-tenant per company: each company gets its own app deployment, Supabase project, Uptiq token, secrets, and data. Do not share production tables across companies.
