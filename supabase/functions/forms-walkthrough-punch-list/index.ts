@@ -30,7 +30,7 @@ async function consumeToken(sb: any, token: string) {
     .eq("action", PUNCH_LIST_ACTION)
     .is("used_at", null)
     .gt("expires_at", now)
-    .select("job_id, contact_id, payload")
+    .select("id, job_id, contact_id, payload")
     .maybeSingle();
   if (error) throw error;
   return data ?? null;
@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
         template_key: "walkthrough_punch_list_notice",
         payload: { address: job.address ?? null, details },
         scheduled_for: new Date().toISOString(),
-        dedupe_key: `notif:punch_list:${jobId}:${today}`,
+        dedupe_key: `notif:punch_list:${jobId}:${claim.id}`,
       });
       if (notifErr && !isDuplicateKeyError(notifErr)) throw notifErr;
       notified = true;
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
       location_id: job.location_id,
       source: "form",
       kind: "form.walkthrough_punch_list",
-      dedupe_key: `walkthrough_punch_list:${jobId}:${today}`,
+      dedupe_key: `walkthrough_punch_list:${jobId}:${claim.id}`,
       actor_contact_id: claim.contact_id ?? null,
       payload: { job_id: jobId, details, crew_notified: notified },
       status: "ok",
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     const reasked = await enqueueWalkthroughReask(
       sb,
       { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
-      { appBaseUrl, logDate: today },
+      { appBaseUrl, cycleKey: claim.id as string },
     );
 
     return json({ ok: true, job_id: jobId, crew_notified: notified, reasked });

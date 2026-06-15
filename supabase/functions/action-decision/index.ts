@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     .eq("token_hash", hash)
     .is("used_at", null)
     .gt("expires_at", now)
-    .select("action, payload, job_id, contact_id")
+    .select("id, action, payload, job_id, contact_id")
     .maybeSingle();
   if (cErr) return json({ error: cErr.message }, 500);
   if (!tok) return json({ error: "invalid_or_expired" }, 410);
@@ -66,7 +66,10 @@ Deno.serve(async (req) => {
   // opt-in). A replayed tap that changed nothing stays silent.
   const shouldEnqueue = changed || !decision.trigger || decision.followupsOnNoChange === true;
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
-  const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job, { appBaseUrl }) : 0;
+  // Pass the consumed (single-use) token id as the follow-up cycle key, so a looping
+  // decision (walkthrough_still_issues / _reschedule, re-minted each cycle) enqueues a
+  // fresh follow-up every iteration instead of colliding on a static dedupe key.
+  const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job, { appBaseUrl, cycleKey: tok.id as string }) : 0;
 
   // If this decision advanced the job into the final walkthrough state, hand the owner
   // the APPROVE / PUNCH-LIST links. Gated inside on the new state offering a

@@ -11,6 +11,10 @@ import { buildActionLink, mintActionToken } from "./action-tokens.ts";
 export interface EnqueueFollowupsOptions {
   // Required only for link-bearing follow-ups; without it those are skipped (can't build a URL).
   appBaseUrl?: string;
+  // Per-tap discriminator (the consumed token id) appended to the follow-up dedupe key.
+  // Lets a re-askable decision (walkthrough_still_issues/_reschedule) enqueue a distinct
+  // follow-up each cycle; absent for callers that want the legacy per-(action,job,audience) key.
+  cycleKey?: string;
 }
 
 export interface DecisionJob {
@@ -77,7 +81,7 @@ export async function enqueueFollowups(
       template_key: f.template_key,
       payload,
       scheduled_for: new Date().toISOString(),
-      dedupe_key: followupDedupeKey(decision.action, job.id, f.audience),
+      dedupe_key: followupDedupeKey(decision.action, job.id, f.audience) + (opts.cycleKey ? `:${opts.cycleKey}` : ""),
     });
     if (error) {
       if (String(error.message ?? error).toLowerCase().includes("duplicate")) continue;

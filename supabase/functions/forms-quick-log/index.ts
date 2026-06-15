@@ -87,6 +87,11 @@ Deno.serve(async (req) => {
     if (logErr) throw logErr;
     const dailyLogId = log.id as string;
 
+    // PAR-5: tag fresh quick-log rows as 'quick_log' WITHOUT demoting an existing daily
+    // check-in. Only set source when it is unset, so a same-day structured check-in
+    // (source='check_in') for the same job/crew is never relabeled as unlinked work.
+    await sb.from("daily_logs").update({ source: "quick_log" }).eq("id", dailyLogId).is("source", null);
+
     // 2. Roll authoritative total hours onto the job (recomputed from the sum, so replays
     //    never double-count) and apply this log's progress when provided.
     const { data: logs, error: logsErr } = await sb.from("daily_logs").select("hours_worked").eq("job_id", jobId);

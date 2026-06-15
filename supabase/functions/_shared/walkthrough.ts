@@ -96,8 +96,9 @@ export async function enqueueWalkthroughResultAsk(
 export interface WalkthroughReaskOptions {
   // Required to build the APPROVE / STILL-ISSUES / RESCHEDULE links; without it the re-ask is skipped.
   appBaseUrl?: string;
-  // The day the punch list was completed, so one re-ask is enqueued per job per cycle.
-  logDate: string;
+  // Per-submission discriminator (the consumed punch-list token id) for the re-ask dedupe key,
+  // so each completed punch list enqueues a fresh re-ask instead of colliding once per day.
+  cycleKey: string;
 }
 
 // Re-asks the owner after a punch list is completed: mints fresh APPROVE / STILL-ISSUES
@@ -137,7 +138,7 @@ export async function enqueueWalkthroughReask(
       reschedule_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, reschedule.token),
     },
     scheduled_for: new Date().toISOString(),
-    dedupe_key: `notif:walkthrough_reask:${job.id}:${opts.logDate}`,
+    dedupe_key: `notif:walkthrough_reask:${job.id}:${opts.cycleKey}`,
   });
   if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
   return true;
