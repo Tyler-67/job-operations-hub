@@ -14,7 +14,7 @@ import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
-const CHECK_IN_FORM_PATH = "/forms/check-in";
+const CHECK_IN_FORM_PATH = "/forms/daily-check-in";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
