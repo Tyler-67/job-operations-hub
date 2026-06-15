@@ -131,9 +131,22 @@ async function handleQuickLog(sb: any, parsed: ReturnType<typeof parseInboundSms
   });
 }
 
+// Shared-secret guard (SEC-2): accepts a ?secret= query param or x-cron-secret header,
+// checked against CRON_SECRET. Mirrors invoice-paid's guard. The platform verify_jwt layer
+// still requires the anon key; this is the app-level auth for the Uptiq inbound webhook.
+function webhookSecretGuard(req: Request) {
+  const expected = Deno.env.get("CRON_SECRET");
+  const urlSecret = new URL(req.url).searchParams.get("secret");
+  const got = req.headers.get("x-cron-secret") ?? urlSecret;
+  if (!expected || got !== expected) return json({ error: "unauthorized" }, 401);
+  return null;
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const guard = webhookSecretGuard(req);
+  if (guard) return guard;
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
 
   const parsed = parseInboundSms(body);
