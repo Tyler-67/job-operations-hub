@@ -72,6 +72,7 @@ export async function enqueueWalkthroughResultAsk(
   const payload = { address: job.address ?? null };
   const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload });
   const punch = await mintActionToken(sb, { action: "walkthrough_punch_list", jobId: job.id, contactId: null, payload });
+  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload });
 
   const { error } = await sb.from("scheduled_notifications").insert({
     location_id: job.location_id,
@@ -83,9 +84,60 @@ export async function enqueueWalkthroughResultAsk(
       address: job.address ?? null,
       approve_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, approve.token),
       punch_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, punch.token),
+      reschedule_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, reschedule.token),
     },
     scheduled_for: new Date().toISOString(),
     dedupe_key: `notif:walkthrough_ask:${job.id}:${job.current_state_id}`,
+  });
+  if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
+  return true;
+}
+
+export interface WalkthroughReaskOptions {
+  // Required to build the APPROVE / STILL-ISSUES / RESCHEDULE links; without it the re-ask is skipped.
+  appBaseUrl?: string;
+  // The day the punch list was completed, so one re-ask is enqueued per job per cycle.
+  logDate: string;
+}
+
+// Re-asks the owner after a punch list is completed: mints fresh APPROVE / STILL-ISSUES
+// (restart the punch-list form) / RESCHEDULE decision tokens and enqueues the
+// walkthrough_reask SMS. Same gating as the initial ask (state still offers
+// walkthrough_approved + an owner contact), so it closes the loop only while the job is
+// genuinely sitting in the walkthrough state. A duplicate dedupe_key (replayed submit) is
+// swallowed. Returns true only when a re-ask was enqueued.
+export async function enqueueWalkthroughReask(
+  sb: any,
+  job: WalkthroughJob,
+  opts: WalkthroughReaskOptions,
+): Promise<boolean> {
+  if (!opts.appBaseUrl) return false;
+
+  const hasTransition = await hasApproveTransition(sb, job.state_set_id, job.current_state_id);
+  if (!hasTransition) return false;
+
+  const owner = await ownerContactId(sb, job.location_id);
+  if (!owner) return false;
+
+  const payload = { address: job.address ?? null };
+  const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload });
+  const still = await mintActionToken(sb, { action: "walkthrough_still_issues", jobId: job.id, contactId: null, payload });
+  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload });
+
+  const { error } = await sb.from("scheduled_notifications").insert({
+    location_id: job.location_id,
+    job_id: job.id,
+    channel: "sms",
+    recipient: owner,
+    template_key: "walkthrough_reask",
+    payload: {
+      address: job.address ?? null,
+      approve_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, approve.token),
+      still_issues_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, still.token),
+      reschedule_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, reschedule.token),
+    },
+    scheduled_for: new Date().toISOString(),
+    dedupe_key: `notif:walkthrough_reask:${job.id}:${opts.logDate}`,
   });
   if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
   return true;

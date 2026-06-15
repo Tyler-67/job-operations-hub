@@ -74,12 +74,37 @@ const REGISTRY: Record<string, DecisionSpec> = {
     trigger: "walkthrough_approved",
     followups: [{ audience: "office", channel: "sms", template_key: "decision_outcome" }],
   },
+  // The owner tapped RESCHEDULE during the final walkthrough (or the post-punch-list
+  // re-ask): acknowledge only, NO state change (the job stays in walkthrough). Both the
+  // owner and office are told a reschedule was requested so the office can rebook; the
+  // owner keeps the live APPROVE/STILL-ISSUES tokens to act on later.
+  walkthrough_reschedule: {
+    action: "walkthrough_reschedule",
+    trigger: null,
+    followups: [
+      { audience: "owner", channel: "sms", template_key: "decision_outcome" },
+      { audience: "office", channel: "sms", template_key: "decision_outcome" },
+    ],
+  },
   // The owner tapped PUNCH LIST during the final walkthrough: acknowledge only (the job
   // stays in walkthrough, not yet approved) and hand the owner a link to the form where
   // they record the items still to fix. Mirrors inspection_fail → fix-details. The crew
   // lead is notified with the actual list once the owner submits that form.
   walkthrough_punch_list: {
     action: "walkthrough_punch_list",
+    trigger: null,
+    followups: [
+      {
+        audience: "owner", channel: "sms", template_key: "walkthrough_punch_list_link",
+        link: { action: "walkthrough_punch_details", path: "/forms/walkthrough-punch-list" },
+      },
+    ],
+  },
+  // STILL ISSUES on the post-punch-list re-ask: same effect as walkthrough_punch_list
+  // (acknowledge only, hand the owner the punch-list form again) but a distinct action so
+  // the re-ask's link is its own single-use token and the audit/event copy stays distinct.
+  walkthrough_still_issues: {
+    action: "walkthrough_still_issues",
     trigger: null,
     followups: [
       {

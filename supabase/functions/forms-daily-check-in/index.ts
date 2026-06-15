@@ -60,6 +60,52 @@ async function recomputeJobTotals(sb: any, jobId: string) {
   return { totalHours, fieldPurchase, po, total };
 }
 
+// v1 Test 12: when a check-in records a field-purchase expense, text BOTH owner and
+// office the purchase with its receipt + parts photo links. Recipients are Uptiq contact
+// IDs (owner_contact_id/office_contact_id) so the drain cron can deliver them; a per-recipient
+// dedupe key keeps a replayed submit from double-sending (dedupe_key is UNIQUE).
+async function queueFieldPurchaseNotice(sb: any, opts: {
+  locationId: string;
+  jobId: string;
+  dailyLogId: string;
+  address: string;
+  crewName: string | null;
+  receiptUrl: string | null;
+  partsPhotoUrl: string | null;
+}) {
+  const { data: settings, error } = await sb
+    .from("company_settings")
+    .select("owner_contact_id, office_contact_id")
+    .eq("location_id", opts.locationId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const now = new Date().toISOString();
+  const payload = {
+    job_id: opts.jobId,
+    daily_log_id: opts.dailyLogId,
+    address: opts.address,
+    crew_name: opts.crewName,
+    receipt_url: opts.receiptUrl,
+    parts_photo_url: opts.partsPhotoUrl,
+  };
+  for (const raw of [settings?.owner_contact_id, settings?.office_contact_id]) {
+    const contactId = typeof raw === "string" ? raw.trim() : "";
+    if (!contactId) continue;
+    const { error: insErr } = await sb.from("scheduled_notifications").insert({
+      location_id: opts.locationId,
+      job_id: opts.jobId,
+      channel: "sms",
+      recipient: contactId,
+      template_key: "field_purchase_notice",
+      payload,
+      scheduled_for: now,
+      dedupe_key: `notif:field_purchase:${opts.dailyLogId}:${contactId}`,
+    });
+    if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
+  }
+}
+
 async function queueOwnerOfficeNotices(sb: any, opts: {
   locationId: string;
   jobId: string;
@@ -233,6 +279,20 @@ Deno.serve(async (req) => {
         parts_photo_url: parts.expense.parts_photo_url,
       });
       if (expErr) throw expErr;
+
+      // v1 Test 12: text owner + office the field purchase with its photo URLs.
+      const { data: crew, error: crewErr } = await sb
+        .from("contacts").select("name").eq("id", crewContactId).maybeSingle();
+      if (crewErr) throw crewErr;
+      await queueFieldPurchaseNotice(sb, {
+        locationId: job.location_id,
+        jobId,
+        dailyLogId,
+        address: job.address,
+        crewName: typeof crew?.name === "string" ? crew.name.trim() : null,
+        receiptUrl: parts.expense.receipt_url,
+        partsPhotoUrl: parts.expense.parts_photo_url,
+      });
     }
 
     let purchaseOrderId: string | null = null;

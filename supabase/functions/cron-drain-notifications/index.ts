@@ -15,11 +15,16 @@ Deno.serve(async (req) => {
   const guard = requireCronSecret(req); if (guard) return guard;
 
   const sb = serviceClient();
-  const now = new Date().toISOString();
-  const { data: due, error } = await sb.from("scheduled_notifications")
-    .select("id, channel, recipient, template_key, payload, attempts")
-    .eq("status", "pending").lte("scheduled_for", now)
-    .order("scheduled_for", { ascending: true }).limit(100);
+
+  // BUG-DRAIN: recover rows stranded in 'sending' by a previous run that died mid-send,
+  // so they retry instead of sticking. Cutoff (10 min) is > worst-case drain runtime and
+  // < the 15-min cron interval. Best-effort — a reaper failure must not block the drain.
+  await sb.rpc("reap_stale_sending", { p_older_than: "10 minutes" });
+
+  // Atomically claim up to 100 due rows (status pending -> sending) in one statement.
+  // Overlapping ticks claim disjoint batches (FOR UPDATE SKIP LOCKED) instead of
+  // re-sending the same rows, so no notification is dispatched twice.
+  const { data: due, error } = await sb.rpc("claim_due_notifications", { p_limit: 100 });
   if (error) return json({ error: error.message }, 500);
 
   let sent = 0, failed = 0, skipped = 0;

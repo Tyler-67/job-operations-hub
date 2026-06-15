@@ -1,1 +1,82 @@
 project_id = "kffrgtzqwqrjfrziglby"
+
+# Per-function JWT posture (PROD-JWT). Cron functions are invoked by pg_cron/pg_net
+# with an x-cron-secret header and must NOT require a Supabase JWT -> verify_jwt = false.
+# Every other function is app/webhook/forms-facing and keeps verify_jwt = true
+# (internal x-app-session / x-cron-secret / action-token / payload checks still apply).
+# This mirrors the verified-live staging posture (only the 4 cron-* are false).
+
+[functions.cron-drain-notifications]
+verify_jwt = false
+
+[functions.cron-inspection-reminders]
+verify_jwt = false
+
+[functions.cron-send-check-ins]
+verify_jwt = false
+
+[functions.cron-weekly-report]
+verify_jwt = false
+
+[functions.action-decision]
+verify_jwt = true
+
+[functions.action-token-consume]
+verify_jwt = true
+
+[functions.expenses]
+verify_jwt = true
+
+[functions.forms-daily-check-in]
+verify_jwt = true
+
+[functions.forms-inspection-date]
+verify_jwt = true
+
+[functions.forms-inspection-fix-details]
+verify_jwt = true
+
+[functions.forms-quick-log]
+verify_jwt = true
+
+[functions.forms-walkthrough-punch-list]
+verify_jwt = true
+
+[functions.health]
+verify_jwt = true
+
+[functions.iframe-session]
+verify_jwt = true
+
+[functions.inbound-sms]
+verify_jwt = true
+
+[functions.invoice-paid]
+verify_jwt = true
+
+[functions.job-photos]
+verify_jwt = true
+
+[functions.job-states]
+verify_jwt = true
+
+[functions.jobs]
+verify_jwt = true
+
+[functions.logout]
+verify_jwt = true
+
+[functions.me]
+verify_jwt = true
+
+[functions.search]
+verify_jwt = true
+
+[functions.settings]
+verify_jwt = true
+
+[functions.users]
+verify_jwt = true
+
+[functions.weekly-reports]
+verify_jwt = true

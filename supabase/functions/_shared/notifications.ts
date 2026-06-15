@@ -64,6 +64,20 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       ].filter(Boolean);
       return { subject: null, body: bits.join(" ") };
     }
+    // v1 Test 12: owner + office "field purchase" SMS. Fires when a crew check-in records
+    // a field_purchase expense (crew paid out of pocket / on a card). Mirrors the v1 text:
+    // who bought, where, and the receipt/parts photo links so the office can value it.
+    case "field_purchase_notice": {
+      const crew = str(payload.crew_name);
+      const receipt = str(payload.receipt_url);
+      const partsPhoto = str(payload.parts_photo_url);
+      const bits = [
+        `Field purchase${address ? ` at ${address}` : ""}${crew ? ` by ${crew}` : ""}.`,
+        receipt ? `Receipt: ${receipt}` : "",
+        partsPhoto ? `Parts: ${partsPhoto}` : "",
+      ].filter(Boolean);
+      return { subject: null, body: bits.join(" ") };
+    }
     // The hourly check-in cron enqueues this as an SMS to the job's lead crew. The link
     // is a single-use, job+contact-bound daily_check_in action token built by the cron.
     case "daily_check_in_link": {
@@ -103,6 +117,17 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
       return { subject: null, body: `Pick the inspection date${where}: ${link}`.trim() };
+    }
+    // Office copy of the inspection reminder (v1 Test 5): same nudge the owner gets, but
+    // with NO action link — the office can't enter the date or the result. One template,
+    // two phases: "date" (owner still owes a date) and "result" (it's inspection day).
+    case "inspection_reminder_office_notice": {
+      const where = address ? ` at ${address}` : "";
+      const phase = str(payload.phase);
+      const body = phase === "result"
+        ? `Reminder: inspection is today${where}. Waiting on the owner for the PASS/FAIL result.`
+        : `Reminder: a job${where} is awaiting an inspection date. The owner has been asked to set one.`;
+      return { subject: null, body };
     }
     // Day-of-inspection SMS to the owner: two single-use decision links (PASS / FAIL),
     // each a token the action-decision spine consumes to advance or revert the job.
@@ -147,10 +172,33 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const where = address ? ` at ${address}` : "";
       const approve = str(payload.approve_link);
       const punch = str(payload.punch_link);
+      const reschedule = str(payload.reschedule_link);
+      const tail = reschedule ? `, or RESCHEDULE ${reschedule}` : "";
       return {
         subject: null,
-        body: `Final walkthrough${where}. APPROVE ${approve} or start a PUNCH LIST ${punch}`.trim(),
+        body: `Final walkthrough${where}. APPROVE ${approve}, start a PUNCH LIST ${punch}${tail}`.trim(),
       };
+    }
+    // Re-asked to the owner after a punch list is completed: three single-use decision
+    // links. APPROVE advances to complete/invoice-ready; STILL ISSUES reopens the punch-list
+    // form (loops); RESCHEDULE acknowledges a reschedule and keeps the job in walkthrough.
+    case "walkthrough_reask": {
+      const where = address ? ` at ${address}` : "";
+      const approve = str(payload.approve_link);
+      const still = str(payload.still_issues_link);
+      const reschedule = str(payload.reschedule_link);
+      return {
+        subject: null,
+        body: `Punch list done${where}. APPROVE ${approve}, STILL ISSUES ${still}, or RESCHEDULE ${reschedule}`.trim(),
+      };
+    }
+    // Owner+office copy when the owner taps RESCHEDULE on a walkthrough ask. No state
+    // change: the job stays in walkthrough so it can still be approved later. (Unused by
+    // the current decision wiring, which routes reschedule through decision_outcome; kept
+    // available for a dedicated reschedule notice.)
+    case "walkthrough_reschedule_notice": {
+      const where = address ? ` at ${address}` : "";
+      return { subject: null, body: `Walkthrough reschedule requested${where}. Please rebook the walkthrough.`.trim() };
     }
     // Sent to the owner after they tap PUNCH LIST: a single-use link to the form where
     // they list the items still to fix. Minted by the decision spine on walkthrough_punch_list.
@@ -176,6 +224,8 @@ export function renderNotification(templateKey: string, payload: NotificationPay
         inspection_fail: `Inspection failed${where}. Please review the required fixes.`,
         finish_walkthrough_yes: `Marked ready for walkthrough${where}. The final walkthrough will be scheduled.`,
         walkthrough_approve: `Walkthrough approved${where}. Ready to prepare the invoice.`,
+        walkthrough_reschedule: `Walkthrough reschedule requested${where}. Please rebook the walkthrough.`,
+        walkthrough_still_issues: `Walkthrough still has issues${where}. A new punch list is being recorded.`,
       };
       return { subject: null, body: copy[action] ?? `Job update${where}.` };
     }

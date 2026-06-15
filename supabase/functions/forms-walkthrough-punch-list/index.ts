@@ -11,6 +11,7 @@
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { appendPunchListNote, normalizePunchListInput } from "../_shared/punch-list.ts";
+import { enqueueWalkthroughReask } from "../_shared/walkthrough.ts";
 
 const PUNCH_LIST_ACTION = "walkthrough_punch_details";
 
@@ -69,7 +70,7 @@ Deno.serve(async (req) => {
 
     const { data: job, error: jobErr } = await sb
       .from("jobs")
-      .select("id, location_id, address, notes")
+      .select("id, location_id, address, notes, state_set_id, current_state_id")
       .eq("id", jobId)
       .maybeSingle();
     if (jobErr) throw jobErr;
@@ -114,7 +115,17 @@ Deno.serve(async (req) => {
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
 
-    return json({ ok: true, job_id: jobId, crew_notified: notified });
+    // 4. Close the loop: re-ask the owner APPROVE / STILL ISSUES / RESCHEDULE now that the
+    // punch list is recorded. Gated inside on the job still offering walkthrough_approved
+    // and an owner contact; the date-scoped dedupe key allows one re-ask per cycle.
+    const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+    const reasked = await enqueueWalkthroughReask(
+      sb,
+      { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
+      { appBaseUrl, logDate: today },
+    );
+
+    return json({ ok: true, job_id: jobId, crew_notified: notified, reasked });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return json({ error: message }, 500);

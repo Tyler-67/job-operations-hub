@@ -62,7 +62,7 @@ describe("enqueueWalkthroughResultAsk", () => {
     const { sb, inserts, mintedTokens } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
     const asked = await enqueueWalkthroughResultAsk(sb, JOB, opts);
     expect(asked).toBe(true);
-    expect(mintedTokens.map((t) => t.action)).toEqual(["walkthrough_approve", "walkthrough_punch_list"]);
+    expect(mintedTokens.map((t) => t.action)).toEqual(["walkthrough_approve", "walkthrough_punch_list", "walkthrough_reschedule"]);
     expect(inserts).toHaveLength(1);
     const row = inserts[0];
     expect(row.recipient).toBe("demo-owner-cj");
@@ -70,6 +70,7 @@ describe("enqueueWalkthroughResultAsk", () => {
     expect(row.dedupe_key).toBe("notif:walkthrough_ask:job-1:state-walk");
     expect(String((row.payload as any).approve_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).punch_link)).toContain("https://app.example.com/action/decision?token=");
+    expect(String((row.payload as any).reschedule_link)).toContain("https://app.example.com/action/decision?token=");
   });
 
   it("no-ops without an appBaseUrl (no link to build)", async () => {

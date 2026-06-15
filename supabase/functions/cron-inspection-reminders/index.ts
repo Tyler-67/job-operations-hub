@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
 
   const { data: companies, error: cErr } = await sb
     .from("company_settings")
-    .select("location_id, owner_contact_id, inspection_reminder_time, locations(timezone)");
+    .select("location_id, owner_contact_id, office_contact_id, inspection_reminder_time, locations(timezone)");
   if (cErr) return json({ error: cErr.message }, 500);
 
   // Inspection-phase state ids, flagged in the configurable state set.
@@ -60,6 +60,8 @@ Deno.serve(async (req) => {
 
     const ownerContactId = (company.owner_contact_id as string | null)?.trim() || "";
     if (!ownerContactId) { skipped++; continue; } // no owner contact configured — nobody to nudge
+    // Optional office copy (v1 Test 5): same reminder, no action link — the office can't enter the date.
+    const officeContactId = (company.office_contact_id as string | null)?.trim() || "";
 
     const { data: jobs } = await sb
       .from("jobs")
@@ -88,6 +90,16 @@ Deno.serve(async (req) => {
         });
         if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
         dateNudges++;
+        if (officeContactId) {
+          const { error: oErr } = await sb.from("scheduled_notifications").insert({
+            location_id: loc, job_id: job.id, channel: "sms", recipient: officeContactId,
+            template_key: "inspection_reminder_office_notice",
+            payload: { phase: "date", address: job.address ?? null },
+            scheduled_for: new Date().toISOString(),
+            dedupe_key: `notif:insp_date_office:${job.id}:${date}`,
+          });
+          if (oErr && !isDuplicate(oErr)) throw oErr;
+        }
       } else if (inspectionDate === date) {
         // Branch B: inspection day → ask the owner for the result. One ask per inspection date.
         const pass = await mintActionToken(sb, { action: "inspection_pass", jobId: job.id, contactId: null, payload: { address: job.address ?? null } });
@@ -105,6 +117,16 @@ Deno.serve(async (req) => {
         });
         if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
         resultAsks++;
+        if (officeContactId) {
+          const { error: oErr } = await sb.from("scheduled_notifications").insert({
+            location_id: loc, job_id: job.id, channel: "sms", recipient: officeContactId,
+            template_key: "inspection_reminder_office_notice",
+            payload: { phase: "result", address: job.address ?? null },
+            scheduled_for: new Date().toISOString(),
+            dedupe_key: `notif:insp_result_office:${job.id}:${inspectionDate}`,
+          });
+          if (oErr && !isDuplicate(oErr)) throw oErr;
+        }
       }
     }
   }
