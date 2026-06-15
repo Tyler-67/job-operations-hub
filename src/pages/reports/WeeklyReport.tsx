@@ -93,6 +93,34 @@ function ReportCard({ report }: { report: WeeklyReportRow }) {
           <p className="text-sm text-muted-foreground">Nothing stalled — every active job logged recently.</p>
         )}
       </Section>
+
+      <Section title="Coverage gaps">
+        {(s.coverage_gaps ?? []).length ? (
+          s.coverage_gaps.map((g) => (
+            <div key={g.contact_id} className="flex items-center justify-between gap-2 text-sm">
+              <span>{g.name}</span>
+              <span className="text-xs text-muted-foreground">no check-ins this week</span>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">Every assigned crew logged this week.</p>
+        )}
+      </Section>
+
+      <Section title="Unlinked work this week">
+        {(s.unlinked_work ?? []).length ? (
+          s.unlinked_work.map((u) => (
+            <div key={u.daily_log_id} className="flex items-center justify-between gap-2">
+              <JobLink id={u.job_id} address={u.address} />
+              <span className="text-xs text-muted-foreground">
+                {u.crew_name ? `${u.crew_name}` : ""}{u.hours_worked != null ? ` · ${u.hours_worked}h` : ""}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">No quick-log entries this week.</p>
+        )}
+      </Section>
     </div>
   );
 }

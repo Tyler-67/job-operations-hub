@@ -99,6 +99,7 @@ describe("buildQuickLogLogFields", () => {
       state_progress_pct: 50,
       parts_source: "none",
       issues: "tied in the main",
+      source: "quick_log",
     });
   });
 });

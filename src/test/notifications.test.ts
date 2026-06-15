@@ -175,7 +175,7 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("Hours logged: 73");
     expect(msg.body).toContain("Rough-in: 3");
     expect(msg.body).toContain("1420 Canyon Rd");
-    expect(msg.body).toContain("88 Mesa Dr — 6d since last log");
+    expect(msg.body).toContain("88 Mesa Dr &mdash; 6d since last log");
     expect(msg.body).toContain("https://app.example.com/reports/weekly-preview");
   });
 

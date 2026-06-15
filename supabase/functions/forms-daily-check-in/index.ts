@@ -256,6 +256,7 @@ Deno.serve(async (req) => {
         job_id: jobId,
         crew_contact_id: crewContactId,
         state_id: job.current_state_id,
+        source: "check_in",
       }, { onConflict: "log_date,job_id,crew_contact_id" })
       .select("id")
       .single();

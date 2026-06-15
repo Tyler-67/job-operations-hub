@@ -94,4 +94,35 @@ describe("buildWeeklyReportSnapshot", () => {
     const s = snap([], 42.5);
     expect(s.totals.hours_logged).toBe(42.5);
   });
+
+  it("PAR-4: lists crew on an active job who logged nothing this week as coverage gaps", () => {
+    const s = buildWeeklyReportSnapshot({
+      ...period, now: NOW, states: STATES,
+      jobs: [{ id: "j1", address: "A", active: true, current_state_id: "s-rough", completed_date: null, last_log_date: "2026-06-09", original_estimate: null }],
+      hoursLogged: 0,
+      crewAssignments: [
+        { contact_id: "c-logged", name: "Bill", job_id: "j1", job_active: true },
+        { contact_id: "c-silent", name: "Anna", job_id: "j1", job_active: true },
+        { contact_id: "c-archived", name: "Zed", job_id: "j-old", job_active: false },
+      ],
+      loggedCrewIds: ["c-logged"],
+      quickLogs: [],
+    });
+    expect(s.coverage_gaps.map((g) => g.name)).toEqual(["Anna"]); // Bill logged; Zed only on an inactive job
+    expect(s.totals.coverage_gap_crew).toBe(1);
+  });
+
+  it("PAR-5: surfaces in-period quick-log rows as unlinked work, newest first", () => {
+    const s = buildWeeklyReportSnapshot({
+      ...period, now: NOW, states: STATES, jobs: [], hoursLogged: 0,
+      crewAssignments: [], loggedCrewIds: [],
+      quickLogs: [
+        { daily_log_id: "q1", job_id: "j1", address: "A", crew_name: "Bill", log_date: "2026-06-04", hours_worked: 3 },
+        { daily_log_id: "q2", job_id: "j2", address: "B", crew_name: "Anna", log_date: "2026-06-08", hours_worked: 5 },
+        { daily_log_id: "q3", job_id: "j3", address: "C", crew_name: "Zed", log_date: "2026-05-30", hours_worked: 2 },
+      ],
+    });
+    expect(s.unlinked_work.map((u) => u.daily_log_id)).toEqual(["q2", "q1"]);
+    expect(s.totals.unlinked_logs).toBe(2);
+  });
 });

@@ -86,13 +86,37 @@ export interface WeeklyReportSnapshot {
   }>;
   completed: Array<{ id: string; address: string | null; completed_at: string; estimate: number | null }>;
   stalled: Array<{ id: string; address: string | null; last_log_date: string | null; days_since: number | null }>;
+  // PAR-4: crew assigned to an active job who logged nothing this week.
+  coverage_gaps: Array<{ contact_id: string; name: string }>;
+  // PAR-5: work captured via the lightweight SMS quick-log (LOG) flow this week.
+  unlinked_work: Array<{ daily_log_id: string; job_id: string; address: string | null; crew_name: string | null; log_date: string; hours_worked: number | null }>;
   totals: {
     active_jobs: number;
     completed_jobs: number;
     stalled_jobs: number;
     hours_logged: number;
     completed_estimate_total: number;
+    coverage_gap_crew: number;
+    unlinked_logs: number;
   };
+}
+
+// PAR-4 input: crew rosters per job. Each entry is one crew member assigned to a job.
+export interface WeeklyReportCrewAssignmentInput {
+  contact_id: string;
+  name: string;
+  job_id: string;
+  job_active: boolean;
+}
+
+// PAR-5 input: a quick-log daily_log (source='quick_log') and its joinable display fields.
+export interface WeeklyReportQuickLogInput {
+  daily_log_id: string;
+  job_id: string;
+  address: string | null;
+  crew_name: string | null;
+  log_date: string;
+  hours_worked: number | null;
 }
 
 export function buildWeeklyReportSnapshot(input: {
@@ -103,6 +127,12 @@ export function buildWeeklyReportSnapshot(input: {
   jobs: WeeklyReportJobInput[];
   hoursLogged: number;
   stallDays?: number;
+  // PAR-4: every crew->job assignment; we derive who logged nothing this week.
+  crewAssignments?: WeeklyReportCrewAssignmentInput[];
+  // PAR-4: distinct crew_contact_id that DID log at least once in the period.
+  loggedCrewIds?: string[];
+  // PAR-5: quick-log daily_logs whose log_date falls in the period.
+  quickLogs?: WeeklyReportQuickLogInput[];
 }): WeeklyReportSnapshot {
   const { periodStart, periodEnd, states, jobs } = input;
   const stallDays = input.stallDays ?? DEFAULT_STALL_DAYS;
@@ -153,6 +183,32 @@ export function buildWeeklyReportSnapshot(input: {
 
   const completed_estimate_total = completed.reduce((sum, c) => sum + (Number(c.estimate) || 0), 0);
 
+  // PAR-4 Coverage Gaps: crew assigned to an ACTIVE job who logged nothing in the window.
+  // Reduce assignments to the distinct crew on at least one active job, then drop anyone
+  // present in loggedCrewIds.
+  const logged = new Set(input.loggedCrewIds ?? []);
+  const crewOnActive = new Map<string, string>(); // contact_id -> name
+  for (const a of input.crewAssignments ?? []) {
+    if (a.job_active) crewOnActive.set(a.contact_id, a.name);
+  }
+  const coverage_gaps = [...crewOnActive.entries()]
+    .filter(([id]) => !logged.has(id))
+    .map(([contact_id, name]) => ({ contact_id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // PAR-5 Unlinked Work: quick-log entries logged this week, newest first.
+  const unlinked_work = (input.quickLogs ?? [])
+    .filter((q) => inPeriod(q.log_date, periodStart, periodEnd))
+    .map((q) => ({
+      daily_log_id: q.daily_log_id,
+      job_id: q.job_id,
+      address: q.address,
+      crew_name: q.crew_name,
+      log_date: q.log_date,
+      hours_worked: q.hours_worked,
+    }))
+    .sort((a, b) => (a.log_date < b.log_date ? 1 : a.log_date > b.log_date ? -1 : 0));
+
   return {
     period_start: periodStart,
     period_end: periodEnd,
@@ -160,12 +216,16 @@ export function buildWeeklyReportSnapshot(input: {
     active_by_phase,
     completed,
     stalled,
+    coverage_gaps,
+    unlinked_work,
     totals: {
       active_jobs: active.length,
       completed_jobs: completed.length,
       stalled_jobs: stalled.length,
       hours_logged: input.hoursLogged,
       completed_estimate_total,
+      coverage_gap_crew: coverage_gaps.length,
+      unlinked_logs: unlinked_work.length,
     },
   };
 }
@@ -214,21 +274,61 @@ export async function generateWeeklyReport(
 
   // Latest log date per job, and the period's total logged hours, in two scoped queries.
   const jobIds = jobs.map((j: any) => j.id);
+  const jobById = new Map<string, any>(jobs.map((j: any) => [j.id as string, j]));
   const lastLogByJob = new Map<string, string>();
   let hoursLogged = 0;
+  // PAR-4: crew who logged at least once in the window. PAR-5: quick-log rows in the window.
+  const loggedCrewInPeriod = new Set<string>();
+  const quickLogRows: Array<{ id: string; job_id: string; crew_contact_id: string; log_date: string; hours_worked: number | null }> = [];
   if (jobIds.length) {
     const { data: logs, error: lErr } = await sb
       .from("daily_logs")
-      .select("job_id, log_date, hours_worked")
+      .select("id, job_id, crew_contact_id, log_date, hours_worked, source")
       .in("job_id", jobIds);
     if (lErr) throw lErr;
     for (const log of logs ?? []) {
       const d = String(log.log_date ?? "");
       const prev = lastLogByJob.get(log.job_id as string);
       if (d && (!prev || d > prev)) lastLogByJob.set(log.job_id as string, d);
-      if (d && d >= periodStart && d <= periodEnd) hoursLogged += Number(log.hours_worked) || 0;
+      if (d && d >= periodStart && d <= periodEnd) {
+        hoursLogged += Number(log.hours_worked) || 0;
+        if (log.crew_contact_id) loggedCrewInPeriod.add(log.crew_contact_id as string);
+        if (log.source === "quick_log") {
+          quickLogRows.push({
+            id: log.id as string,
+            job_id: log.job_id as string,
+            crew_contact_id: log.crew_contact_id as string,
+            log_date: d,
+            hours_worked: log.hours_worked === null || log.hours_worked === undefined ? null : Number(log.hours_worked),
+          });
+        }
+      }
     }
   }
+
+  // PAR-4: crew rosters for this location's jobs (active flag drives the gap test).
+  const { data: crewRows, error: crewErr } = await sb
+    .from("job_crew")
+    .select("job_id, contact_id, contacts(name), jobs!inner(id, location_id, active)")
+    .eq("jobs.location_id", locationId);
+  if (crewErr) throw crewErr;
+  const crewAssignments = (crewRows ?? []).map((r: any) => ({
+    contact_id: r.contact_id as string,
+    name: (r.contacts?.name as string | null) ?? "(unnamed crew)",
+    job_id: r.job_id as string,
+    job_active: !!r.jobs?.active,
+  }));
+  const crewNameById = new Map<string, string>(crewAssignments.map((a) => [a.contact_id, a.name]));
+
+  // PAR-5: hydrate quick-log rows with address + crew name for display.
+  const quickLogs = quickLogRows.map((q) => ({
+    daily_log_id: q.id,
+    job_id: q.job_id,
+    address: (jobById.get(q.job_id)?.address as string | null) ?? null,
+    crew_name: crewNameById.get(q.crew_contact_id) ?? null,
+    log_date: q.log_date,
+    hours_worked: q.hours_worked,
+  }));
 
   const snapshot = buildWeeklyReportSnapshot({
     periodStart,
@@ -249,6 +349,9 @@ export async function generateWeeklyReport(
       original_estimate: j.original_estimate === null || j.original_estimate === undefined ? null : Number(j.original_estimate),
     })),
     hoursLogged,
+    crewAssignments,
+    loggedCrewIds: [...loggedCrewInPeriod],
+    quickLogs,
   });
 
   await sb.from("weekly_reports").upsert(
@@ -275,6 +378,8 @@ export async function generateWeeklyReport(
         active_by_phase: snapshot.active_by_phase.map((p) => ({ label: p.label, count: p.count })),
         completed: snapshot.completed.map((c) => ({ address: c.address })),
         stalled: snapshot.stalled.map((s) => ({ address: s.address, days_since: s.days_since })),
+        coverage_gaps: snapshot.coverage_gaps.map((g) => ({ name: g.name })),
+        unlinked_work: snapshot.unlinked_work.map((u) => ({ address: u.address, crew_name: u.crew_name, hours_worked: u.hours_worked })),
       },
       scheduled_for: now.toISOString(),
       dedupe_key: weeklyReportEmailDedupeKey(locationId, periodStart),

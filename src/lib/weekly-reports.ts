@@ -15,12 +15,16 @@ export interface WeeklyReportSnapshot {
   }>;
   completed: Array<{ id: string; address: string | null; completed_at: string; estimate: number | null }>;
   stalled: Array<{ id: string; address: string | null; last_log_date: string | null; days_since: number | null }>;
+  coverage_gaps: Array<{ contact_id: string; name: string }>;
+  unlinked_work: Array<{ daily_log_id: string; job_id: string; address: string | null; crew_name: string | null; log_date: string; hours_worked: number | null }>;
   totals: {
     active_jobs: number;
     completed_jobs: number;
     stalled_jobs: number;
     hours_logged: number;
     completed_estimate_total: number;
+    coverage_gap_crew: number;
+    unlinked_logs: number;
   };
 }
 

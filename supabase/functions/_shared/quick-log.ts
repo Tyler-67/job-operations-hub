@@ -104,5 +104,7 @@ export function buildQuickLogLogFields(input: QuickLogInput): Record<string, unk
     state_progress_pct: input.stateProgressPct,
     parts_source: "none",
     issues: input.note,
+    // PAR-5: tag the row as quick-log so the weekly report surfaces it under "Unlinked Work".
+    source: "quick_log",
   };
 }

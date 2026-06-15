@@ -240,6 +240,8 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const phases = Array.isArray(payload.active_by_phase) ? (payload.active_by_phase as any[]) : [];
       const completed = Array.isArray(payload.completed) ? (payload.completed as any[]) : [];
       const stalled = Array.isArray(payload.stalled) ? (payload.stalled as any[]) : [];
+      const coverageGaps = Array.isArray(payload.coverage_gaps) ? (payload.coverage_gaps as any[]) : [];
+      const unlinkedWork = Array.isArray(payload.unlinked_work) ? (payload.unlinked_work as any[]) : [];
 
       const range = periodStart && periodEnd ? `${periodStart} – ${periodEnd}` : (periodStart || periodEnd);
       const subject = `${company ? `${company} — ` : ""}Weekly report${range ? ` (${range})` : ""}`;
@@ -276,7 +278,31 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       if (stalled.length) {
         for (const s of stalled) {
           const days = str(s.days_since);
-          lines.push(`${escapeHtml(str(s.address) || "(no address)")}${days ? ` — ${escapeHtml(days)}d since last log` : ""}`);
+          lines.push(`${escapeHtml(str(s.address) || "(no address)")}${days ? ` &mdash; ${escapeHtml(days)}d since last log` : ""}`);
+        }
+      } else {
+        lines.push("None");
+      }
+
+      lines.push("");
+      lines.push(`<strong>Coverage gaps</strong>`);
+      if (coverageGaps.length) {
+        for (const g of coverageGaps) lines.push(`${escapeHtml(str(g.name) || "(unnamed crew)")} &mdash; no check-ins this week`);
+      } else {
+        lines.push("None - every assigned crew logged this week");
+      }
+
+      lines.push("");
+      lines.push(`<strong>Unlinked work this week</strong>`);
+      if (unlinkedWork.length) {
+        for (const u of unlinkedWork) {
+          const crew = str(u.crew_name);
+          const hrs = str(u.hours_worked);
+          lines.push(
+            `${escapeHtml(str(u.address) || "(no address)")}` +
+            `${crew ? ` &mdash; ${escapeHtml(crew)}` : ""}` +
+            `${hrs ? ` (${escapeHtml(hrs)}h)` : ""}`,
+          );
         }
       } else {
         lines.push("None");
