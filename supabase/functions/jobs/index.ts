@@ -117,13 +117,22 @@ async function replaceJobPeople(sb: any, locationId: string, jobId: string, payl
 
   if (Array.isArray(payload.crew_names)) {
     await sb.from("job_crew").delete().eq("job_id", jobId);
+    const leadName = cleanText(payload.crew_lead_name)?.toLowerCase() ?? "";
+    const crewContacts: any[] = [];
     for (const rawName of payload.crew_names) {
       const crew = await findOrCreateContact(sb, locationId, rawName, "crew");
-      if (!crew) continue;
+      if (crew && !crewContacts.some((c) => c.id === crew.id)) crewContacts.push(crew);
+    }
+    // Exactly one lead: the named lead if it matches, else the first crew member. Never
+    // leave a job with zero leads — cron-send-check-ins only texts is_lead crew, so a
+    // leadless job is silently skipped by the daily check-in loop.
+    let leadIdx = leadName ? crewContacts.findIndex((c) => (c.name ?? "").toLowerCase() === leadName) : -1;
+    if (leadIdx < 0 && crewContacts.length) leadIdx = 0;
+    for (let i = 0; i < crewContacts.length; i++) {
       const { error } = await sb.from("job_crew").insert({
         job_id: jobId,
-        contact_id: crew.id,
-        is_lead: false,
+        contact_id: crewContacts[i].id,
+        is_lead: i === leadIdx,
       });
       if (error) throw error;
     }
@@ -137,6 +146,18 @@ function mapLinks(rows: any[] | null | undefined) {
     if (!contact) continue;
     const list = out.get(row.job_id) ?? [];
     list.push(contact);
+    out.set(row.job_id, list);
+  }
+  return out;
+}
+
+function mapCrew(rows: any[] | null | undefined) {
+  const out = new Map<string, any[]>();
+  for (const row of rows ?? []) {
+    const contact = Array.isArray(row.contact) ? row.contact[0] : row.contact;
+    if (!contact) continue;
+    const list = out.get(row.job_id) ?? [];
+    list.push({ ...contact, is_lead: row.is_lead === true });
     out.set(row.job_id, list);
   }
   return out;
@@ -169,7 +190,7 @@ async function hydrateJobs(sb: any, jobs: any[]) {
       ? sb.from("job_states").select("*").in("id", stateIds)
       : Promise.resolve({ data: [], error: null }),
     sb.from("job_customers").select("job_id, contact:contacts(id, name, email, phone, role)").in("job_id", jobIds),
-    sb.from("job_crew").select("job_id, contact:contacts(id, name, email, phone, role)").in("job_id", jobIds),
+    sb.from("job_crew").select("job_id, is_lead, contact:contacts(id, name, email, phone, role)").in("job_id", jobIds),
     sb.from("purchase_orders").select("*").in("job_id", jobIds).order("updated_at", { ascending: false }),
     sb.from("job_expenses").select("*").in("job_id", jobIds).order("created_at", { ascending: false }),
     sb.from("daily_logs").select("*").in("job_id", jobIds).order("log_date", { ascending: false }),
@@ -181,7 +202,7 @@ async function hydrateJobs(sb: any, jobs: any[]) {
 
   const stateById = Object.fromEntries((states ?? []).map((state: any) => [state.id, state]));
   const customersByJob = mapLinks(customers);
-  const crewByJob = mapLinks(crew);
+  const crewByJob = mapCrew(crew);
   const posByJob = mapRows(purchaseOrders);
   const expensesByJob = mapRows(expenses);
   const logsByJob = mapRows(logs);

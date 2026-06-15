@@ -12,6 +12,7 @@ export interface JobContact {
   email: string | null;
   phone: string | null;
   role: string | null;
+  is_lead?: boolean;
 }
 
 export interface CompletionReportParty {
@@ -105,6 +106,7 @@ export interface SaveJobPayload {
     phone?: string | null;
   };
   crew_names?: string[];
+  crew_lead_name?: string;
 }
 
 export interface MarkJobPaidPayload {

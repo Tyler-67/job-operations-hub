@@ -21,6 +21,7 @@ interface FormState {
   customer_email: string;
   customer_phone: string;
   crew_names: string;
+  crew_lead: string;
   current_state_id: string;
   state_progress_pct: string;
   job_completion_pct: string;
@@ -40,6 +41,7 @@ const emptyForm: FormState = {
   customer_email: "",
   customer_phone: "",
   crew_names: "",
+  crew_lead: "",
   current_state_id: "",
   state_progress_pct: "0",
   job_completion_pct: "0",
@@ -149,6 +151,7 @@ export default function JobDetail() {
             customer_email: job.customers[0]?.email ?? "",
             customer_phone: job.customers[0]?.phone ?? "",
             crew_names: job.crew.map((contact) => contact.name).join(", "),
+            crew_lead: job.crew.find((contact) => contact.is_lead)?.name ?? "",
             current_state_id: job.current_state_id ?? "",
             state_progress_pct: String(job.state_progress_pct),
             job_completion_pct: String(job.job_completion_pct),
@@ -173,6 +176,8 @@ export default function JobDetail() {
     () => states.find((state) => state.id === form.current_state_id) ?? null,
     [form.current_state_id, states],
   );
+
+  const crewOptions = useMemo(() => splitCrew(form.crew_names), [form.crew_names]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setNotice(null);
@@ -204,6 +209,7 @@ export default function JobDetail() {
           phone: form.customer_phone || null,
         },
         crew_names: splitCrew(form.crew_names),
+        crew_lead_name: form.crew_lead,
       };
       const saved = isNew ? await createJob(payload) : await updateJob(id as string, payload);
       setDetail(saved);
@@ -353,6 +359,12 @@ export default function JobDetail() {
             </Field>
             <Field label="Crew">
               <input disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Crew lead (gets the daily check-in text)">
+              <select disabled={readOnly} value={form.crew_lead} onChange={(event) => update("crew_lead", event.target.value)} className={inputClass(readOnly)}>
+                <option value="">Auto (first crew member)</option>
+                {crewOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
             </Field>
 
             <Field label="Customer email">
