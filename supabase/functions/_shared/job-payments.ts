@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { maybeBuildCompletionReport } from "./completion-report.ts";
+
 const PAID_SOURCES = new Set(["quickbooks", "uptiq_invoice", "manual"]);
 
 export function cleanText(value: unknown) {
@@ -88,6 +90,11 @@ export async function markJobPaid(sb: any, opts: {
     status: "ok",
   });
   if (eventErr) throw eventErr;
+
+  // A job can reach the paid (billing) state via Mark Paid or the invoice-paid webhook,
+  // bypassing the decision spine. Build the completion-report snapshot here too; the helper
+  // self-guards (billing state only) and is idempotent.
+  await maybeBuildCompletionReport(sb, opts.jobId, stateId);
 
   return updated;
 }

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
 import { markJobPaid } from "../_shared/job-payments.ts";
+import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
@@ -288,6 +289,12 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   if (Object.keys(patch).length) {
     const { error } = await sb.from("jobs").update(patch).eq("id", jobId).eq("location_id", locationId);
     if (error) throw error;
+  }
+  // A manual state change (dropdown -> complete/paid) can finish a job without going through
+  // the decision spine. maybeBuildCompletionReport self-guards (billing state only) and is
+  // idempotent, so this captures the snapshot for the UI-driven completion path too.
+  if (patch.current_state_id) {
+    await maybeBuildCompletionReport(sb, jobId, patch.current_state_id as string);
   }
   await replaceJobPeople(sb, locationId, jobId, body);
   return await getJobDetail(sb, locationId, jobId);
