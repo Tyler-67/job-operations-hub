@@ -24,3 +24,9 @@ supabase/.temp/
 *.sln
 *.sw?
 .vercel
+
+# No env files in the repo. Real env lives in ~/Projects/.secrets/<project>/;
+# .env here is a gitignored symlink. .env.example (template, no secrets) is allowed.
+.env
+.env.*
+!.env.example
