@@ -74,39 +74,52 @@ Deno.serve(async (req) => {
 
   const bootstrap = (Deno.env.get("BOOTSTRAP_ADMIN_EMAIL") ?? "").toLowerCase();
   const isDemoBootstrap = location_id === "DEMO_LOCATION" && lowerEmail === "dev-admin@uptiq.local";
-  let verifiedUser: VerifiedUptiqUser | null = null;
+  const desiredRole = (bootstrap && bootstrap === lowerEmail) || isDemoBootstrap ? "owner_admin" : null;
 
+  // app_users is the source of truth for who has access — look it up first.
+  const { data: existing } = await sb.from("app_users")
+    .select("id, role, active, uptiq_user_id, last_verified_at")
+    .eq("location_id", loc.id).eq("email", lowerEmail).maybeSingle();
+
+  // Verify against Uptiq as IDENTITY PROVISIONING + a best-effort refresh — NOT a hard per-login gate.
+  // A Uptiq outage, or a user removed/renamed in Uptiq, must not lock out an already-provisioned app user.
+  let verifiedUser: VerifiedUptiqUser | null = null;
+  let verifyErrored = false;
   if (!isDemoBootstrap) {
     try {
       verifiedUser = await verifyUptiqUser(String(location_id), lowerEmail, loc.uptiq_company_id);
-    } catch (error) {
-      return json({ error: error instanceof Error ? error.message : "uptiq_user_verification_failed" }, 502);
+    } catch (_error) {
+      verifyErrored = true; // Uptiq unreachable — fall back to the app_users record below.
     }
-    if (!verifiedUser) return json({ error: "user_not_in_uptiq_location" }, 403);
   }
 
-  // Determine role: bootstrap admin if verified and matches env, else upsert as viewer.
-  const desiredRole = (bootstrap && bootstrap === lowerEmail) || isDemoBootstrap ? "owner_admin" : null;
+  // First-time provisioning still requires a live Uptiq verification, so not just anyone with the iframe
+  // URL (+ the public anon key) can self-provision. Already-provisioned users are governed by app_users.
+  if (!existing && !isDemoBootstrap) {
+    if (verifyErrored) return json({ error: "verification_unavailable" }, 503);
+    if (!verifiedUser) return json({ error: "user_not_in_uptiq_location" }, 403);
+  }
+  // Revocation is an in-app control: deactivate the user on the Users page. Uptiq removal alone won't do it.
+  if (existing && !existing.active && !desiredRole) return json({ error: "inactive_user" }, 403);
+
   const effectiveName = stringOrNull(user_name) ?? verifiedUser?.name ?? null;
   const effectivePhone = stringOrNull(phone) ?? verifiedUser?.phone ?? null;
-  const verifiedAt = verifiedUser ? new Date().toISOString() : null;
-
-  const { data: existing } = await sb.from("app_users")
-    .select("id, role, active").eq("location_id", loc.id).eq("email", lowerEmail).maybeSingle();
+  const verifiedNow = verifiedUser ? new Date().toISOString() : null;
 
   let appUserId: string; let role: string;
   if (existing) {
-    if (!existing.active && !desiredRole) return json({ error: "inactive_user" }, 403);
     appUserId = existing.id; role = desiredRole ?? existing.role;
     await sb.from("app_users").update({
-      name: effectiveName, phone: effectivePhone,
-      uptiq_user_id: verifiedUser?.id ?? null, last_verified_at: verifiedAt,
+      // Only refresh Uptiq-sourced fields when we actually verified this login; else keep prior values.
+      name: effectiveName ?? undefined, phone: effectivePhone ?? undefined,
+      uptiq_user_id: verifiedUser?.id ?? existing.uptiq_user_id ?? null,
+      last_verified_at: verifiedNow ?? existing.last_verified_at ?? null,
       role, last_seen_at: new Date().toISOString(), active: existing.active || Boolean(desiredRole),
     }).eq("id", appUserId);
   } else {
     const { data: created, error: cErr } = await sb.from("app_users").insert({
       location_id: loc.id, email: lowerEmail, name: effectiveName, phone: effectivePhone,
-      uptiq_user_id: verifiedUser?.id ?? null, last_verified_at: verifiedAt,
+      uptiq_user_id: verifiedUser?.id ?? null, last_verified_at: verifiedNow,
       role: desiredRole ?? "viewer", last_seen_at: new Date().toISOString(),
     }).select("id, role").single();
     if (cErr) return json({ error: cErr.message }, 500);
