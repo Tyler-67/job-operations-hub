@@ -10,10 +10,30 @@ interface SessionCtx {
   user: AppUser | null;
   location: AppLocation | null;
   error: string | null;
+  needsLogin: boolean;
   signOut: () => void;
 }
 
-const Ctx = createContext<SessionCtx>({ loading: true, user: null, location: null, error: null, signOut: () => {} });
+// Demo bootstrap is DEV-ONLY. In a production build (import.meta.env.DEV === false) with the
+// flag unset, no-session visits go to the standalone /login door instead of silently
+// becoming owner_admin. The server-side iframe-session demo branch is separately gated
+// behind ALLOW_DEMO_SESSION, so this flag alone can't grant access.
+const DEMO_ALLOWED = import.meta.env.VITE_ALLOW_DEMO_SESSION === "true" || import.meta.env.DEV;
+
+// Bridge errors that mean "authenticated with Supabase but not authorized for this app" —
+// route to /login rather than surfacing a hard error or looping.
+const AUTH_REJECTIONS = new Set([
+  "not_provisioned", "inactive_user", "ambiguous_account", "email_unverified", "invalid_token",
+]);
+
+function signOut() {
+  localStorage.removeItem(STORAGE_KEY);
+  // Clear the standalone Supabase Auth session too — otherwise the next bootstrap re-bridges
+  // it (Door 3) and silently signs the user back in.
+  void supabase.auth.signOut().finally(() => window.location.assign("/login"));
+}
+
+const Ctx = createContext<SessionCtx>({ loading: true, user: null, location: null, error: null, needsLogin: false, signOut });
 const STORAGE_KEY = "uptiq.session";
 interface EdgeResponse { error?: string; session?: string; user?: AppUser; location?: AppLocation }
 
@@ -59,18 +79,51 @@ export function getSessionToken(): string | null {
   catch { return null; }
 }
 
+// Bridge a live Supabase Auth session into an app x-app-session. Returns the me() payload,
+// or null if the Supabase user is authenticated but not authorized for the app (in which
+// case the Supabase session is cleared so we don't loop).
+async function bridgeSupabaseSession(): Promise<EdgeResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+  try {
+    const out = await callEdge("auth-session", { body: { access_token: session.access_token } });
+    const token = saveSessionToken(out.session);
+    return await callEdge("me", { session: token });
+  } catch (e) {
+    if (e instanceof Error && AUTH_REJECTIONS.has(e.message)) {
+      await supabase.auth.signOut();
+      return null;
+    }
+    throw e;
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<SessionCtx>({ loading: true, user: null, location: null, error: null, signOut: () => {} });
+  const [state, setState] = useState<SessionCtx>({ loading: true, user: null, location: null, error: null, needsLogin: false, signOut });
 
   useEffect(() => {
     let active = true;
+    const finish = (patch: Partial<SessionCtx>) => { if (active) setState((s) => ({ ...s, ...patch })); };
+    const success = (me: EdgeResponse) =>
+      finish({ loading: false, user: me.user ?? null, location: me.location ?? null, error: null, needsLogin: false });
+
     (async () => {
       try {
+        // The standalone auth routes own their own bridging (Login/AuthCallback). Keep the
+        // provider inert on them so it never bridges a recovery/partial Supabase session
+        // before the password is set, and never double-bridges on /auth/callback.
+        const path = window.location.pathname;
+        if (path === "/login" || path.startsWith("/auth/")) {
+          return finish({ loading: false, needsLogin: false });
+        }
+
         const url = new URL(window.location.href);
         const params = url.searchParams;
         const fromIframe = params.get("location_id") && params.get("user_email");
 
         let token = getSessionToken();
+
+        // DOOR 1 — Uptiq iframe (unchanged).
         if (fromIframe) {
           const out = await callEdge("iframe-session", {
             body: {
@@ -87,28 +140,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           window.history.replaceState({}, "", cleanUrl);
         }
 
-        if (!token) {
-          // Development fallback: bootstrap demo access so the app can be reviewed outside the Uptiq iframe.
-          token = await issueDemoSession();
+        // DOOR 2 — existing x-app-session.
+        if (token) {
+          try {
+            return success(await callEdge("me", { session: token }));
+          } catch (e) {
+            // Clear the stale token on a revoked (unauthorized) OR deactivated (inactive)
+            // session and fall through to the standalone / demo doors instead of dead-ending
+            // on an error screen.
+            if (!(e instanceof Error) || !["unauthorized", "inactive"].includes(e.message) || fromIframe) throw e;
+            localStorage.removeItem(STORAGE_KEY);
+            token = null;
+          }
         }
 
-        let me: EdgeResponse;
-        try {
-          me = await callEdge("me", { session: token });
-        } catch (e) {
-          if (!(e instanceof Error) || e.message !== "unauthorized" || fromIframe) throw e;
-          localStorage.removeItem(STORAGE_KEY);
-          token = await issueDemoSession();
-          me = await callEdge("me", { session: token });
+        // DOOR 3 — a live Supabase Auth session (standalone door already signed in) → bridge.
+        const bridged = await bridgeSupabaseSession();
+        if (bridged) return success(bridged);
+
+        // DOOR 4 — nobody. Demo is dev-only; otherwise send to the standalone login door.
+        if (DEMO_ALLOWED) {
+          const demoToken = await issueDemoSession();
+          return success(await callEdge("me", { session: demoToken }));
         }
-        if (!active) return;
-        setState({
-          loading: false, user: me.user, location: me.location, error: null,
-          signOut: () => { localStorage.removeItem(STORAGE_KEY); window.location.reload(); },
-        });
+        return finish({ loading: false, user: null, location: null, error: null, needsLogin: true });
       } catch (e: unknown) {
-        if (!active) return;
-        setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : "Session error" }));
+        finish({ loading: false, error: e instanceof Error ? e.message : "Session error", needsLogin: false });
       }
     })();
     return () => { active = false; };
@@ -118,6 +175,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 }
 
 export function useSession() { return useContext(Ctx); }
-export { callEdge };
+export { callEdge, saveSessionToken };
 // keep supabase available for direct queries
 export { supabase };

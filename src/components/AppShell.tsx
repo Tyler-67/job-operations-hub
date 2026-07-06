@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { useSession } from "@/lib/session";
 import {
   BarChart3,
@@ -30,15 +30,17 @@ const adminNav = [
 ];
 
 export default function AppShell() {
-  const { user, location, loading, error, signOut } = useSession();
+  const { user, location, loading, error, needsLogin, signOut } = useSession();
 
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading Uptiq session...
+        Loading session...
       </div>
     );
   }
+
+  if (needsLogin) return <Navigate to="/login" replace />;
 
   if (error) {
     return (

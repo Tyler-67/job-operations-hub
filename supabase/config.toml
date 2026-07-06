@@ -24,6 +24,9 @@ verify_jwt = true
 [functions.action-token-consume]
 verify_jwt = true
 
+[functions.auth-session]
+verify_jwt = true
+
 [functions.expenses]
 verify_jwt = true
 

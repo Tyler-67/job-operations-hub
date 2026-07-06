@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Edit2, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
 import {
+  addUserEmail,
   assignableRoles,
   canManageUsers,
   canViewUsers,
   createUser,
   fetchUsers,
+  removeUserEmail,
   roleLabel,
   shortDateTime,
   updateUser,
@@ -92,6 +94,7 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -119,6 +122,8 @@ export default function AdminUsers() {
   }, [query, roleFilter, status, usersList]);
 
   const editing = Boolean(form.id);
+  const editingRow = useMemo(() => usersList.find((row) => row.id === form.id), [usersList, form.id]);
+  const aliasEmails = useMemo(() => editingRow?.emails ?? [], [editingRow]);
   const editingSelf = form.id === user?.id;
   const supportLocked = form.role === "support_admin" && user?.role !== "support_admin";
   const saveDisabled = !canManage || saving || !form.email.trim() || supportLocked;
@@ -171,6 +176,35 @@ export default function AdminUsers() {
       if (form.id === row.id) resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update user");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addEmail() {
+    if (!canManage || saving || !form.id || !newEmail.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await addUserEmail(form.id, newEmail.trim());
+      setData(next);
+      setNewEmail("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add email");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeEmail(emailId: string) {
+    if (!canManage || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await removeUserEmail(emailId);
+      setData(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove email");
     } finally {
       setSaving(false);
     }
@@ -304,6 +338,7 @@ export default function AdminUsers() {
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Email</span>
                 <input type="email" value={form.email} onChange={(event) => updateForm({ email: event.target.value })} disabled={!canManage || saving || editingSelf} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65" />
+                <span className="mt-1 block text-2xs text-muted-foreground">Can sign in directly at /login (magic link or password).</span>
               </label>
 
               <label className="block text-xs">
@@ -332,6 +367,32 @@ export default function AdminUsers() {
                   </select>
                 </label>
               </div>
+
+              {editing && canManage && (
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div className="text-xs font-medium">Additional login emails</div>
+                  <p className="text-2xs text-muted-foreground">
+                    Extra addresses this person can sign in with at /login. The primary email above is always usable.
+                  </p>
+                  <ul className="space-y-1">
+                    {aliasEmails.map((mail) => (
+                      <li key={mail.id} className="flex items-center justify-between gap-2 rounded-sm border border-border px-2 py-1 text-xs">
+                        <span className="truncate">{mail.email}</span>
+                        <button type="button" title="Remove email" disabled={saving} onClick={() => removeEmail(mail.id)} className="icon-btn">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                    {aliasEmails.length === 0 && <li className="text-2xs text-muted-foreground">No additional emails.</li>}
+                  </ul>
+                  <div className="flex gap-1">
+                    <input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="add-email@company.com" disabled={saving} className="h-8 flex-1 rounded-sm border border-input bg-background px-2 text-xs" />
+                    <button type="button" disabled={saving || !newEmail.trim()} onClick={addEmail} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:opacity-65">
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-2 border-t border-border pt-4">
                 <button type="button" disabled={saveDisabled} onClick={saveUser} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">

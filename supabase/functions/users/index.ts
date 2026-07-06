@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 
 const READ_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 const WRITE_ROLES = new Set(["owner_admin", "support_admin"]);
@@ -28,6 +28,38 @@ function canManageRole(actorRole: string, targetRole: string, existingRole?: str
   if (actorRole === "support_admin") return true;
   if (targetRole === "support_admin" || existingRole === "support_admin") return false;
   return actorRole === "owner_admin";
+}
+
+// Best-effort: make the email able to log in via the standalone Supabase-Auth door.
+// magic-link with shouldCreateUser:false needs the auth.users row to pre-exist. Idempotent
+// (an already-registered email is fine) and NEVER fatal — the app_users ACL row is the
+// source of truth; auth provisioning is a repairable convenience.
+async function provisionAuthUser(sb: any, email: string) {
+  try {
+    const { error } = await sb.auth.admin.createUser({ email, email_confirm: true });
+    if (!error) return;
+    const msg = String(error.message ?? error).toLowerCase();
+    if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) return; // idempotent
+    await logEvent({ source: "admin", kind: "auth_provision_failed", payload: { email, error: String(error.message ?? error) } });
+  } catch (e) {
+    await logEvent({ source: "admin", kind: "auth_provision_failed", payload: { email, error: e instanceof Error ? e.message : String(e) } });
+  }
+}
+
+// Who owns an email across the WHOLE identity space (primary app_users.email OR a secondary
+// app_user_emails alias): "self" if exceptUserId already owns it, "other" if a different
+// user does, null if free. This is the global gate that keeps a login email mapped to
+// exactly one identity and blocks planting a coworker's address as an alias on another
+// account (which resolveAppUser's primary-first order also defends against).
+async function emailOwnership(sb: any, email: string, exceptUserId: string | null): Promise<"self" | "other" | null> {
+  const { data: primaries } = await sb.from("app_users").select("id").eq("email", email);
+  for (const row of primaries ?? []) {
+    if (row.id === exceptUserId) return "self";
+    return "other";
+  }
+  const { data: alias } = await sb.from("app_user_emails").select("app_user_id").eq("email", email).maybeSingle();
+  if (alias) return alias.app_user_id === exceptUserId ? "self" : "other";
+  return null;
 }
 
 async function loadUser(sb: any, locationId: string, id: string | null) {
@@ -68,13 +100,30 @@ async function usersPayload(sb: any, locationId: string) {
   if (error) throw error;
 
   const users = data ?? [];
+
+  // Attach each user's SECONDARY login emails (aliases). The primary is app_users.email.
+  const ids = users.map((user: any) => user.id);
+  const emailsByUser: Record<string, { id: string; email: string }[]> = {};
+  if (ids.length) {
+    const { data: emailRows, error: emailErr } = await sb
+      .from("app_user_emails")
+      .select("id, app_user_id, email")
+      .in("app_user_id", ids)
+      .order("email");
+    if (emailErr) throw emailErr;
+    for (const row of emailRows ?? []) {
+      (emailsByUser[row.app_user_id] ??= []).push({ id: row.id, email: row.email });
+    }
+  }
+  const usersWithEmails = users.map((user: any) => ({ ...user, emails: emailsByUser[user.id] ?? [] }));
+
   const roleCounts: Record<string, number> = {};
   for (const user of users) {
     roleCounts[user.role] = (roleCounts[user.role] ?? 0) + 1;
   }
 
   return {
-    users,
+    users: usersWithEmails,
     metrics: {
       total_user_count: users.length,
       active_user_count: users.filter((user: any) => user.active).length,
@@ -94,6 +143,9 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
   if (!APP_ROLES.has(role)) throw new Error("invalid_role");
   if (!canManageRole(actorRole, role)) throw new Error("role_forbidden");
 
+  // The email must not already be a login identity anywhere (primary or alias).
+  if (await emailOwnership(sb, email, null)) throw new Error("email_in_use");
+
   const { error } = await sb.from("app_users").insert({
     location_id: locationId,
     email,
@@ -103,6 +155,9 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
     active: body.active !== false,
   });
   if (error) throw error;
+
+  // Enable the standalone login door for the new user.
+  await provisionAuthUser(sb, email);
 }
 
 async function updateUser(sb: any, locationId: string, actorId: string, actorRole: string, body: Record<string, unknown>) {
@@ -116,6 +171,7 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     if (selfEdit) throw new Error("self_identity_locked");
     const email = cleanEmail(body.email);
     if (!email) throw new Error("invalid_email");
+    if ((await emailOwnership(sb, email, user.id)) === "other") throw new Error("email_in_use");
     patch.email = email;
   }
   if ("name" in body) patch.name = cleanText(body.name);
@@ -143,6 +199,57 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     const { error } = await sb.from("app_users").update(patch).eq("id", user.id).eq("location_id", locationId);
     if (error) throw error;
   }
+
+  // On email change: the old primary address is replaced in app_users.email and is not an
+  // alias, so it stops resolving — login access to the old address is revoked. Drop any
+  // secondary alias that duplicates the new primary, then enable standalone login for it.
+  if (typeof patch.email === "string" && patch.email !== user.email) {
+    await sb.from("app_user_emails").delete().eq("email", patch.email);
+    await provisionAuthUser(sb, patch.email);
+  }
+}
+
+// Add a secondary login email (alias) to a user. It resolves to the same app_users
+// identity/role via app_user_emails. Requires the actor can manage the target user.
+async function addUserEmail(sb: any, locationId: string, actorRole: string, body: Record<string, unknown>) {
+  const user = await loadUser(sb, locationId, cleanText(body.user_id));
+  if (!user) throw new Error("user_not_found");
+  if (!canManageRole(actorRole, user.role, user.role)) throw new Error("role_forbidden");
+
+  const email = cleanEmail(body.email);
+  if (!email) throw new Error("invalid_email");
+
+  const owner = await emailOwnership(sb, email, user.id);
+  if (owner === "self") throw new Error("email_already_added");
+  if (owner === "other") throw new Error("email_in_use");
+
+  const { error } = await sb.from("app_user_emails").insert({ app_user_id: user.id, email });
+  if (error) {
+    // Unique-violation race → the email got taken between the check and the insert.
+    if (String(error.code) === "23505") throw new Error("email_in_use");
+    throw error;
+  }
+  await provisionAuthUser(sb, email);
+}
+
+// Remove a secondary login email. The primary (== app_users.email) cannot be removed here;
+// change it via updateUser instead.
+async function removeUserEmail(sb: any, locationId: string, actorRole: string, body: Record<string, unknown>) {
+  const emailId = cleanText(body.email_id);
+  if (!emailId) throw new Error("invalid_email_id");
+
+  const { data: row, error: loadErr } = await sb.from("app_user_emails")
+    .select("id, app_user_id").eq("id", emailId).maybeSingle();
+  if (loadErr) throw loadErr;
+  if (!row) throw new Error("email_not_found");
+
+  // The alias must belong to a user in the actor's location, and the actor must manage them.
+  const owner = await loadUser(sb, locationId, row.app_user_id);
+  if (!owner) throw new Error("email_not_found");
+  if (!canManageRole(actorRole, owner.role, owner.role)) throw new Error("role_forbidden");
+
+  const { error } = await sb.from("app_user_emails").delete().eq("id", emailId);
+  if (error) throw error;
 }
 
 Deno.serve(async (req) => {
@@ -168,6 +275,15 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
 
     if (req.method === "POST") {
+      const action = cleanText(body.action);
+      if (action === "add_email") {
+        await addUserEmail(sb, locationId, actorRole, body);
+        return json(await usersPayload(sb, locationId), 201);
+      }
+      if (action === "remove_email") {
+        await removeUserEmail(sb, locationId, actorRole, body);
+        return json(await usersPayload(sb, locationId));
+      }
       await createUser(sb, locationId, actorRole, body);
       return json(await usersPayload(sb, locationId), 201);
     }
@@ -182,6 +298,7 @@ Deno.serve(async (req) => {
     const message = error instanceof Error ? error.message : String(error);
     const status = [
       "invalid_email",
+      "invalid_email_id",
       "invalid_role",
       "role_forbidden",
       "self_identity_locked",
@@ -189,9 +306,9 @@ Deno.serve(async (req) => {
       "self_deactivate_locked",
     ].includes(message)
       ? 400
-      : message === "user_not_found"
+      : message === "user_not_found" || message === "email_not_found"
         ? 404
-        : message === "last_owner_admin"
+        : message === "last_owner_admin" || message === "email_in_use" || message === "email_already_added"
           ? 409
           : 500;
     return json({ error: message }, status);

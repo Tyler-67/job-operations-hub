@@ -20,6 +20,8 @@ import InspectionDateForm from "@/pages/forms/InspectionDateForm";
 import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
 import WalkthroughPunchListForm from "@/pages/forms/WalkthroughPunchListForm";
 import QuickLogForm from "@/pages/forms/QuickLogForm";
+import Login from "@/pages/auth/Login";
+import AuthCallback from "@/pages/auth/AuthCallback";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
 import CompletionReports from "@/pages/reports/CompletionReports";
 import WeeklyReport from "@/pages/reports/WeeklyReport";
@@ -35,6 +37,10 @@ const App = () => (
       <BrowserRouter>
         <SessionProvider>
           <Routes>
+            {/* Standalone login door (no app shell, no session required) */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+
             {/* Token-gated forms (no app shell, no session required) */}
             <Route path="/forms/daily-check-in" element={
               <TokenForm tokenAction="daily_check_in" title="Daily Check-In">

@@ -3,6 +3,7 @@
 // Verifies location and Uptiq user membership before issuing an app session.
 import { corsHeaders, json, preflight, serviceClient, signSession, logEvent } from "../_shared/util.ts";
 import { uptiq } from "../_shared/uptiq.ts";
+import { RESERVED_DEMO_EMAIL } from "../_shared/app-user.ts";
 
 type VerifiedUptiqUser = {
   id: string | null;
@@ -73,7 +74,15 @@ Deno.serve(async (req) => {
   if (!loc) return json({ error: "unknown_location" }, 403);
 
   const bootstrap = (Deno.env.get("BOOTSTRAP_ADMIN_EMAIL") ?? "").toLowerCase();
-  const isDemoBootstrap = location_id === "DEMO_LOCATION" && lowerEmail === "dev-admin@uptiq.local";
+  const demoAllowed = (Deno.env.get("ALLOW_DEMO_SESSION") ?? "").toLowerCase() === "true";
+  // The demo identity (dev-admin@uptiq.local) is a DEV-ONLY convenience. When demo is off
+  // (the prod default) it must NEVER authenticate — at ANY location — regardless of a
+  // standing app_users row. Reject it BEFORE the app_users lookup so an existing owner_admin
+  // row (at DEMO_LOCATION or a real tenant) can't be re-used as an unauthenticated backdoor.
+  if (!demoAllowed && lowerEmail === RESERVED_DEMO_EMAIL) {
+    return json({ error: "demo_disabled" }, 403);
+  }
+  const isDemoBootstrap = demoAllowed && location_id === "DEMO_LOCATION" && lowerEmail === RESERVED_DEMO_EMAIL;
   const desiredRole = (bootstrap && bootstrap === lowerEmail) || isDemoBootstrap ? "owner_admin" : null;
 
   // app_users is the source of truth for who has access — look it up first.

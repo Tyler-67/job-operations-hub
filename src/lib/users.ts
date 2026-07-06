@@ -4,8 +4,16 @@ import type { Database } from "@/integrations/supabase/types";
 export type AppUserRow = Database["public"]["Tables"]["app_users"]["Row"];
 export type AppRole = Database["public"]["Enums"]["app_role"];
 
+export interface UserEmail {
+  id: string;
+  email: string;
+}
+
+// app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
+export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[] };
+
 export interface UsersResponse {
-  users: AppUserRow[];
+  users: AppUserWithEmails[];
   metrics: {
     total_user_count: number;
     active_user_count: number;
@@ -53,6 +61,14 @@ export function createUser(payload: SaveUserPayload) {
 
 export function updateUser(payload: SaveUserPayload) {
   return callEdge("users", { method: "PATCH", body: payload }) as Promise<UsersResponse>;
+}
+
+export function addUserEmail(userId: string, email: string) {
+  return callEdge("users", { method: "POST", body: { action: "add_email", user_id: userId, email } }) as Promise<UsersResponse>;
+}
+
+export function removeUserEmail(emailId: string) {
+  return callEdge("users", { method: "POST", body: { action: "remove_email", email_id: emailId } }) as Promise<UsersResponse>;
 }
 
 export function shortDateTime(value: string | null | undefined) {
