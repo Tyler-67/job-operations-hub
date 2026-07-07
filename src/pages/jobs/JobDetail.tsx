@@ -341,6 +341,13 @@ export default function JobDetail() {
           This job is archived. Restore it before sending crew check-ins or managing active work.
         </div>
       )}
+      {!readOnly && !loading && states.length === 0 && (
+        <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning">
+          No job states are configured for this company yet, so a job can&#39;t be saved. Set them up in{" "}
+          <Link to="/admin/job-states" className="font-medium underline">Admin → Job States</Link>{" "}
+          first.
+        </div>
+      )}
 
       <div className="grid flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(520px,1fr)_360px]">
         <div className="overflow-auto p-4">
@@ -350,6 +357,7 @@ export default function JobDetail() {
             </Field>
             <Field label="Current state">
               <select disabled={readOnly} value={form.current_state_id} onChange={(event) => update("current_state_id", event.target.value)} className={inputClass(readOnly)}>
+                {states.length === 0 && <option value="">No states configured</option>}
                 {states.map((state) => <option key={state.id} value={state.id}>{state.sort_order}. {state.label}</option>)}
               </select>
             </Field>
