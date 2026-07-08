@@ -542,6 +542,7 @@ export type Database = {
           purchase_order_id: string | null
           receipt_url: string | null
           recorded_by_contact_id: string | null
+          supply_house_id: string | null
           updated_at: string
           vendor: string | null
         }
@@ -557,6 +558,7 @@ export type Database = {
           purchase_order_id?: string | null
           receipt_url?: string | null
           recorded_by_contact_id?: string | null
+          supply_house_id?: string | null
           updated_at?: string
           vendor?: string | null
         }
@@ -572,6 +574,7 @@ export type Database = {
           purchase_order_id?: string | null
           receipt_url?: string | null
           recorded_by_contact_id?: string | null
+          supply_house_id?: string | null
           updated_at?: string
           vendor?: string | null
         }
@@ -1036,37 +1039,49 @@ export type Database = {
       }
       supply_house_contacts: {
         Row: {
+          account_number: string | null
           active: boolean
+          address: string | null
           created_at: string
           email: string | null
           id: string
           location_id: string
           name: string
+          notes: string | null
           phone: string | null
           rep_name: string | null
           updated_at: string
+          uptiq_contact_id: string | null
         }
         Insert: {
+          account_number?: string | null
           active?: boolean
+          address?: string | null
           created_at?: string
           email?: string | null
           id?: string
           location_id: string
           name: string
+          notes?: string | null
           phone?: string | null
           rep_name?: string | null
           updated_at?: string
+          uptiq_contact_id?: string | null
         }
         Update: {
+          account_number?: string | null
           active?: boolean
+          address?: string | null
           created_at?: string
           email?: string | null
           id?: string
           location_id?: string
           name?: string
+          notes?: string | null
           phone?: string | null
           rep_name?: string | null
           updated_at?: string
+          uptiq_contact_id?: string | null
         }
         Relationships: [
           {

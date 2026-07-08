@@ -23,6 +23,7 @@ export interface PurchaseOrderWithDetails extends PurchaseOrder {
 
 export interface JobExpenseWithDetails extends JobExpense {
   job: ExpenseJob | null;
+  supply_house: SupplyHouse | null;
 }
 
 export interface ExpensesResponse {
@@ -44,6 +45,7 @@ export interface SaveExpensePayload {
   job_id: string;
   kind: "field_purchase" | "adjustment";
   amount: number;
+  supply_house_id?: string | null;
   vendor?: string | null;
   description?: string | null;
   receipt_url?: string | null;

@@ -78,6 +78,9 @@ verify_jwt = true
 [functions.settings]
 verify_jwt = true
 
+[functions.supply-houses]
+verify_jwt = true
+
 [functions.users]
 verify_jwt = true
 

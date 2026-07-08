@@ -165,11 +165,21 @@ async function createExpense(sb: any, locationId: string, body: Record<string, u
   const amount = requiredAmount(body.amount);
   if (kind === "field_purchase" && amount < 0) throw new Error("amount_must_be_positive");
 
+  // Optional managed supply house; when set, snapshot its name into the free-text vendor
+  // column so the expenses table + job rollups display it without a join (mirrors valuePurchaseOrder).
+  const supplyHouseId = cleanText(body.supply_house_id);
+  let supplyHouse: any = null;
+  if (supplyHouseId) {
+    supplyHouse = await loadSupplyHouse(sb, locationId, supplyHouseId);
+    if (!supplyHouse) throw new Error("invalid_supply_house");
+  }
+
   const { error } = await sb.from("job_expenses").insert({
     job_id: job.id,
     kind,
     amount,
-    vendor: cleanText(body.vendor),
+    supply_house_id: supplyHouseId,
+    vendor: supplyHouse?.name ?? cleanText(body.vendor),
     description: cleanText(body.description),
     receipt_url: cleanText(body.receipt_url),
     parts_photo_url: cleanText(body.parts_photo_url),
@@ -197,6 +207,17 @@ async function updateExpense(sb: any, locationId: string, body: Record<string, u
   }
   for (const key of ["vendor", "description", "receipt_url", "parts_photo_url"]) {
     if (key in body) patch[key] = cleanText(body[key]);
+  }
+  if ("supply_house_id" in body) {
+    const supplyHouseId = cleanText(body.supply_house_id);
+    if (supplyHouseId) {
+      const supplyHouse = await loadSupplyHouse(sb, locationId, supplyHouseId);
+      if (!supplyHouse) throw new Error("invalid_supply_house");
+      patch.supply_house_id = supplyHouseId;
+      patch.vendor = supplyHouse.name; // snapshot; overrides any free-text vendor above
+    } else {
+      patch.supply_house_id = null;
+    }
   }
 
   if (Object.keys(patch).length) {

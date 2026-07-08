@@ -25,6 +25,7 @@ interface ExpenseForm {
   job_id: string;
   kind: "field_purchase" | "adjustment";
   amount: string;
+  supply_house_id: string;
   vendor: string;
   description: string;
   receipt_url: string;
@@ -49,6 +50,7 @@ function blankExpense(jobId = ""): ExpenseForm {
     job_id: jobId,
     kind: "field_purchase",
     amount: "",
+    supply_house_id: "",
     vendor: "",
     description: "",
     receipt_url: "",
@@ -214,6 +216,7 @@ export default function AdminExpenses() {
       job_id: expense.job_id,
       kind: expense.kind === "adjustment" ? "adjustment" : "field_purchase",
       amount: amountInput(expense.amount),
+      supply_house_id: expense.supply_house_id ?? "",
       vendor: expense.vendor ?? "",
       description: expense.description ?? "",
       receipt_url: expense.receipt_url ?? "",
@@ -243,6 +246,7 @@ export default function AdminExpenses() {
       const payload = {
         ...expenseForm,
         amount,
+        supply_house_id: expenseForm.supply_house_id || null,
         vendor: expenseForm.vendor.trim() || null,
         description: expenseForm.description.trim() || null,
         receipt_url: expenseForm.receipt_url.trim() || null,
@@ -408,6 +412,7 @@ export default function AdminExpenses() {
               <ExpensePanel
                 canManage={canManage}
                 jobs={jobs}
+                supplyHouses={supplyHouses}
                 form={expenseForm}
                 saving={saving}
                 onChange={(patch) => setExpenseForm((current) => ({ ...current, ...patch }))}
@@ -551,9 +556,10 @@ function ExpensesTable({ rows, canManage, saving, onEdit, onDelete }: {
   );
 }
 
-function ExpensePanel({ canManage, jobs, form, saving, onChange, onSave, onCancel }: {
+function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, onSave, onCancel }: {
   canManage: boolean;
   jobs: ExpensesResponse["jobs"];
+  supplyHouses: ExpensesResponse["supply_houses"];
   form: ExpenseForm;
   saving: boolean;
   onChange: (patch: Partial<ExpenseForm>) => void;
@@ -589,8 +595,16 @@ function ExpensePanel({ canManage, jobs, form, saving, onChange, onSave, onCance
       </div>
 
       <label className="block text-xs">
-        <span className="mb-1 block text-muted-foreground">Vendor</span>
-        <input value={form.vendor} onChange={(event) => onChange({ vendor: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+        <span className="mb-1 block text-muted-foreground">Supply house</span>
+        <select value={form.supply_house_id} onChange={(event) => onChange({ supply_house_id: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
+          <option value="">None (free-text vendor)</option>
+          {supplyHouses.map((supply) => <option key={supply.id} value={supply.id}>{supply.name}</option>)}
+        </select>
+      </label>
+
+      <label className="block text-xs">
+        <span className="mb-1 block text-muted-foreground">Vendor {form.supply_house_id ? "(using supply house)" : "(free text)"}</span>
+        <input value={form.vendor} onChange={(event) => onChange({ vendor: event.target.value })} disabled={!canManage || saving || Boolean(form.supply_house_id)} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
       </label>
 
       <label className="block text-xs">

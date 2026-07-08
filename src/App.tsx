@@ -12,8 +12,8 @@ import SearchPage from "@/pages/Search";
 import AdminExpenses from "@/pages/admin/Expenses";
 import AdminJobStates from "@/pages/admin/JobStates";
 import AdminSettings from "@/pages/admin/Settings";
+import AdminSupplyHouses from "@/pages/admin/SupplyHouses";
 import AdminUsers from "@/pages/admin/Users";
-import PlaceholderPage from "@/pages/PlaceholderPage";
 import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import InspectionDateForm from "@/pages/forms/InspectionDateForm";
@@ -82,7 +82,7 @@ const App = () => (
               <Route path="/reports/weekly-preview" element={<WeeklyReport />} />
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
-              <Route path="/admin/supply-houses" element={<PlaceholderPage title="Supply Houses" />} />
+              <Route path="/admin/supply-houses" element={<AdminSupplyHouses />} />
               <Route path="/admin/expenses" element={<AdminExpenses />} />
               <Route path="/admin/users" element={<AdminUsers />} />
             </Route>
