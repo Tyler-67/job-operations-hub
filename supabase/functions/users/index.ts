@@ -46,19 +46,27 @@ async function provisionAuthUser(sb: any, email: string) {
   }
 }
 
-// Who owns an email across the WHOLE identity space (primary app_users.email OR a secondary
+// Who owns an email WITHIN this location/tenant (primary app_users.email OR a secondary
 // app_user_emails alias): "self" if exceptUserId already owns it, "other" if a different
-// user does, null if free. This is the global gate that keeps a login email mapped to
-// exactly one identity and blocks planting a coworker's address as an alias on another
-// account (which resolveAppUser's primary-first order also defends against).
-async function emailOwnership(sb: any, email: string, exceptUserId: string | null): Promise<"self" | "other" | null> {
-  const { data: primaries } = await sb.from("app_users").select("id").eq("email", email);
+// user in this location does, null if free here. Scoped to locationId to match the app's
+// UNIQUE(location_id, email) model — an email used only in a different tenant does NOT
+// block reuse here (the Users page is per-tenant, so a global check reported phantom
+// "duplicate email" errors for rows the admin couldn't see).
+async function emailOwnership(sb: any, locationId: string, email: string, exceptUserId: string | null): Promise<"self" | "other" | null> {
+  const { data: primaries } = await sb
+    .from("app_users").select("id").eq("location_id", locationId).eq("email", email);
   for (const row of primaries ?? []) {
     if (row.id === exceptUserId) return "self";
     return "other";
   }
   const { data: alias } = await sb.from("app_user_emails").select("app_user_id").eq("email", email).maybeSingle();
-  if (alias) return alias.app_user_id === exceptUserId ? "self" : "other";
+  if (alias) {
+    // app_user_emails is globally unique on email; only count it as owned here when the
+    // owning user is in this location (a cross-tenant alias is still backstopped by the
+    // unique index at insert time).
+    const owner = await loadUser(sb, locationId, alias.app_user_id);
+    if (owner) return alias.app_user_id === exceptUserId ? "self" : "other";
+  }
   return null;
 }
 
@@ -143,8 +151,8 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
   if (!APP_ROLES.has(role)) throw new Error("invalid_role");
   if (!canManageRole(actorRole, role)) throw new Error("role_forbidden");
 
-  // The email must not already be a login identity anywhere (primary or alias).
-  if (await emailOwnership(sb, email, null)) throw new Error("email_in_use");
+  // The email must not already be a login identity in this location (primary or alias).
+  if (await emailOwnership(sb, locationId, email, null)) throw new Error("email_in_use");
 
   const { error } = await sb.from("app_users").insert({
     location_id: locationId,
@@ -171,7 +179,7 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     if (selfEdit) throw new Error("self_identity_locked");
     const email = cleanEmail(body.email);
     if (!email) throw new Error("invalid_email");
-    if ((await emailOwnership(sb, email, user.id)) === "other") throw new Error("email_in_use");
+    if ((await emailOwnership(sb, locationId, email, user.id)) === "other") throw new Error("email_in_use");
     patch.email = email;
   }
   if ("name" in body) patch.name = cleanText(body.name);
@@ -219,7 +227,7 @@ async function addUserEmail(sb: any, locationId: string, actorRole: string, body
   const email = cleanEmail(body.email);
   if (!email) throw new Error("invalid_email");
 
-  const owner = await emailOwnership(sb, email, user.id);
+  const owner = await emailOwnership(sb, locationId, email, user.id);
   if (owner === "self") throw new Error("email_already_added");
   if (owner === "other") throw new Error("email_in_use");
 
