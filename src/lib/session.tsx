@@ -14,12 +14,11 @@ interface SessionCtx {
   signOut: () => void;
 }
 
-// TEMPORARY (2026-07-06): demo login re-enabled at the user's request so the direct-URL
-// demo path keeps working while the standalone /login door awaits Supabase Auth config
-// (Redirect URLs + SMTP). Paired with the server secret ALLOW_DEMO_SESSION=true. REVERT to
-// the env-gated line below (and unset both flags) once standalone login works.
-const DEMO_ALLOWED = true;
-// const DEMO_ALLOWED = import.meta.env.VITE_ALLOW_DEMO_SESSION === "true" || import.meta.env.DEV;
+// Demo bootstrap is DEV-ONLY. In a production build (import.meta.env.DEV === false) with the
+// flag unset, no-session visits go to the standalone /login door instead of silently becoming
+// owner_admin. The server-side iframe-session demo branch is separately gated behind
+// ALLOW_DEMO_SESSION, so this flag alone can't grant access.
+const DEMO_ALLOWED = import.meta.env.VITE_ALLOW_DEMO_SESSION === "true" || import.meta.env.DEV;
 
 // Bridge errors that mean "authenticated with Supabase but not authorized for this app" —
 // route to /login rather than surfacing a hard error or looping.
