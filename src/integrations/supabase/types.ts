@@ -115,6 +115,7 @@ export type Database = {
           last_seen_at: string | null
           last_verified_at: string | null
           location_id: string
+          login_password: string | null
           name: string | null
           phone: string | null
           role: Database["public"]["Enums"]["app_role"]
@@ -129,6 +130,7 @@ export type Database = {
           last_seen_at?: string | null
           last_verified_at?: string | null
           location_id: string
+          login_password?: string | null
           name?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]
@@ -143,6 +145,7 @@ export type Database = {
           last_seen_at?: string | null
           last_verified_at?: string | null
           location_id?: string
+          login_password?: string | null
           name?: string | null
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]

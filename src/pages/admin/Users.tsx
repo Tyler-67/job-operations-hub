@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Edit2, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
+import { Copy, Edit2, KeyRound, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
 import {
   addUserEmail,
   assignableRoles,
@@ -7,8 +7,10 @@ import {
   canViewUsers,
   createUser,
   fetchUsers,
+  generatePassword,
   removeUserEmail,
   roleLabel,
+  setUserPassword,
   shortDateTime,
   updateUser,
   type AppRole,
@@ -25,6 +27,7 @@ interface UserForm {
   phone: string;
   role: AppRole;
   active: boolean;
+  password: string; // initial password for a NEW user (empty for edits — use the reset control)
 }
 
 function blankUserForm(role: AppRole = "viewer"): UserForm {
@@ -34,6 +37,7 @@ function blankUserForm(role: AppRole = "viewer"): UserForm {
     phone: "",
     role,
     active: true,
+    password: "",
   };
 }
 
@@ -45,6 +49,7 @@ function userToForm(user: AppUserRow): UserForm {
     phone: user.phone ?? "",
     role: user.role,
     active: user.active,
+    password: "",
   };
 }
 
@@ -95,6 +100,7 @@ export default function AdminUsers() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -148,6 +154,7 @@ export default function AdminUsers() {
         phone: form.phone.trim() || null,
         role: form.role,
         active: form.active,
+        password: form.password.trim() || null, // applied on create; edits use the reset control
       };
       const next = editing ? await updateUser(payload) : await createUser(payload);
       setData(next);
@@ -205,6 +212,21 @@ export default function AdminUsers() {
       setData(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove email");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setPassword() {
+    if (!canManage || saving || !form.id || !newPassword.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await setUserPassword(form.id, newPassword.trim());
+      setData(next);
+      setNewPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not set password");
     } finally {
       setSaving(false);
     }
@@ -338,7 +360,7 @@ export default function AdminUsers() {
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Email</span>
                 <input type="email" value={form.email} onChange={(event) => updateForm({ email: event.target.value })} disabled={!canManage || saving || editingSelf} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65" />
-                <span className="mt-1 block text-2xs text-muted-foreground">Can sign in directly at /login (magic link or password).</span>
+                <span className="mt-1 block text-2xs text-muted-foreground">Signs in at /login with this email + the password below.</span>
               </label>
 
               <label className="block text-xs">
@@ -367,6 +389,35 @@ export default function AdminUsers() {
                   </select>
                 </label>
               </div>
+
+              {canManage && (
+                <div className="space-y-2 border-t border-border pt-4">
+                  <div className="flex items-center gap-1.5 text-xs font-medium"><KeyRound className="h-3.5 w-3.5" /> Login password</div>
+                  {!editing ? (
+                    <>
+                      <p className="text-2xs text-muted-foreground">Optional initial password (or Generate). You can view and reset it after the user is created.</p>
+                      <div className="flex gap-1">
+                        <input value={form.password} onChange={(event) => updateForm({ password: event.target.value })} placeholder="leave blank to set later" disabled={saving} className="h-8 flex-1 rounded-sm border border-input bg-background px-2 text-xs" />
+                        <button type="button" disabled={saving} onClick={() => updateForm({ password: generatePassword() })} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted">Generate</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-background px-2 py-1.5">
+                        <span className="truncate font-mono text-xs">{editingRow?.login_password || "— not set —"}</span>
+                        {editingRow?.login_password && (
+                          <button type="button" title="Copy password" onClick={() => navigator.clipboard?.writeText(editingRow.login_password ?? "")} className="icon-btn"><Copy className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="new password" disabled={saving} className="h-8 flex-1 rounded-sm border border-input bg-background px-2 text-xs" />
+                        <button type="button" disabled={saving} onClick={() => setNewPassword(generatePassword())} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted">Generate</button>
+                        <button type="button" disabled={saving || !newPassword.trim()} onClick={setPassword} className="inline-flex h-8 items-center rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-65">Set</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {editing && canManage && (
                 <div className="space-y-2 border-t border-border pt-4">

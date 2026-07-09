@@ -31,6 +31,15 @@ export interface SaveUserPayload {
   phone?: string | null;
   role: AppRole;
   active: boolean;
+  password?: string | null;
+}
+
+// Generate a readable, reasonably strong temporary password for admin-issued credentials.
+export function generatePassword() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `Burn-${hex}!`;
 }
 
 export const APP_ROLES: AppRole[] = ["owner_admin", "office_manager", "crew", "viewer", "support_admin"];
@@ -69,6 +78,10 @@ export function addUserEmail(userId: string, email: string) {
 
 export function removeUserEmail(emailId: string) {
   return callEdge("users", { method: "POST", body: { action: "remove_email", email_id: emailId } }) as Promise<UsersResponse>;
+}
+
+export function setUserPassword(userId: string, password: string) {
+  return callEdge("users", { method: "POST", body: { action: "set_password", id: userId, password } }) as Promise<UsersResponse>;
 }
 
 export function shortDateTime(value: string | null | undefined) {

@@ -30,12 +30,30 @@ function canManageRole(actorRole: string, targetRole: string, existingRole?: str
   return actorRole === "owner_admin";
 }
 
+// Set a login password on the auth.users row (creating the row if it doesn't exist yet).
+// Authoritative — throws on a hard failure so the caller can surface it (a "set password"
+// that silently failed would leave a stored password that doesn't actually log in).
+async function setAuthPassword(sb: any, email: string, password: string) {
+  const { data, error } = await sb.auth.admin.listUsers({ perPage: 1000 });
+  if (error) throw error;
+  const existing = (data?.users ?? []).find((u: any) => String(u.email ?? "").toLowerCase() === email);
+  if (existing) {
+    const { error: upErr } = await sb.auth.admin.updateUserById(existing.id, { password, email_confirm: true });
+    if (upErr) throw upErr;
+  } else {
+    const { error: cErr } = await sb.auth.admin.createUser({ email, password, email_confirm: true });
+    if (cErr) throw cErr;
+  }
+}
+
 // Best-effort: make the email able to log in via the standalone Supabase-Auth door.
 // magic-link with shouldCreateUser:false needs the auth.users row to pre-exist. Idempotent
 // (an already-registered email is fine) and NEVER fatal — the app_users ACL row is the
-// source of truth; auth provisioning is a repairable convenience.
-async function provisionAuthUser(sb: any, email: string) {
+// source of truth; auth provisioning is a repairable convenience. When a password is passed,
+// it is set on the auth user (create or update).
+async function provisionAuthUser(sb: any, email: string, password?: string | null) {
   try {
+    if (password) { await setAuthPassword(sb, email, password); return; }
     const { error } = await sb.auth.admin.createUser({ email, email_confirm: true });
     if (!error) return;
     const msg = String(error.message ?? error).toLowerCase();
@@ -96,10 +114,14 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
   return count ?? 0;
 }
 
-async function usersPayload(sb: any, locationId: string) {
+async function usersPayload(sb: any, locationId: string, includePassword = false) {
+  // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
+  // credential managers (WRITE roles); office_manager reads the list without it.
+  const cols = "id, location_id, email, name, phone, role, active, last_seen_at, created_at, updated_at"
+    + (includePassword ? ", login_password" : "");
   const { data, error } = await sb
     .from("app_users")
-    .select("id, location_id, email, name, phone, role, active, last_seen_at, created_at, updated_at")
+    .select(cols)
     .eq("location_id", locationId)
     .order("active", { ascending: false })
     .order("role")
@@ -154,6 +176,8 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
   // The email must not already be a login identity in this location (primary or alias).
   if (await emailOwnership(sb, locationId, email, null)) throw new Error("email_in_use");
 
+  const password = cleanText(body.password); // BETA: stored plaintext for admin viewing
+
   const { error } = await sb.from("app_users").insert({
     location_id: locationId,
     email,
@@ -161,11 +185,12 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
     phone: cleanText(body.phone),
     role,
     active: body.active !== false,
+    login_password: password,
   });
   if (error) throw error;
 
-  // Enable the standalone login door for the new user.
-  await provisionAuthUser(sb, email);
+  // Enable the standalone login door for the new user (+ set the password if provided).
+  await provisionAuthUser(sb, email, password);
 }
 
 async function updateUser(sb: any, locationId: string, actorId: string, actorRole: string, body: Record<string, unknown>) {
@@ -261,6 +286,23 @@ async function removeUserEmail(sb: any, locationId: string, actorRole: string, b
   if (error) throw error;
 }
 
+// Set/reset a user's login password (BETA: also stores the plaintext on app_users so an admin
+// can view it later). Authoritative — setAuthPassword throws if the auth update fails, so we
+// never store a password that doesn't actually log in.
+async function setUserPassword(sb: any, locationId: string, actorRole: string, body: Record<string, unknown>) {
+  const user = await loadUser(sb, locationId, cleanText(body.id ?? body.user_id));
+  if (!user) throw new Error("user_not_found");
+  if (!canManageRole(actorRole, user.role, user.role)) throw new Error("role_forbidden");
+
+  const password = cleanText(body.password);
+  if (!password) throw new Error("password_required");
+
+  await setAuthPassword(sb, String(user.email).toLowerCase(), password);
+  const { error } = await sb.from("app_users")
+    .update({ login_password: password }).eq("id", user.id).eq("location_id", locationId);
+  if (error) throw error;
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -277,7 +319,7 @@ Deno.serve(async (req) => {
 
   try {
     if (req.method === "GET") {
-      return json(await usersPayload(sb, locationId));
+      return json(await usersPayload(sb, locationId, canWrite(actorRole)));
     }
 
     if (!canWrite(actorRole)) return json({ error: "forbidden" }, 403);
@@ -287,19 +329,23 @@ Deno.serve(async (req) => {
       const action = cleanText(body.action);
       if (action === "add_email") {
         await addUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId), 201);
+        return json(await usersPayload(sb, locationId, true), 201);
       }
       if (action === "remove_email") {
         await removeUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId));
+        return json(await usersPayload(sb, locationId, true));
+      }
+      if (action === "set_password") {
+        await setUserPassword(sb, locationId, actorRole, body);
+        return json(await usersPayload(sb, locationId, true));
       }
       await createUser(sb, locationId, actorRole, body);
-      return json(await usersPayload(sb, locationId), 201);
+      return json(await usersPayload(sb, locationId, true), 201);
     }
 
     if (req.method === "PATCH") {
       await updateUser(sb, locationId, actorId, actorRole, body);
-      return json(await usersPayload(sb, locationId));
+      return json(await usersPayload(sb, locationId, true));
     }
 
     return json({ error: "method_not_allowed" }, 405);
@@ -310,6 +356,7 @@ Deno.serve(async (req) => {
       "invalid_email_id",
       "invalid_role",
       "role_forbidden",
+      "password_required",
       "self_identity_locked",
       "self_deactivate_locked",
     ].includes(message)

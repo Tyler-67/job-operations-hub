@@ -77,35 +77,34 @@ export default function Login() {
       </div>
 
       <div className="space-y-4">
-        <div className="space-y-1">
-          <Label htmlFor="login-email">Email</Label>
-          <Input id="login-email" type="email" autoComplete="email" placeholder="you@company.com"
-            value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-
-        <Button type="button" className="w-full" disabled={!emailValid || busy !== null} onClick={sendMagicLink}>
-          {busy === "link" ? "Sending..." : "Email me a magic link"}
-        </Button>
-
-        <div className="flex items-center gap-3 text-2xs uppercase tracking-wider text-muted-foreground">
-          <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
-        </div>
-
         <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void signInWithPassword(); }}>
+          <div className="space-y-1">
+            <Label htmlFor="login-email">Email</Label>
+            <Input id="login-email" type="email" autoComplete="email" placeholder="you@company.com"
+              value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
           <div className="space-y-1">
             <Label htmlFor="login-password">Password</Label>
             <Input id="login-password" type="password" autoComplete="current-password"
               value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          <Button type="submit" variant="secondary" className="w-full" disabled={!emailValid || !password || busy !== null}>
-            {busy === "password" ? "Signing in..." : "Sign in with password"}
+          <Button type="submit" className="w-full" disabled={!emailValid || !password || busy !== null}>
+            {busy === "password" ? "Signing in..." : "Sign in"}
           </Button>
         </form>
 
         <button type="button" onClick={sendReset} disabled={!emailValid || busy !== null}
-          className="text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50">
-          Set or reset your password
+          className="flex w-full items-center justify-center rounded-sm border border-border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-50">
+          {busy === "reset" ? "Sending..." : "Set or reset your password"}
         </button>
+
+        <div className="flex items-center gap-3 text-2xs uppercase tracking-wider text-muted-foreground">
+          <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <Button type="button" variant="secondary" className="w-full" disabled={!emailValid || busy !== null} onClick={sendMagicLink}>
+          {busy === "link" ? "Sending..." : "Email me a magic link"}
+        </Button>
 
         {notice && (
           <div className="rounded-sm border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div>
