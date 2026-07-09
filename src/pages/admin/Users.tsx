@@ -354,7 +354,7 @@ export default function AdminUsers() {
               <div className="grid grid-cols-[1fr_120px] gap-2">
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Role</span>
-                  <select value={form.role} onChange={(event) => updateForm({ role: event.target.value as AppRole })} disabled={!canManage || saving || editingSelf || supportLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65">
+                  <select value={form.role} onChange={(event) => updateForm({ role: event.target.value as AppRole })} disabled={!canManage || saving || supportLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65">
                     {roleOptions.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
                     {supportLocked && <option value="support_admin">support admin</option>}
                   </select>

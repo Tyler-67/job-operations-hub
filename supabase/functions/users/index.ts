@@ -187,7 +187,8 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
   if ("role" in body) {
     const role = cleanText(body.role);
     if (!role || !APP_ROLES.has(role)) throw new Error("invalid_role");
-    if (selfEdit) throw new Error("self_role_locked");
+    // Admins may change their own role; canManageRole still bounds what they can grant, and
+    // the last_owner_admin guard below prevents the final owner from orphaning the company.
     if (!canManageRole(actorRole, role, user.role)) throw new Error("role_forbidden");
     patch.role = role;
   }
@@ -310,7 +311,6 @@ Deno.serve(async (req) => {
       "invalid_role",
       "role_forbidden",
       "self_identity_locked",
-      "self_role_locked",
       "self_deactivate_locked",
     ].includes(message)
       ? 400
