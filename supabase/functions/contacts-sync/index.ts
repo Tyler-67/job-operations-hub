@@ -36,6 +36,9 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body.dry_run === true;
   const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.trunc(Number(body.limit))) : null;
+  // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
+  // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
+  const mode = body.mode === "upsert" ? "upsert" : "link";
 
   const sb = serviceClient();
   const locId = claims.loc as string;
@@ -105,15 +108,39 @@ Deno.serve(async (req) => {
 
   if (dryRun) {
     return json({
-      location: loc.company_name, uptiq_location_id: uptiqLoc, dry_run: true,
+      location: loc.company_name, uptiq_location_id: uptiqLoc, mode, dry_run: true,
       would_sync: planned.length, total_reachable: targets.length,
       parties: planned.map((t) => ({ key: t.key, name: t.name, email: t.email, phone: t.phone, has_existing_id: Boolean(t.existingId) })),
     });
   }
 
   const results: any[] = [];
-  let created = 0, updated = 0, failed = 0;
+  let linked = 0, notFound = 0, created = 0, updated = 0, failed = 0;
   for (const t of planned) {
+    if (mode === "link") {
+      // READ ONLY: find an existing Uptiq contact by email (preferred) or phone and attach its id.
+      const query = (t.email || t.phone || "").trim();
+      if (!query) { failed++; results.push({ key: t.key, ok: false, error: "no_query" }); continue; }
+      const res = await uptiq.findContacts({ locationId: uptiqLoc, query });
+      if (!res.ok) {
+        failed++;
+        results.push({ key: t.key, ok: false, status: res.status, error: res.error ?? "find_failed", detail: res.data });
+        continue;
+      }
+      const found = ((res.data as any)?.contacts ?? []) as any[];
+      const match = found.find((c) => t.email && String(c.email ?? "").toLowerCase() === String(t.email).toLowerCase()) ?? found[0] ?? null;
+      if (match?.id) {
+        await t.save(sb, String(match.id));
+        linked++;
+        results.push({ key: t.key, ok: true, contact_id: match.id, action: "linked" });
+      } else {
+        notFound++;
+        results.push({ key: t.key, ok: false, action: "not_in_uptiq", error: "not_found" });
+      }
+      continue;
+    }
+
+    // upsert mode — needs Contacts WRITE scope (currently disabled by token scope)
     const res = await uptiq.upsertContact({ locationId: uptiqLoc, name: t.name, email: t.email, phone: t.phone, tags: t.tags });
     if (!res.ok) {
       failed++;
@@ -122,25 +149,20 @@ Deno.serve(async (req) => {
     }
     const d = res.data as any;
     const contactId = d?.contact?.id ?? d?.id ?? null;
-    if (!contactId) {
-      failed++;
-      results.push({ key: t.key, ok: false, error: "no_contact_id_in_response", detail: d });
-      continue;
-    }
+    if (!contactId) { failed++; results.push({ key: t.key, ok: false, error: "no_contact_id_in_response", detail: d }); continue; }
     await t.save(sb, String(contactId));
-    const isNew = d?.new === true;
-    if (isNew) created++; else updated++;
-    results.push({ key: t.key, ok: true, contact_id: contactId, new: isNew });
+    if (d?.new === true) created++; else updated++;
+    results.push({ key: t.key, ok: true, contact_id: contactId, action: d?.new ? "created" : "updated" });
   }
 
   await logEvent({
     source: "admin", kind: "contacts_sync", location_id: locId,
-    payload: { total: planned.length, created, updated, failed, by: claims.email },
+    payload: { mode, total: planned.length, linked, not_found: notFound, created, updated, failed, by: claims.email },
   });
 
   return json({
-    location: loc.company_name, uptiq_location_id: uptiqLoc, dry_run: false,
+    location: loc.company_name, uptiq_location_id: uptiqLoc, mode, dry_run: false,
     total_reachable: targets.length, attempted: planned.length,
-    created, updated, failed, results,
+    linked, not_found: notFound, created, updated, failed, results,
   });
 });
