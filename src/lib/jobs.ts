@@ -149,5 +149,14 @@ export function currency(value: number | null | undefined) {
 }
 
 export function shortDate(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleDateString() : "-";
+  if (!value) return "-";
+  // Date-only strings ("YYYY-MM-DD", e.g. job start/inspection/log dates) must render as a
+  // local calendar date. `new Date("2026-07-13")` parses as UTC midnight, which displays the
+  // PRIOR day in any negative-offset timezone (US zones) — an off-by-one. Build a local date
+  // from the parts instead. Full timestamps (with time/zone) fall through and render as-is.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])).toLocaleDateString();
+  }
+  return new Date(value).toLocaleDateString();
 }
