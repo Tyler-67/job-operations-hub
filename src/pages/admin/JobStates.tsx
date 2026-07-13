@@ -283,7 +283,11 @@ export default function AdminJobStates() {
                   {states.map((state) => {
                     const activeJobs = activeJobCounts[state.id] ?? 0;
                     return (
-                      <tr key={state.id} className={`ops-row ${state.active ? "" : "opacity-55"}`}>
+                      <tr
+                        key={state.id}
+                        onClick={() => { if (canManage && !saving) { setArchiveTarget(null); setForm(stateToForm(state)); } }}
+                        className={`ops-row ${canManage ? "cursor-pointer" : ""} ${state.active ? "" : "opacity-55"} ${form.id === state.id ? "bg-muted/60" : ""}`}
+                      >
                         <td className="px-3 py-2 font-mono-num">{state.sort_order}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
@@ -300,13 +304,13 @@ export default function AdminJobStates() {
                         <td className="px-3 py-2 font-mono-num">{activeJobs}</td>
                         <td className="px-3 py-2">
                           <div className="flex justify-end gap-1">
-                            <button type="button" title="Move up" disabled={!canManage || !state.active || saving} onClick={() => moveState(state, -1)} className="icon-btn">
+                            <button type="button" title="Move up" disabled={!canManage || !state.active || saving} onClick={(event) => { event.stopPropagation(); moveState(state, -1); }} className="icon-btn">
                               <ArrowUp className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" title="Move down" disabled={!canManage || !state.active || saving} onClick={() => moveState(state, 1)} className="icon-btn">
+                            <button type="button" title="Move down" disabled={!canManage || !state.active || saving} onClick={(event) => { event.stopPropagation(); moveState(state, 1); }} className="icon-btn">
                               <ArrowDown className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" title="Edit" disabled={!canManage || saving} onClick={() => { setArchiveTarget(null); setForm(stateToForm(state)); }} className="icon-btn">
+                            <button type="button" title="Edit" disabled={!canManage || saving} onClick={(event) => { event.stopPropagation(); setArchiveTarget(null); setForm(stateToForm(state)); }} className="icon-btn">
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
                             {state.active ? (
@@ -314,7 +318,8 @@ export default function AdminJobStates() {
                                 type="button"
                                 title="Archive"
                                 disabled={!canManage || saving}
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   if (activeJobs > 0) {
                                     setForm(stateToForm(state));
                                     setArchiveTarget(state);
@@ -328,7 +333,7 @@ export default function AdminJobStates() {
                                 <Archive className="h-3.5 w-3.5" />
                               </button>
                             ) : (
-                              <button type="button" title="Restore" disabled={!canManage || saving} onClick={() => restoreState(state)} className="icon-btn">
+                              <button type="button" title="Restore" disabled={!canManage || saving} onClick={(event) => { event.stopPropagation(); restoreState(state); }} className="icon-btn">
                                 <RotateCcw className="h-3.5 w-3.5" />
                               </button>
                             )}
@@ -422,9 +427,16 @@ export default function AdminJobStates() {
               </div>
             ) : (
               <div className="space-y-4 p-4">
-                <div>
-                  <h2 className="text-sm font-semibold">{editing ? "Edit State" : "New State"}</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">{editing ? "Rename labels and adjust workflow behavior." : "Add a stage to this company's default state set."}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold">{editing ? "Edit State" : "New State"}</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {editing ? <>Editing <span className="font-medium text-foreground">{form.label || "state"}</span> — changes update this state in place.</> : "Add a stage to this company's default state set."}
+                    </p>
+                  </div>
+                  {editing && (
+                    <button type="button" disabled={saving} onClick={() => resetForm()} className="shrink-0 rounded-sm border border-border px-2 py-1 text-2xs hover:bg-muted">+ New</button>
+                  )}
                 </div>
 
                 <label className="block text-xs">
