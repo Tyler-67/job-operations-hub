@@ -30,6 +30,9 @@ verify_jwt = true
 [functions.change-password]
 verify_jwt = true
 
+[functions.contacts-sync]
+verify_jwt = true
+
 [functions.expenses]
 verify_jwt = true
 

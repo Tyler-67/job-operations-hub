@@ -1,6 +1,11 @@
-// Server-side only Uptiq API wrapper.
+// Server-side only Uptiq (GoHighLevel / LeadConnector) API wrapper.
 // Missing UPTIQ_API_TOKEN fails closed unless demo stubs are explicitly enabled.
 // Different Uptiq endpoints require different API versions; isolate per method.
+//
+// TEMP PROVIDER / SINGLE SWAP POINT: this module is the ONLY place that talks to the A2P
+// messaging + contacts provider (currently Uptiq/GHL). Contacts (upsert/find), SMS, and email
+// all go through here, so migrating to a different A2P service later means reimplementing this
+// one file against the new provider — callers (notifications, contacts-sync) stay unchanged.
 
 const UPTIQ_BASE = "https://services.leadconnectorhq.com";
 
@@ -61,6 +66,33 @@ export const uptiq = {
     return callUptiq(`/users/search?${query.toString()}`, {
       method: "GET",
       version: "2023-02-21",
+    });
+  },
+  // Find-or-create a contact in the location, deduped by email/phone. Returns the provider's
+  // contact record (data.contact.id is the id to store + message against). Needs the token's
+  // Contacts write scope.
+  async upsertContact(params: { locationId: string; name?: string | null; email?: string | null; phone?: string | null; tags?: string[] }) {
+    const body: Record<string, unknown> = { locationId: params.locationId };
+    if (params.name) body.name = params.name;
+    if (params.email) body.email = params.email;
+    if (params.phone) body.phone = params.phone;
+    if (params.tags?.length) body.tags = params.tags;
+    return callUptiq(`/contacts/upsert`, {
+      method: "POST",
+      version: "2021-07-28",
+      body: JSON.stringify(body),
+    });
+  },
+  // Look up an existing contact by a free-text query (email or phone) within a location.
+  async findContacts(params: { locationId: string; query: string; limit?: number }) {
+    const query = new URLSearchParams({
+      locationId: params.locationId,
+      query: params.query,
+      limit: String(params.limit ?? 5),
+    });
+    return callUptiq(`/contacts/?${query.toString()}`, {
+      method: "GET",
+      version: "2021-07-28",
     });
   },
   async sendSms(contactId: string, message: string) {
