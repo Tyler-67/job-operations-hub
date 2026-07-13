@@ -110,6 +110,18 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       );
       return { subject, body };
     }
+    // Immediate SMS to owner + office the moment a crew check-in marks a phase ready for
+    // inspection. Closes the latency gap where nobody heard about an inspection request until
+    // the next daily reminder cron. No action link — the owner still schedules the date via
+    // the inspection_date_link the reminder cron sends; this just tells them it's coming.
+    case "inspection_requested_notice": {
+      const where = address ? ` at ${address}` : "";
+      const phase = str(payload.phase_label);
+      const body = phase
+        ? `Crew marked the job${where} ready for the ${phase}. The owner will be asked to schedule the inspection date.`
+        : `Crew marked the job${where} ready for inspection. The owner will be asked to schedule the inspection date.`;
+      return { subject: null, body };
+    }
     // The inspection-reminder cron enqueues this as an SMS to the owner when a job has
     // reached an inspection phase but has no date yet. The link is a single-use
     // inspection_date token that opens the branded date picker. Re-sent daily until set.

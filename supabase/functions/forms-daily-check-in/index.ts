@@ -106,6 +106,54 @@ async function queueFieldPurchaseNotice(sb: any, opts: {
   }
 }
 
+// Immediate owner + office SMS the moment a crew check-in advances a job into an inspection
+// phase. Without this, nobody heard about the request until the next daily inspection-reminder
+// cron (up to ~1 day later). The reminder cron still owns date scheduling; this only removes
+// the silence. phaseLabel names the inspection state the job just entered (e.g. "Rough-In
+// Inspection"). Per-recipient/day dedupe key keeps a same-day re-submit from double-sending.
+async function queueInspectionRequestedNotice(sb: any, opts: {
+  locationId: string;
+  jobId: string;
+  logDate: string;
+  address: string;
+  toStateId: string | null;
+}) {
+  const [{ data: settings, error: settingsErr }, phaseRes] = await Promise.all([
+    sb.from("company_settings")
+      .select("owner_contact_id, office_contact_id")
+      .eq("location_id", opts.locationId)
+      .maybeSingle(),
+    opts.toStateId
+      ? sb.from("job_states").select("label").eq("id", opts.toStateId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (settingsErr) throw settingsErr;
+  if (phaseRes.error) throw phaseRes.error;
+
+  const now = new Date().toISOString();
+  const payload = {
+    job_id: opts.jobId,
+    log_date: opts.logDate,
+    address: opts.address,
+    phase_label: typeof phaseRes.data?.label === "string" ? phaseRes.data.label : null,
+  };
+  for (const raw of [settings?.owner_contact_id, settings?.office_contact_id]) {
+    const contactId = typeof raw === "string" ? raw.trim() : "";
+    if (!contactId) continue;
+    const { error: insErr } = await sb.from("scheduled_notifications").insert({
+      location_id: opts.locationId,
+      job_id: opts.jobId,
+      channel: "sms",
+      recipient: contactId,
+      template_key: "inspection_requested_notice",
+      payload,
+      scheduled_for: now,
+      dedupe_key: `notif:insp_requested:${opts.jobId}:${opts.logDate}:${contactId}`,
+    });
+    if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
+  }
+}
+
 async function queueOwnerOfficeNotices(sb: any, opts: {
   locationId: string;
   jobId: string;
@@ -340,7 +388,9 @@ Deno.serve(async (req) => {
     const { error: jobPatchErr } = await sb.from("jobs").update(jobPatch).eq("id", jobId);
     if (jobPatchErr) throw jobPatchErr;
 
-    // 4. Inspection request advances the job through the configurable state engine.
+    // 4. Inspection request advances the job through the configurable state engine, and —
+    //    when it actually moves — immediately texts owner + office so they hear right away
+    //    instead of waiting for the next daily inspection-reminder cron.
     let transition = null;
     if (input.inspectionRequested) {
       transition = await applyTransition(sb, {
@@ -350,6 +400,15 @@ Deno.serve(async (req) => {
         actorContactId: crewContactId,
         dedupeKey: `check_in_inspection:${jobId}:${input.logDate}`,
       });
+      if (transition.changed) {
+        await queueInspectionRequestedNotice(sb, {
+          locationId: job.location_id,
+          jobId,
+          logDate: input.logDate,
+          address: job.address,
+          toStateId: transition.toStateId,
+        });
+      }
     }
 
     // 4b. Crew reporting the work 100% complete (and NOT requesting an inspection) asks

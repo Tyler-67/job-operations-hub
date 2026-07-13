@@ -162,7 +162,10 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "submit_failed");
-      setDone({ inspectionRequested: Boolean(data.state_changed) || inspection });
+      // Only claim the office was notified when the phase actually advanced into an
+      // inspection state — that is exactly when the backend enqueues the owner/office
+      // notice. (A request from a state with no inspection transition is a no-op.)
+      setDone({ inspectionRequested: Boolean(data.state_changed) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
     } finally {

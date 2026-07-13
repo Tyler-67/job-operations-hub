@@ -79,6 +79,22 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("https://app.example.com/forms/inspection-date?token=abc");
   });
 
+  it("renders the immediate inspection-requested notice with the phase label", () => {
+    const msg = renderNotification("inspection_requested_notice", {
+      address: "1420 Canyon Rd",
+      phase_label: "Rough-In Inspection",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Crew marked the job at 1420 Canyon Rd ready for the Rough-In Inspection");
+    expect(msg.body).toContain("owner will be asked to schedule");
+  });
+
+  it("falls back to a generic inspection-requested notice when no phase label is given", () => {
+    const msg = renderNotification("inspection_requested_notice", { address: "1420 Canyon Rd" });
+    expect(msg.body).toContain("ready for inspection");
+    expect(msg.body).not.toContain("ready for the");
+  });
+
   it("renders the inspection result ask with both PASS and FAIL links", () => {
     const msg = renderNotification("inspection_result_ask", {
       address: "1420 Canyon Rd",

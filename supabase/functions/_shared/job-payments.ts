@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { maybeBuildCompletionReport } from "./completion-report.ts";
+import { maybeEnqueueReviewRequest } from "./review-request.ts";
 
 const PAID_SOURCES = new Set(["quickbooks", "uptiq_invoice", "manual"]);
 
@@ -92,9 +93,12 @@ export async function markJobPaid(sb: any, opts: {
   if (eventErr) throw eventErr;
 
   // A job can reach the paid (billing) state via Mark Paid or the invoice-paid webhook,
-  // bypassing the decision spine. Build the completion-report snapshot here too; the helper
-  // self-guards (billing state only) and is idempotent.
+  // bypassing the decision spine. Build the completion-report snapshot AND schedule the
+  // customer review-request tag here too; both helpers self-guard (billing state only) and
+  // are idempotent (per-job dedupe), so a job that already went through walkthrough-approve
+  // won't double-enqueue and one that skipped straight to paid still gets both.
   await maybeBuildCompletionReport(sb, opts.jobId, stateId);
+  await maybeEnqueueReviewRequest(sb, opts.jobId, stateId);
 
   return updated;
 }
