@@ -47,6 +47,7 @@ interface SettingsForm {
   brand_secondary_color: string;
   brand_font: string;
   brand_logo_url: string;
+  debug_mode: boolean;
 }
 
 function blankForm(): SettingsForm {
@@ -75,6 +76,7 @@ function blankForm(): SettingsForm {
     brand_secondary_color: "#0ea5e9",
     brand_font: "Inter",
     brand_logo_url: "",
+    debug_mode: false,
   };
 }
 
@@ -104,6 +106,7 @@ function toForm(location: SettingsLocation, settings: CompanySettings): Settings
     brand_secondary_color: settings.brand_secondary_color ?? "#0ea5e9",
     brand_font: settings.brand_font ?? "Inter",
     brand_logo_url: settings.brand_logo_url ?? "",
+    debug_mode: settings.debug_mode ?? false,
   };
 }
 
@@ -227,6 +230,7 @@ export default function AdminSettings() {
           brand_secondary_color: form.brand_secondary_color,
           brand_font: form.brand_font.trim(),
           brand_logo_url: nullable(form.brand_logo_url),
+          debug_mode: form.debug_mode,
         },
       });
       setData(next);
@@ -364,7 +368,23 @@ export default function AdminSettings() {
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
 
-            {canSyncContacts && (
+            {canManage && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Debug</div>
+                <div className="px-4 py-4">
+                  <label className="flex items-start gap-2 text-xs">
+                    <input type="checkbox" className="mt-0.5" checked={form.debug_mode} disabled={!canManage || saving} onChange={(event) => updateForm({ debug_mode: event.target.checked })} />
+                    <span>
+                      <span className="font-medium">Debug mode</span> &mdash; show the diagnostic panels (run crons on demand,
+                      Uptiq contacts sync) and extra data on how things are working. Leave <strong>off</strong> for a clean/demo
+                      tenant. Toggling shows/hides the panels immediately; <strong>Save Settings</strong> to persist it.
+                    </span>
+                  </label>
+                </div>
+              </section>
+            )}
+
+            {canSyncContacts && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq Contacts</div>
                 <div className="space-y-5 px-4 py-4">
@@ -400,7 +420,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canManage && (
+            {canManage && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Testing Tools</div>
                 <div className="space-y-3 px-4 py-4">

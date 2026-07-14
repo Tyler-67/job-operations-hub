@@ -35,6 +35,7 @@ export interface CompanySettings {
   brand_secondary_color: string;
   brand_font: string;
   brand_logo_url: string | null;
+  debug_mode: boolean;
   created_at: string;
   updated_at: string;
 }

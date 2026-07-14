@@ -189,6 +189,7 @@ async function updateSettings(sb: any, locationId: string, body: Record<string, 
   }
   if ("owner_email" in settingsBody) patch.owner_email = cleanEmail(settingsBody.owner_email);
   if ("office_email" in settingsBody) patch.office_email = cleanEmail(settingsBody.office_email);
+  if ("debug_mode" in settingsBody) patch.debug_mode = settingsBody.debug_mode === true;
   if ("check_in_send_time" in settingsBody) {
     const time = cleanTime(settingsBody.check_in_send_time);
     if (!time) throw new Error("invalid_time");

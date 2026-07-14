@@ -3,13 +3,37 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarClock, CheckCircle2, ClipboardList, ReceiptText } from "lucide-react";
 import { currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 
-function needsCheckIn(job: JobSummary) {
-  if (!job.current_state?.allow_check_ins || job.current_state?.is_terminal) return false;
-  if (!job.last_log_date) return true;
-  const last = new Date(job.last_log_date);
+// Parse a date-only string ("YYYY-MM-DD") as a LOCAL calendar date at midnight. last_log_date is
+// date-only; new Date() reads it as UTC midnight, which is the PRIOR day in US timezones — that
+// mis-flagged a same-day check-in as overdue.
+function localMidnight(value: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Whole days a check-in-eligible job is overdue: undefined = not eligible (terminal / no check-ins),
+// null = eligible but never logged, 0 = logged today (not overdue), N = last log N days ago.
+function checkInOverdueDays(job: JobSummary): number | null | undefined {
+  if (!job.current_state?.allow_check_ins || job.current_state?.is_terminal) return undefined;
+  if (!job.last_log_date) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return last < today;
+  return Math.round((today.getTime() - localMidnight(job.last_log_date).getTime()) / 86_400_000);
+}
+
+function needsCheckIn(job: JobSummary) {
+  const days = checkInOverdueDays(job);
+  return days === null || (typeof days === "number" && days >= 1);
+}
+
+// Human overdue status for a pill/label: null when not overdue (or not eligible).
+function checkInStatus(job: JobSummary): string | null {
+  const days = checkInOverdueDays(job);
+  if (days === null) return "never checked in";
+  if (typeof days === "number" && days >= 1) return days === 1 ? "1 day overdue" : `${days} days overdue`;
+  return null;
 }
 
 function inspectionDue(job: JobSummary) {
@@ -142,10 +166,13 @@ export default function Dashboard() {
                       <td className="px-3 py-2 font-mono-num">{job.job_completion_pct}%</td>
                       <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDate(job.inspection_date)}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{shortDate(job.last_log_date)}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        <div>{shortDate(job.last_log_date)}</div>
+                        {checkInStatus(job) && <div className="text-2xs font-medium text-destructive">{checkInStatus(job)}</div>}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-col items-start gap-1">
-                          {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">check-in</span>}
+                          {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">{checkInStatus(job) ?? "check-in"}</span>}
                           {pendingPoCount > 0 && <span className="pill bg-warning/20 text-warning">PO value</span>}
                           {inspectionDue(job) && <span className="pill bg-info/10 text-info">inspection</span>}
                           {!needsCheckIn(job) && pendingPoCount === 0 && !inspectionDue(job) && <span className="text-muted-foreground">-</span>}
@@ -166,7 +193,7 @@ export default function Dashboard() {
                   <Link key={job.id} to={`/jobs/${job.id}`} className="block py-2 hover:text-accent">
                     <div className="font-medium">{job.address}</div>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">check-in overdue</span>}
+                      {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">check-in: {checkInStatus(job) ?? "overdue"}</span>}
                       {inspectionDue(job) && <span className="pill bg-info/10 text-info">inspection due</span>}
                       {job.purchase_orders.some((po) => po.status === "pending_value") && <span className="pill bg-warning/20 text-warning">PO value</span>}
                     </div>
