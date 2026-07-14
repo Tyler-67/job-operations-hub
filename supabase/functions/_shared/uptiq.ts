@@ -95,6 +95,44 @@ export const uptiq = {
       version: "2021-07-28",
     });
   },
+  // READ-ONLY pull: page the location's contacts and return those whose tags include `tag`
+  // (case-insensitive). Uses the same /contacts/ read endpoint as findContacts (Contacts read
+  // scope only — no writes to Uptiq). Filters tags client-side so it doesn't depend on the
+  // search-filter schema. Caps pages to avoid runaway; reports `capped` if the cap was hit.
+  async listContactsByTag(params: { locationId: string; tag: string; pageLimit?: number; maxPages?: number }) {
+    const target = params.tag.trim().toLowerCase();
+    const pageLimit = Math.min(100, Math.max(1, params.pageLimit ?? 100));
+    const maxPages = Math.max(1, params.maxPages ?? 10);
+    const matched: Array<{ id: string; name: string | null; email: string | null; phone: string | null; tags: string[] }> = [];
+    let startAfter: string | null = null;
+    let startAfterId: string | null = null;
+    let pages = 0;
+    let scanned = 0;
+    while (pages < maxPages) {
+      const q = new URLSearchParams({ locationId: params.locationId, limit: String(pageLimit) });
+      if (startAfter) q.set("startAfter", startAfter);
+      if (startAfterId) q.set("startAfterId", startAfterId);
+      const res = await callUptiq(`/contacts/?${q.toString()}`, { method: "GET", version: "2021-07-28" });
+      if (!res.ok) return { ok: false, status: res.status, error: res.error, data: res.data, matched, scanned, pages };
+      const d = res.data as any;
+      const contacts: any[] = Array.isArray(d?.contacts) ? d.contacts : [];
+      scanned += contacts.length;
+      for (const c of contacts) {
+        const tags = Array.isArray(c?.tags) ? c.tags.map((t: any) => String(t).toLowerCase()) : [];
+        if (tags.includes(target)) {
+          const name = (c?.contactName || [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.name || "").trim();
+          matched.push({ id: String(c?.id ?? ""), name: name || null, email: c?.email ?? null, phone: c?.phone ?? null, tags });
+        }
+      }
+      pages++;
+      if (contacts.length < pageLimit) break; // last page
+      const meta = (d?.meta ?? {}) as any;
+      startAfter = meta.startAfter ? String(meta.startAfter) : null;
+      startAfterId = meta.startAfterId ? String(meta.startAfterId) : null;
+      if (!startAfter && !startAfterId) break; // no cursor to page further
+    }
+    return { ok: true, status: 200, matched, scanned, pages, capped: pages >= maxPages };
+  },
   async sendSms(contactId: string, message: string) {
     return callUptiq(`/conversations/messages`, {
       method: "POST",

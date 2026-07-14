@@ -8,11 +8,13 @@ import {
   canManageSettings,
   fetchSettings,
   moneyLabel,
+  pullCrew,
   runCron,
   saveSettings,
   syncContacts,
   timeForInput,
   type ContactsSyncResult,
+  type CrewPullResult,
   type CronKey,
   type CompanySettings,
   type SettingsLocation,
@@ -149,6 +151,8 @@ export default function AdminSettings() {
   const [cronResult, setCronResult] = useState<string | null>(null);
   const [contactsBusy, setContactsBusy] = useState<"preview" | "sync" | null>(null);
   const [contactsResult, setContactsResult] = useState<ContactsSyncResult | null>(null);
+  const [crewBusy, setCrewBusy] = useState<"preview" | "pull" | null>(null);
+  const [crewResult, setCrewResult] = useState<CrewPullResult | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -264,6 +268,20 @@ export default function AdminSettings() {
     }
   }
 
+  async function handlePullCrew(dryRun: boolean) {
+    if (!dryRun && !window.confirm("Pull crew from Uptiq now?\n\nImports every Uptiq contact tagged \"crew\" as a crew contact in Daily Burn (created or updated, matched by Uptiq id). Read-only in Uptiq; it only adds/updates crew here and never removes anyone.")) return;
+    setCrewBusy(dryRun ? "preview" : "pull");
+    setCrewResult(null);
+    setError(null);
+    try {
+      setCrewResult(await pullCrew({ dryRun }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Crew pull failed");
+    } finally {
+      setCrewBusy(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
@@ -348,18 +366,35 @@ export default function AdminSettings() {
             {canSyncContacts && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq Contacts</div>
-                <div className="space-y-3 px-4 py-4">
-                  <p className="text-xs text-muted-foreground">
-                    Pull contact links from Uptiq: finds each app party (customers, crew, supply houses, owner,
-                    office) in Uptiq by email/phone and stores the matching Uptiq contact id so messaging can reach
-                    them. <strong>Read-only</strong> &mdash; nothing is created or changed in Uptiq. On staging, most
-                    parties are test data not present in Uptiq, so expect &ldquo;not in Uptiq&rdquo; for those.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <CronButton label="Preview (dry run)" busy={contactsBusy === "preview"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(true)} />
-                    <CronButton label="Sync from Uptiq" busy={contactsBusy === "sync"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(false)} />
+                <div className="space-y-5 px-4 py-4">
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium">Pull crew from Uptiq <span className="text-muted-foreground">(tag: crew)</span></p>
+                    <p className="text-xs text-muted-foreground">
+                      Imports every Uptiq contact tagged <strong>crew</strong> as a crew contact in Daily Burn
+                      (created or updated, matched by Uptiq id). <strong>Read-only in Uptiq</strong> &mdash; only adds/updates
+                      crew here; never removes anyone.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <CronButton label="Preview (dry run)" busy={crewBusy === "preview"} disabled={crewBusy !== null} onClick={() => handlePullCrew(true)} />
+                      <CronButton label="Pull crew from Uptiq" busy={crewBusy === "pull"} disabled={crewBusy !== null} onClick={() => handlePullCrew(false)} />
+                    </div>
+                    {crewResult && <CrewPullSummary result={crewResult} />}
                   </div>
-                  {contactsResult && <ContactsSyncSummary result={contactsResult} />}
+
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <p className="text-xs font-medium">Link app parties to Uptiq</p>
+                    <p className="text-xs text-muted-foreground">
+                      Finds each app party (customers, crew, supply houses, owner, office) in Uptiq by email/phone and
+                      stores the matching Uptiq contact id so messaging can reach them. <strong>Read-only</strong> &mdash;
+                      nothing is created or changed in Uptiq. On staging, most parties are test data not in Uptiq, so
+                      expect &ldquo;not in Uptiq&rdquo; for those.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <CronButton label="Preview (dry run)" busy={contactsBusy === "preview"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(true)} />
+                      <CronButton label="Sync from Uptiq" busy={contactsBusy === "sync"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(false)} />
+                    </div>
+                    {contactsResult && <ContactsSyncSummary result={contactsResult} />}
+                  </div>
                 </div>
               </section>
             )}
@@ -423,6 +458,34 @@ function CronButton({ label, busy, disabled, onClick }: { label: string; busy: b
     >
       {busy ? "Running..." : label}
     </button>
+  );
+}
+
+function CrewPullSummary({ result }: { result: CrewPullResult }) {
+  const summary = result.dry_run
+    ? `Found ${result.found} Uptiq contact${result.found === 1 ? "" : "s"} tagged "${result.tag}" (scanned ${result.scanned ?? 0}${result.capped ? ", page cap hit" : ""}).`
+    : `Imported ${result.imported ?? 0} · Updated ${result.updated ?? 0} · Skipped ${result.skipped ?? 0} (of ${result.found} tagged "${result.tag}").`;
+  const rows = result.dry_run
+    ? (result.contacts ?? []).map((c) => ({ label: c.name || "(unnamed)", note: c.email || c.phone || c.id }))
+    : (result.results ?? []).map((r) => ({ label: r.name || "(unnamed)", note: r.action + (r.error ? `: ${r.error}` : "") }));
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium">{summary}</div>
+      {rows.length > 0 && (
+        <div className="max-h-56 overflow-auto rounded-sm border border-border">
+          <table className="w-full text-2xs">
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="border-b border-border/60 last:border-0">
+                  <td className="px-2 py-1">{row.label}</td>
+                  <td className="break-all px-2 py-1 font-mono text-muted-foreground">{row.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

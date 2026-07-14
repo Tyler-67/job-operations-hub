@@ -128,6 +128,25 @@ export function syncContacts(opts: { dryRun?: boolean } = {}) {
   return callEdge("contacts-sync", { method: "POST", body: { mode: "link", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<ContactsSyncResult>;
 }
 
+export interface CrewPullResult {
+  mode: string;
+  tag: string;
+  dry_run: boolean;
+  scanned?: number;
+  capped?: boolean;
+  found: number;
+  imported?: number;
+  updated?: number;
+  skipped?: number;
+  contacts?: Array<{ id: string; name: string | null; email: string | null; phone: string | null }>;
+  results?: Array<{ id: string; name: string | null; action: string; error?: string }>;
+}
+
+// Uptiq -> app PULL (read-only): import Uptiq contacts tagged `crew` as Daily Burn crew contacts.
+export function pullCrew(opts: { dryRun?: boolean } = {}) {
+  return callEdge("contacts-sync", { method: "POST", body: { mode: "pull_crew", tag: "crew", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<CrewPullResult>;
+}
+
 export function timeForInput(value: string | null | undefined) {
   return value ? value.slice(0, 5) : "";
 }

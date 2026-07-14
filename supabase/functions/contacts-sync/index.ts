@@ -49,6 +49,57 @@ Deno.serve(async (req) => {
   if (!loc?.uptiq_location_id) return json({ error: "no_uptiq_location" }, 400);
   const uptiqLoc = String(loc.uptiq_location_id);
 
+  // Uptiq -> app PULL: import every Uptiq contact carrying a tag (default "crew") as an app crew
+  // contact. READ-ONLY to Uptiq. Deduped by uptiq_contact_id and additive (never deletes/deactivates
+  // existing app contacts). dry_run previews the matched contacts without touching the app.
+  if (body.mode === "pull_crew" || body.mode === "pull_tag") {
+    const tag = (typeof body.tag === "string" && body.tag.trim()) ? body.tag.trim() : "crew";
+    const res = await uptiq.listContactsByTag({ locationId: uptiqLoc, tag });
+    if (!res.ok) return json({ mode: "pull_crew", tag, error: res.error ?? "list_failed", status: res.status, detail: res.data }, 502);
+    const found = limit ? res.matched.slice(0, limit) : res.matched;
+
+    if (dryRun) {
+      return json({
+        location: loc.company_name, mode: "pull_crew", tag, dry_run: true,
+        scanned: res.scanned, capped: res.capped, found: res.matched.length,
+        contacts: found.map((c) => ({ id: c.id, name: c.name, email: c.email, phone: c.phone })),
+      });
+    }
+
+    let imported = 0, updated = 0, skipped = 0;
+    const results: any[] = [];
+    for (const c of found) {
+      if (!c.id) { skipped++; continue; }
+      const { data: existing, error: exErr } = await sb
+        .from("contacts").select("id").eq("location_id", locId).eq("uptiq_contact_id", c.id).maybeSingle();
+      if (exErr) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: exErr.message }); continue; }
+      const patch: Record<string, unknown> = { email: c.email, phone: c.phone, role: "crew", active: true };
+      if (c.name) patch.name = c.name;
+      if (existing) {
+        const { error } = await sb.from("contacts").update(patch).eq("id", existing.id);
+        if (error) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: error.message }); continue; }
+        updated++; results.push({ id: c.id, name: c.name, action: "updated" });
+      } else {
+        const { error } = await sb.from("contacts").insert({
+          location_id: locId, uptiq_contact_id: c.id,
+          name: c.name ?? c.email ?? "(unnamed crew)", email: c.email, phone: c.phone, role: "crew", active: true,
+        });
+        if (error) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: error.message }); continue; }
+        imported++; results.push({ id: c.id, name: c.name, action: "imported" });
+      }
+    }
+
+    await logEvent({
+      source: "admin", kind: "contacts_pull_crew", location_id: locId,
+      payload: { tag, found: res.matched.length, imported, updated, skipped, by: claims.email },
+    });
+    return json({
+      location: loc.company_name, mode: "pull_crew", tag, dry_run: false,
+      scanned: res.scanned, capped: res.capped, found: res.matched.length,
+      imported, updated, skipped, results,
+    });
+  }
+
   const targets: Target[] = [];
 
   // 1) contacts table (customers, crew, ...)
