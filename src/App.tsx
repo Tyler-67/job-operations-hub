@@ -13,6 +13,7 @@ import AdminExpenses from "@/pages/admin/Expenses";
 import AdminJobStates from "@/pages/admin/JobStates";
 import AdminSettings from "@/pages/admin/Settings";
 import AdminSupplyHouses from "@/pages/admin/SupplyHouses";
+import AdminContacts from "@/pages/admin/Contacts";
 import AdminUsers from "@/pages/admin/Users";
 import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
@@ -83,6 +84,7 @@ const App = () => (
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<AdminSupplyHouses />} />
+              <Route path="/admin/contacts" element={<AdminContacts />} />
               <Route path="/admin/expenses" element={<AdminExpenses />} />
               <Route path="/admin/users" element={<AdminUsers />} />
             </Route>

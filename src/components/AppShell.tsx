@@ -4,6 +4,7 @@ import { callEdge, useSession } from "@/lib/session";
 import {
   BarChart3,
   BriefcaseBusiness,
+  Contact,
   KeyRound,
   LayoutDashboard,
   ReceiptText,
@@ -27,6 +28,7 @@ const adminNav = [
   { to: "/admin/settings", label: "Settings", icon: Settings2 },
   { to: "/admin/job-states", label: "Job States", icon: Wrench },
   { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse },
+  { to: "/admin/contacts", label: "Contacts", icon: Contact },
   { to: "/admin/expenses", label: "Expenses", icon: ReceiptText },
   { to: "/admin/users", label: "Users", icon: Users },
 ];

@@ -9,6 +9,7 @@ import { json, preflight, serviceClient, verifySession, logEvent } from "../_sha
 import { uptiq } from "../_shared/uptiq.ts";
 
 const WRITE_ROLES = new Set(["owner_admin", "support_admin"]);
+const READ_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
 function reachable(email: unknown, phone: unknown) {
   return Boolean((typeof email === "string" && email.trim()) || (typeof phone === "string" && phone.trim()));
@@ -27,11 +28,35 @@ interface Target {
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST" && req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
 
   const claims = await verifySession(req.headers.get("x-app-session"));
   if (!claims) return json({ error: "unauthorized" }, 401);
-  if (!WRITE_ROLES.has(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+  const role = String(claims.role ?? "");
+
+  const sb = serviceClient();
+  const locId = claims.loc as string;
+
+  // GET: read-only list of the location's contacts (customers, crew, owner, office, supply houses)
+  // for the Contacts admin page. Broader read gate than the sync POST (which writes app records).
+  if (req.method === "GET") {
+    if (!READ_ROLES.has(role)) return json({ error: "forbidden" }, 403);
+    const { data, error } = await sb
+      .from("contacts")
+      .select("id, name, role, email, phone, uptiq_contact_id, active, created_at")
+      .eq("location_id", locId)
+      .order("role", { ascending: true })
+      .order("active", { ascending: false })
+      .order("name", { ascending: true });
+    if (error) return json({ error: error.message }, 500);
+    const contacts = data ?? [];
+    const roleCounts: Record<string, number> = {};
+    for (const c of contacts) { const r = (c.role as string) ?? "other"; roleCounts[r] = (roleCounts[r] ?? 0) + 1; }
+    return json({ contacts, role_counts: roleCounts, total: contacts.length });
+  }
+
+  // POST (sync/pull) writes app records, so it stays write-role gated.
+  if (!WRITE_ROLES.has(role)) return json({ error: "forbidden" }, 403);
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body.dry_run === true;
@@ -39,9 +64,6 @@ Deno.serve(async (req) => {
   // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
   // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
   const mode = body.mode === "upsert" ? "upsert" : "link";
-
-  const sb = serviceClient();
-  const locId = claims.loc as string;
 
   const { data: loc, error: locErr } = await sb
     .from("locations").select("id, uptiq_location_id, company_name").eq("id", locId).maybeSingle();
