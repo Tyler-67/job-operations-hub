@@ -107,6 +107,27 @@ export function runCron(cron: CronKey) {
   return callEdge("settings", { method: "POST", body: { action: "run_cron", cron } }) as Promise<RunCronResult>;
 }
 
+export interface ContactsSyncResult {
+  location: string;
+  mode: string;
+  dry_run: boolean;
+  total_reachable: number;
+  would_sync?: number;
+  attempted?: number;
+  linked?: number;
+  not_found?: number;
+  failed?: number;
+  parties?: Array<{ key: string; name: string | null; email: string | null; phone: string | null; has_existing_id: boolean }>;
+  results?: Array<{ key: string; ok: boolean; action?: string; contact_id?: string; error?: string }>;
+}
+
+// Contacts sync — READ-ONLY (link) mode only: find each app party in Uptiq by email/phone and
+// store the matching Uptiq contact id on the app record. No writes to Uptiq. dry_run previews
+// the plan without any Uptiq calls. (Uptiq-write/upsert is intentionally not exposed here.)
+export function syncContacts(opts: { dryRun?: boolean } = {}) {
+  return callEdge("contacts-sync", { method: "POST", body: { mode: "link", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<ContactsSyncResult>;
+}
+
 export function timeForInput(value: string | null | undefined) {
   return value ? value.slice(0, 5) : "";
 }

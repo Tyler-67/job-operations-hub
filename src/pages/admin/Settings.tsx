@@ -10,7 +10,9 @@ import {
   moneyLabel,
   runCron,
   saveSettings,
+  syncContacts,
   timeForInput,
+  type ContactsSyncResult,
   type CronKey,
   type CompanySettings,
   type SettingsLocation,
@@ -135,6 +137,8 @@ function Metric({ icon: Icon, label, value, tone = "default" }: {
 export default function AdminSettings() {
   const { user } = useSession();
   const canManage = canManageSettings(user?.role);
+  // contacts-sync is gated to owner_admin/support_admin (narrower than settings' canManage).
+  const canSyncContacts = user?.role === "owner_admin" || user?.role === "support_admin";
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
   const [loading, setLoading] = useState(true);
@@ -143,6 +147,8 @@ export default function AdminSettings() {
   const [notice, setNotice] = useState<string | null>(null);
   const [cronBusy, setCronBusy] = useState<CronKey | null>(null);
   const [cronResult, setCronResult] = useState<string | null>(null);
+  const [contactsBusy, setContactsBusy] = useState<"preview" | "sync" | null>(null);
+  const [contactsResult, setContactsResult] = useState<ContactsSyncResult | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -244,6 +250,20 @@ export default function AdminSettings() {
     }
   }
 
+  async function handleSyncContacts(dryRun: boolean) {
+    if (!dryRun && !window.confirm("Sync contacts from Uptiq now?\n\nReads Uptiq contacts and stores the matching Uptiq contact id on each app party (customers, crew, supply houses, owner, office). Read-only — it does NOT create or change anything in Uptiq.")) return;
+    setContactsBusy(dryRun ? "preview" : "sync");
+    setContactsResult(null);
+    setError(null);
+    try {
+      setContactsResult(await syncContacts({ dryRun }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Contacts sync failed");
+    } finally {
+      setContactsBusy(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
@@ -325,6 +345,25 @@ export default function AdminSettings() {
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
 
+            {canSyncContacts && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq Contacts</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Pull contact links from Uptiq: finds each app party (customers, crew, supply houses, owner,
+                    office) in Uptiq by email/phone and stores the matching Uptiq contact id so messaging can reach
+                    them. <strong>Read-only</strong> &mdash; nothing is created or changed in Uptiq. On staging, most
+                    parties are test data not present in Uptiq, so expect &ldquo;not in Uptiq&rdquo; for those.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <CronButton label="Preview (dry run)" busy={contactsBusy === "preview"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(true)} />
+                    <CronButton label="Sync from Uptiq" busy={contactsBusy === "sync"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(false)} />
+                  </div>
+                  {contactsResult && <ContactsSyncSummary result={contactsResult} />}
+                </div>
+              </section>
+            )}
+
             {canManage && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Testing Tools</div>
@@ -384,6 +423,35 @@ function CronButton({ label, busy, disabled, onClick }: { label: string; busy: b
     >
       {busy ? "Running..." : label}
     </button>
+  );
+}
+
+function ContactsSyncSummary({ result }: { result: ContactsSyncResult }) {
+  const rows = result.dry_run
+    ? (result.parties ?? []).map((p) => ({ key: p.key, label: p.name || p.email || p.phone || "-", note: p.has_existing_id ? "already linked" : (p.email || p.phone || "") }))
+    : (result.results ?? []).map((r) => ({ key: r.key, label: r.action ?? (r.ok ? "ok" : "failed"), note: r.contact_id ?? r.error ?? "" }));
+  const summary = result.dry_run
+    ? `Preview — ${result.would_sync ?? 0} of ${result.total_reachable} reachable parties would sync (no Uptiq calls made).`
+    : `Linked ${result.linked ?? 0} · Not in Uptiq ${result.not_found ?? 0} · Failed ${result.failed ?? 0} (of ${result.attempted ?? 0} attempted).`;
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium">{summary}</div>
+      {rows.length > 0 && (
+        <div className="max-h-56 overflow-auto rounded-sm border border-border">
+          <table className="w-full text-2xs">
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="border-b border-border/60 last:border-0">
+                  <td className="px-2 py-1 text-muted-foreground">{row.key}</td>
+                  <td className="px-2 py-1">{row.label}</td>
+                  <td className="break-all px-2 py-1 font-mono text-muted-foreground">{row.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
