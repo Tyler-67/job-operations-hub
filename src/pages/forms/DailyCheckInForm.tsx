@@ -207,7 +207,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label htmlFor="hours">Hours worked</Label>
-          <Input id="hours" type="number" inputMode="decimal" min="0" step="0.25" value={hours}
+          <Input id="hours" type="number" inputMode="decimal" min="0" max="24" step="0.25" value={hours}
             onChange={(e) => setHours(e.target.value)} placeholder="0" />
         </div>
         <div className="space-y-1">
@@ -242,7 +242,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
             </div>
             <div className="space-y-1">
               <Label htmlFor="vendor">Vendor</Label>
-              <Input id="vendor" value={fieldVendor} onChange={(e) => setFieldVendor(e.target.value)} placeholder="Home Depot" />
+              <Input id="vendor" maxLength={120} value={fieldVendor} onChange={(e) => setFieldVendor(e.target.value)} placeholder="Home Depot" />
             </div>
           </div>
           <div className="space-y-1">
@@ -294,7 +294,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
 
           <div className="space-y-1">
             <Label htmlFor="parts-list">What did you order?</Label>
-            <Textarea id="parts-list" value={partsList} onChange={(e) => setPartsList(e.target.value)}
+            <Textarea id="parts-list" maxLength={1000} value={partsList} onChange={(e) => setPartsList(e.target.value)}
               placeholder={supplyAction === "place_order"
                 ? "List the parts to order — the supply house gets this list"
                 : "List the parts the office should value the PO for"} />
@@ -313,7 +313,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
 
       <div className="space-y-1">
         <Label htmlFor="issues">Issues or notes</Label>
-        <Textarea id="issues" value={issues} onChange={(e) => setIssues(e.target.value)}
+        <Textarea id="issues" maxLength={1000} value={issues} onChange={(e) => setIssues(e.target.value)}
           placeholder="Anything the office should know" />
       </div>
 

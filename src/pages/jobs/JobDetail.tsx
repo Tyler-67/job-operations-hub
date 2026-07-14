@@ -380,7 +380,7 @@ export default function JobDetail() {
         <div className="overflow-auto p-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Job address">
-              <input required disabled={readOnly} value={form.address} onChange={(event) => update("address", event.target.value)} className={inputClass(readOnly)} />
+              <input required maxLength={200} disabled={readOnly} value={form.address} onChange={(event) => update("address", event.target.value)} className={inputClass(readOnly)} />
             </Field>
             <Field label="Current state">
               <select disabled={readOnly} value={form.current_state_id} onChange={(event) => update("current_state_id", event.target.value)} className={inputClass(readOnly)}>
@@ -390,7 +390,7 @@ export default function JobDetail() {
             </Field>
 
             <Field label="Customer name">
-              <input disabled={readOnly} value={form.customer_name} onChange={(event) => update("customer_name", event.target.value)} className={inputClass(readOnly)} />
+              <input maxLength={120} disabled={readOnly} value={form.customer_name} onChange={(event) => update("customer_name", event.target.value)} className={inputClass(readOnly)} />
             </Field>
             <Field label="Crew">
               <div className="space-y-1.5">
@@ -407,7 +407,7 @@ export default function JobDetail() {
                     ))}
                   </select>
                 )}
-                <input disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
+                <input maxLength={300} disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
               </div>
             </Field>
             <Field label="Crew lead (gets the daily check-in text)">
@@ -421,7 +421,7 @@ export default function JobDetail() {
               <input disabled={readOnly} type="email" value={form.customer_email} onChange={(event) => update("customer_email", event.target.value)} className={inputClass(readOnly)} />
             </Field>
             <Field label="Customer phone">
-              <input disabled={readOnly} value={form.customer_phone} onChange={(event) => update("customer_phone", event.target.value)} className={inputClass(readOnly)} />
+              <input type="tel" inputMode="tel" maxLength={40} disabled={readOnly} value={form.customer_phone} onChange={(event) => update("customer_phone", event.target.value)} className={inputClass(readOnly)} />
             </Field>
 
             <Field label="Start date">
@@ -446,17 +446,17 @@ export default function JobDetail() {
             </Field>
 
             <Field label="Invoice number">
-              <input disabled={readOnly} value={form.invoice_number} onChange={(event) => update("invoice_number", event.target.value)} className={inputClass(readOnly)} />
+              <input maxLength={60} disabled={readOnly} value={form.invoice_number} onChange={(event) => update("invoice_number", event.target.value)} className={inputClass(readOnly)} />
             </Field>
 
             <div className="col-span-2">
               <Field label="Scope of work">
-                <textarea disabled={readOnly} value={form.scope_of_work} onChange={(event) => update("scope_of_work", event.target.value)} className={textAreaClass(readOnly)} />
+                <textarea maxLength={2000} disabled={readOnly} value={form.scope_of_work} onChange={(event) => update("scope_of_work", event.target.value)} className={textAreaClass(readOnly)} />
               </Field>
             </div>
             <div className="col-span-2">
               <Field label="Office notes">
-                <textarea disabled={readOnly} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={textAreaClass(readOnly)} />
+                <textarea maxLength={2000} disabled={readOnly} value={form.notes} onChange={(event) => update("notes", event.target.value)} className={textAreaClass(readOnly)} />
               </Field>
             </div>
           </div>

@@ -134,7 +134,7 @@ export default function QuickLogForm({ payload }: { payload: TokenPayload }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label htmlFor="hours">Hours worked</Label>
-          <Input id="hours" type="number" inputMode="decimal" min="0" step="0.25" value={hours}
+          <Input id="hours" type="number" inputMode="decimal" min="0" max="24" step="0.25" value={hours}
             onChange={(e) => setHours(e.target.value)} placeholder="0" />
         </div>
         <div className="space-y-1">
@@ -146,7 +146,7 @@ export default function QuickLogForm({ payload }: { payload: TokenPayload }) {
 
       <div className="space-y-1">
         <Label htmlFor="note">Note (optional)</Label>
-        <Textarea id="note" value={note} onChange={(e) => setNote(e.target.value)}
+        <Textarea id="note" maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)}
           placeholder="Anything the office should know" />
       </div>
 
