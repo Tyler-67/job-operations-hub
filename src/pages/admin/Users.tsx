@@ -14,7 +14,7 @@ import {
   shortDateTime,
   updateUser,
   type AppRole,
-  type AppUserRow,
+  type AppUserWithEmails,
   type SaveUserPayload,
   type UsersResponse,
 } from "@/lib/users";
@@ -25,6 +25,7 @@ interface UserForm {
   email: string;
   name: string;
   phone: string;
+  uptiq_contact_id: string;
   role: AppRole;
   active: boolean;
   password: string; // initial password for a NEW user (empty for edits — use the reset control)
@@ -35,18 +36,20 @@ function blankUserForm(role: AppRole = "viewer"): UserForm {
     email: "",
     name: "",
     phone: "",
+    uptiq_contact_id: "",
     role,
     active: true,
     password: "",
   };
 }
 
-function userToForm(user: AppUserRow): UserForm {
+function userToForm(user: AppUserWithEmails): UserForm {
   return {
     id: user.id,
     email: user.email,
     name: user.name ?? "",
     phone: user.phone ?? "",
+    uptiq_contact_id: user.uptiq_contact_id ?? "",
     role: user.role,
     active: user.active,
     password: "",
@@ -152,6 +155,7 @@ export default function AdminUsers() {
         email: form.email.trim(),
         name: form.name.trim() || null,
         phone: form.phone.trim() || null,
+        uptiq_contact_id: form.uptiq_contact_id.trim() || null,
         role: form.role,
         active: form.active,
         password: form.password.trim() || null, // applied on create; edits use the reset control
@@ -166,7 +170,7 @@ export default function AdminUsers() {
     }
   }
 
-  async function setUserActive(row: AppUserRow, active: boolean) {
+  async function setUserActive(row: AppUserWithEmails, active: boolean) {
     if (!canManage || saving) return;
     setSaving(true);
     setError(null);
@@ -371,6 +375,11 @@ export default function AdminUsers() {
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Phone</span>
                 <input value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+              </label>
+
+              <label className="block text-xs">
+                <span className="mb-1 block text-muted-foreground">Uptiq contact ID <span className="text-muted-foreground/70">(optional — for messaging, e.g. crew)</span></span>
+                <input value={form.uptiq_contact_id} onChange={(event) => updateForm({ uptiq_contact_id: event.target.value })} disabled={!canManage || saving} placeholder="Uptiq contact id" className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
               </label>
 
               <div className="grid grid-cols-[1fr_120px] gap-2">

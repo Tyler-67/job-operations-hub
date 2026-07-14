@@ -10,7 +10,9 @@ export interface UserEmail {
 }
 
 // app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
-export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[] };
+// uptiq_contact_id is declared here too because the generated types.ts is stale (column added
+// in migration 20260714120000).
+export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[]; uptiq_contact_id?: string | null };
 
 export interface UsersResponse {
   users: AppUserWithEmails[];
@@ -29,6 +31,7 @@ export interface SaveUserPayload {
   email: string;
   name?: string | null;
   phone?: string | null;
+  uptiq_contact_id?: string | null;
   role: AppRole;
   active: boolean;
   password?: string | null;

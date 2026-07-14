@@ -117,7 +117,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
 async function usersPayload(sb: any, locationId: string, includePassword = false) {
   // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
   // credential managers (WRITE roles); office_manager reads the list without it.
-  const cols = "id, location_id, email, name, phone, role, active, last_seen_at, created_at, updated_at"
+  const cols = "id, location_id, email, name, phone, role, active, uptiq_contact_id, last_seen_at, created_at, updated_at"
     + (includePassword ? ", login_password" : "");
   const { data, error } = await sb
     .from("app_users")
@@ -185,6 +185,7 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
     phone: cleanText(body.phone),
     role,
     active: body.active !== false,
+    uptiq_contact_id: cleanText(body.uptiq_contact_id),
     login_password: password,
   });
   if (error) throw error;
@@ -209,6 +210,7 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
   }
   if ("name" in body) patch.name = cleanText(body.name);
   if ("phone" in body) patch.phone = cleanText(body.phone);
+  if ("uptiq_contact_id" in body) patch.uptiq_contact_id = cleanText(body.uptiq_contact_id);
   if ("role" in body) {
     const role = cleanText(body.role);
     if (!role || !APP_ROLES.has(role)) throw new Error("invalid_role");
