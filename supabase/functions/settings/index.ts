@@ -240,6 +240,32 @@ async function updateSettings(sb: any, locationId: string, body: Record<string, 
   if (error) throw error;
 }
 
+// Testing convenience (exposed as buttons on the Settings page "for now"): fire a scheduled
+// cron on demand. The CRON_SECRET stays server-side — the session-authed admin below is the
+// only gate the browser passes. The schedule-gated crons honor ?force=1 to bypass their
+// hour/weekday check so a click fires immediately regardless of the configured send time;
+// the drain has no gate. Real sends still happen (via Uptiq), which is the point of testing.
+const CRON_FUNCTIONS: Record<string, string> = {
+  "check-ins": "cron-send-check-ins",
+  "inspection-reminders": "cron-inspection-reminders",
+  "drain": "cron-drain-notifications",
+  "weekly-report": "cron-weekly-report",
+};
+
+async function fireCron(fn: string) {
+  const base = (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
+  const secret = (Deno.env.get("CRON_SECRET") ?? "").trim();
+  if (!base || !secret) throw new Error("cron_runner_misconfigured");
+  const url = `${base}/functions/v1/${fn}${fn === "cron-drain-notifications" ? "" : "?force=1"}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-cron-secret": secret },
+    body: "{}",
+  });
+  const result = await res.json().catch(() => ({}));
+  return { ok: res.ok, cron: fn, status: res.status, result };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -260,6 +286,14 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => ({}));
       await updateSettings(sb, locationId, body);
       return json(await settingsPayload(sb, locationId));
+    }
+
+    if (req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      if (String(body.action ?? "").trim() !== "run_cron") return json({ error: "unknown_action" }, 400);
+      const fn = CRON_FUNCTIONS[String(body.cron ?? "").trim()];
+      if (!fn) return json({ error: "invalid_cron" }, 400);
+      return json(await fireCron(fn));
     }
 
     return json({ error: "method_not_allowed" }, 405);

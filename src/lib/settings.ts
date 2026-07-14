@@ -93,6 +93,20 @@ export function saveSettings(payload: SaveSettingsPayload) {
   return callEdge("settings", { method: "PATCH", body: payload }) as Promise<SettingsResponse>;
 }
 
+export type CronKey = "check-ins" | "inspection-reminders" | "drain" | "weekly-report";
+
+export interface RunCronResult {
+  ok: boolean;
+  cron: string;
+  status: number;
+  result: Record<string, unknown>;
+}
+
+// Testing tool: fire a scheduled cron on demand (server-side, secret stays on the server).
+export function runCron(cron: CronKey) {
+  return callEdge("settings", { method: "POST", body: { action: "run_cron", cron } }) as Promise<RunCronResult>;
+}
+
 export function timeForInput(value: string | null | undefined) {
   return value ? value.slice(0, 5) : "";
 }

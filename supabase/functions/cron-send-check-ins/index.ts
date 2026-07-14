@@ -20,6 +20,10 @@ Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   const guard = requireCronSecret(req); if (guard) return guard;
 
+  // Testing: ?force=1 (from the Settings "run cron" button) fires every company now, ignoring
+  // the local send-hour/weekday gate. The real pg_cron schedule never sets it, so cadence is unchanged.
+  const force = new URL(req.url).searchParams.get("force") === "1";
+
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
   if (!appBaseUrl) {
     // Without a base URL we can only build broken links — fail loud rather than send junk.
@@ -50,11 +54,11 @@ Deno.serve(async (req) => {
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
 
     const sendHour = sendHourOf(company.check_in_send_time);
-    if (sendHour === null) continue;
+    if (sendHour === null && !force) continue;
     const { hour, weekday, date } = localContext(tz, now);
-    if (hour !== sendHour) continue;
+    if (!force && hour !== sendHour) continue;
     const weekdays = Array.isArray(company.check_in_weekdays) ? company.check_in_weekdays.map(Number) : [];
-    if (!weekdays.includes(weekday)) continue;
+    if (!force && !weekdays.includes(weekday)) continue;
     companiesFired++;
 
     // Supply houses + branding embedded in every token so the anon form never queries.

@@ -16,6 +16,9 @@ Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   const guard = requireCronSecret(req); if (guard) return guard;
 
+  // Testing: ?force=1 (Settings "run cron" button) fires now, ignoring the local day/hour gate.
+  const force = new URL(req.url).searchParams.get("force") === "1";
+
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
   const sb = serviceClient();
   const now = new Date();
@@ -33,10 +36,10 @@ Deno.serve(async (req) => {
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
 
     const sendHour = sendHourOf(company.weekly_report_time);
-    if (sendHour === null) continue;
+    if (sendHour === null && !force) continue;
     const { hour, weekday, date } = localContext(tz, now);
-    if (hour !== sendHour) continue;
-    if (Number(company.weekly_report_day) !== weekday) continue;
+    if (!force && hour !== sendHour) continue;
+    if (!force && Number(company.weekly_report_day) !== weekday) continue;
     companiesFired++;
 
     const { periodStart, periodEnd } = weeklyReportPeriod(date);

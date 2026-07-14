@@ -25,6 +25,9 @@ Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   const guard = requireCronSecret(req); if (guard) return guard;
 
+  // Testing: ?force=1 (Settings "run cron" button) fires now, ignoring the local reminder-hour gate.
+  const force = new URL(req.url).searchParams.get("force") === "1";
+
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
   if (!appBaseUrl) {
     await logEvent({ source: "cron", kind: "cron.inspection_reminders.misconfigured", payload: { reason: "APP_BASE_URL_unset" } });
@@ -53,9 +56,9 @@ Deno.serve(async (req) => {
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
 
     const reminderHour = sendHourOf(company.inspection_reminder_time);
-    if (reminderHour === null) continue;
+    if (reminderHour === null && !force) continue;
     const { hour, date } = localContext(tz, now);
-    if (hour !== reminderHour) continue;
+    if (!force && hour !== reminderHour) continue;
     companiesFired++;
 
     const ownerContactId = (company.owner_contact_id as string | null)?.trim() || "";

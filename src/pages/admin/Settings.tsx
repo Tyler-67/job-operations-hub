@@ -8,8 +8,10 @@ import {
   canManageSettings,
   fetchSettings,
   moneyLabel,
+  runCron,
   saveSettings,
   timeForInput,
+  type CronKey,
   type CompanySettings,
   type SettingsLocation,
   type SettingsResponse,
@@ -139,6 +141,8 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cronBusy, setCronBusy] = useState<CronKey | null>(null);
+  const [cronResult, setCronResult] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -225,6 +229,21 @@ export default function AdminSettings() {
     }
   }
 
+  async function handleRunCron(cron: CronKey, label: string) {
+    if (!window.confirm(`Run "${label}" now?\n\nThis fires the cron immediately (ignoring its send-time) and sends real messages via Uptiq to the configured contacts. Use for testing only.`)) return;
+    setCronBusy(cron);
+    setCronResult(null);
+    setError(null);
+    try {
+      const res = await runCron(cron);
+      setCronResult(`${label}: ${res.ok ? "OK" : `error ${res.status}`} — ${JSON.stringify(res.result)}`);
+    } catch (err) {
+      setCronResult(`${label}: ${err instanceof Error ? err.message : "failed"}`);
+    } finally {
+      setCronBusy(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
@@ -305,6 +324,28 @@ export default function AdminSettings() {
               <TextField label="Uptiq company ID" value={form.uptiq_company_id} disabled={!canManage || saving} onChange={(value) => updateForm({ uptiq_company_id: value })} />
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
+
+            {canManage && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Testing Tools</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Fire a scheduled job now, ignoring its configured send time. <strong>Sends real SMS/email</strong> via
+                    Uptiq to the configured contacts &mdash; for testing. Check-ins and inspection reminders <em>enqueue</em>
+                    messages; click <strong>Drain queue</strong> to send whatever is queued (also runs on its own every ~15 min).
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <CronButton label="Send check-ins" busy={cronBusy === "check-ins"} disabled={cronBusy !== null} onClick={() => handleRunCron("check-ins", "Send check-ins")} />
+                    <CronButton label="Inspection reminders" busy={cronBusy === "inspection-reminders"} disabled={cronBusy !== null} onClick={() => handleRunCron("inspection-reminders", "Inspection reminders")} />
+                    <CronButton label="Weekly report" busy={cronBusy === "weekly-report"} disabled={cronBusy !== null} onClick={() => handleRunCron("weekly-report", "Weekly report")} />
+                    <CronButton label="Drain queue" busy={cronBusy === "drain"} disabled={cronBusy !== null} onClick={() => handleRunCron("drain", "Drain queue")} />
+                  </div>
+                  {cronResult && (
+                    <div className="break-all rounded-sm border border-border bg-muted/40 px-3 py-2 font-mono text-2xs text-muted-foreground">{cronResult}</div>
+                  )}
+                </div>
+              </section>
+            )}
           </main>
 
           <aside className="overflow-auto border-l border-border bg-card">
@@ -330,6 +371,19 @@ export default function AdminSettings() {
         </div>
       )}
     </div>
+  );
+}
+
+function CronButton({ label, busy, disabled, onClick }: { label: string; busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+    >
+      {busy ? "Running..." : label}
+    </button>
   );
 }
 
