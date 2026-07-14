@@ -21,6 +21,8 @@ import {
   type SettingsResponse,
 } from "@/lib/settings";
 import { useSession } from "@/lib/session";
+import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
+import { useConfirm } from "@/components/dialogs";
 
 interface SettingsForm {
   company_name: string;
@@ -144,6 +146,7 @@ export default function AdminSettings() {
   const canManage = canManageSettings(user?.role);
   // contacts-sync is gated to owner_admin/support_admin (narrower than settings' canManage).
   const canSyncContacts = user?.role === "owner_admin" || user?.role === "support_admin";
+  const confirm = useConfirm();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
   const [loading, setLoading] = useState(true);
@@ -244,7 +247,11 @@ export default function AdminSettings() {
   }
 
   async function handleRunCron(cron: CronKey, label: string) {
-    if (!window.confirm(`Run "${label}" now?\n\nThis fires the cron immediately (ignoring its send-time) and sends real messages via Uptiq to the configured contacts. Use for testing only.`)) return;
+    if (!(await confirm({
+      title: `Run “${label}” now?`,
+      body: "This fires the cron immediately (ignoring its send-time) and sends real messages via Uptiq to the configured contacts. Use for testing only.",
+      confirmLabel: "Run now",
+    }))) return;
     setCronBusy(cron);
     setCronResult(null);
     setError(null);
@@ -260,7 +267,11 @@ export default function AdminSettings() {
   }
 
   async function handleSyncContacts(dryRun: boolean) {
-    if (!dryRun && !window.confirm("Sync contacts from Uptiq now?\n\nReads Uptiq contacts and stores the matching Uptiq contact id on each app party (customers, crew, supply houses, owner, office). Read-only — it does NOT create or change anything in Uptiq.")) return;
+    if (!dryRun && !(await confirm({
+      title: "Sync contacts from Uptiq now?",
+      body: "Reads Uptiq contacts and stores the matching Uptiq contact id on each app party (customers, crew, supply houses, owner, office). Read-only — it does NOT create or change anything in Uptiq.",
+      confirmLabel: "Sync",
+    }))) return;
     setContactsBusy(dryRun ? "preview" : "sync");
     setContactsResult(null);
     setError(null);
@@ -274,7 +285,11 @@ export default function AdminSettings() {
   }
 
   async function handlePullCrew(dryRun: boolean) {
-    if (!dryRun && !window.confirm("Pull crew from Uptiq now?\n\nImports every Uptiq contact tagged \"crew\" as a crew contact in Daily Burn (created or updated, matched by Uptiq id). Read-only in Uptiq; it only adds/updates crew here and never removes anyone.")) return;
+    if (!dryRun && !(await confirm({
+      title: "Pull crew from Uptiq now?",
+      body: "Imports every Uptiq contact tagged “crew” as a crew contact in Daily Burn (created or updated, matched by Uptiq id). Read-only in Uptiq; it only adds/updates crew here and never removes anyone.",
+      confirmLabel: "Pull crew",
+    }))) return;
     setCrewBusy(dryRun ? "preview" : "pull");
     setCrewResult(null);
     setError(null);
@@ -320,19 +335,29 @@ export default function AdminSettings() {
           <main className="overflow-auto">
             <SettingsSection title="Company">
               <TextField label="Company name" value={form.company_name} disabled={!canManage || saving} onChange={(value) => updateForm({ company_name: value })} />
-              <SelectField label="Timezone" value={form.timezone} disabled={!canManage || saving} onChange={(value) => updateForm({ timezone: value })}>
-                {COMMON_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-                {!COMMON_TIMEZONES.includes(form.timezone) && <option value={form.timezone}>{form.timezone}</option>}
-              </SelectField>
+              <SelectField
+                label="Timezone"
+                value={form.timezone}
+                disabled={!canManage || saving}
+                onChange={(value) => updateForm({ timezone: value })}
+                options={[
+                  ...COMMON_TIMEZONES.map((timezone) => ({ value: timezone, label: timezone })),
+                  ...(COMMON_TIMEZONES.includes(form.timezone) ? [] : [{ value: form.timezone, label: form.timezone }]),
+                ]}
+              />
             </SettingsSection>
 
             <SettingsSection title="Notification Timing">
               <TimeField label="Crew check-in send time" value={form.check_in_send_time} disabled={!canManage || saving} onChange={(value) => updateForm({ check_in_send_time: value })} />
               <WeekdayField values={form.check_in_weekdays} disabled={!canManage || saving} onToggle={toggleWeekday} />
               <TimeField label="Inspection reminder time" value={form.inspection_reminder_time} disabled={!canManage || saving} onChange={(value) => updateForm({ inspection_reminder_time: value })} />
-              <SelectField label="Weekly report day" value={String(form.weekly_report_day)} disabled={!canManage || saving} onChange={(value) => updateForm({ weekly_report_day: Number(value) })}>
-                {WEEKLY_REPORT_DAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
-              </SelectField>
+              <SelectField
+                label="Weekly report day"
+                value={String(form.weekly_report_day)}
+                disabled={!canManage || saving}
+                onChange={(value) => updateForm({ weekly_report_day: Number(value) })}
+                options={WEEKLY_REPORT_DAYS.map((day) => ({ value: String(day.value), label: day.label }))}
+              />
               <TimeField label="Weekly report time" value={form.weekly_report_time} disabled={!canManage || saving} onChange={(value) => updateForm({ weekly_report_time: value })} />
               <NumberField label="Review delay days" value={form.review_request_delay_days} disabled={!canManage || saving} onChange={(value) => updateForm({ review_request_delay_days: value })} min={0} step="1" />
             </SettingsSection>
@@ -348,10 +373,13 @@ export default function AdminSettings() {
             </SettingsSection>
 
             <SettingsSection title="Supply & Costs">
-              <SelectField label="Default supply house" value={form.default_supply_house_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ default_supply_house_contact_id: value })}>
-                <option value="">None selected</option>
-                {supplyHouses.map((supply) => <option key={supply.id} value={supply.id}>{supply.name}</option>)}
-              </SelectField>
+              <SelectField
+                label="Default supply house"
+                value={form.default_supply_house_contact_id}
+                disabled={!canManage || saving}
+                onChange={(value) => updateForm({ default_supply_house_contact_id: value })}
+                options={[{ value: "", label: "None selected" }, ...supplyHouses.map((supply) => ({ value: supply.id, label: supply.name }))]}
+              />
               <NumberField label="Parts cost ceiling" value={form.parts_cost_ceiling} disabled={!canManage || saving} onChange={(value) => updateForm({ parts_cost_ceiling: value })} min={0} step="0.01" />
               <TextField label="Supply pickup time" value={form.supply_house_pickup_time} disabled={!canManage || saving} onChange={(value) => updateForm({ supply_house_pickup_time: value })} />
             </SettingsSection>
@@ -594,20 +622,18 @@ function TimeField({ label, value, disabled, onChange }: {
   );
 }
 
-function SelectField({ label, value, disabled, onChange, children }: {
+function SelectField({ label, value, disabled, onChange, options }: {
   label: string;
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
-  children: ReactNode;
+  options: SelectOption[];
 }) {
   return (
-    <label className="block text-xs">
+    <div className="block text-xs">
       <span className="mb-1 block text-muted-foreground">{label}</span>
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65">
-        {children}
-      </select>
-    </label>
+      <InlineSelect value={value} disabled={disabled} onChange={onChange} options={options} className="w-full" />
+    </div>
   );
 }
 

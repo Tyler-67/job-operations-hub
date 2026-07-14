@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertCircle, BriefcaseBusiness, CalendarClock, Plus, ReceiptText, Search, Wrench } from "lucide-react";
 import { canManageJobs, currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
 
 function isOverdue(job: JobSummary) {
   if (!job.current_state?.allow_check_ins || job.current_state?.is_terminal) return false;
@@ -106,14 +107,12 @@ export default function JobsList() {
             className="h-8 w-72 rounded-sm border border-input bg-background pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
-        <select
+        <InlineSelect
           value={stateId}
-          onChange={(event) => setStateId(event.target.value)}
-          className="h-8 rounded-sm border border-input bg-background px-2 text-xs"
-        >
-          <option value="all">All states</option>
-          {(data?.states ?? []).map((state) => <option key={state.id} value={state.id}>{state.label}</option>)}
-        </select>
+          onChange={setStateId}
+          className="h-8 w-40"
+          options={[{ value: "all", label: "All states" }, ...(data?.states ?? []).map((state) => ({ value: state.id, label: state.label }))]}
+        />
         <label className="flex h-8 items-center gap-1 rounded-sm border border-border bg-background px-2 text-xs text-muted-foreground">
           <input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} />
           Archived

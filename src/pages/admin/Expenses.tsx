@@ -17,6 +17,8 @@ import {
 } from "@/lib/expenses";
 import { fetchPhotoReadUrls, isPdfPath } from "@/lib/photos";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
+import { useConfirm } from "@/components/dialogs";
 
 type Tab = "po_queue" | "expenses" | "purchase_orders";
 type Panel = "expense" | "po" | "value_po";
@@ -127,6 +129,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: s
 export default function AdminExpenses() {
   const { user } = useSession();
   const canManage = canManageExpenses(user?.role);
+  const confirm = useConfirm();
   const [data, setData] = useState<ExpensesResponse | null>(null);
   const [tab, setTab] = useState<Tab>("po_queue");
   const [query, setQuery] = useState("");
@@ -277,7 +280,8 @@ export default function AdminExpenses() {
   }
 
   async function removeExpense(expense: JobExpenseWithDetails) {
-    if (!canManage || expense.purchase_order_id || !window.confirm("Delete this expense?")) return;
+    if (!canManage || expense.purchase_order_id) return;
+    if (!(await confirm({ title: "Delete this expense?", confirmLabel: "Delete", destructive: true }))) return;
     setSaving(true);
     setError(null);
     try {
@@ -607,18 +611,28 @@ function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, o
 
       <label className="block text-xs">
         <span className="mb-1 block text-muted-foreground">Job</span>
-        <select value={form.job_id} onChange={(event) => onChange({ job_id: event.target.value })} disabled={!canManage || saving || Boolean(form.id)} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-          {jobs.map((job) => <option key={job.id} value={job.id}>{job.address}</option>)}
-        </select>
+        <InlineSelect
+          value={form.job_id}
+          onChange={(value) => onChange({ job_id: value })}
+          disabled={!canManage || saving || Boolean(form.id)}
+          className="w-full"
+          options={jobs.map((job) => ({ value: job.id, label: job.address }))}
+        />
       </label>
 
       <div className="grid grid-cols-[1fr_120px] gap-2">
         <label className="block text-xs">
           <span className="mb-1 block text-muted-foreground">Kind</span>
-          <select value={form.kind} onChange={(event) => onChange({ kind: event.target.value as ExpenseForm["kind"] })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-            <option value="field_purchase">Field purchase</option>
-            <option value="adjustment">Adjustment</option>
-          </select>
+          <InlineSelect
+            value={form.kind}
+            onChange={(value) => onChange({ kind: value as ExpenseForm["kind"] })}
+            disabled={!canManage || saving}
+            className="w-full"
+            options={[
+              { value: "field_purchase", label: "Field purchase" },
+              { value: "adjustment", label: "Adjustment" },
+            ]}
+          />
         </label>
         <label className="block text-xs">
           <span className="mb-1 block text-muted-foreground">Amount</span>
@@ -628,10 +642,13 @@ function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, o
 
       <label className="block text-xs">
         <span className="mb-1 block text-muted-foreground">Supply house</span>
-        <select value={form.supply_house_id} onChange={(event) => onChange({ supply_house_id: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-          <option value="">None (free-text vendor)</option>
-          {supplyHouses.map((supply) => <option key={supply.id} value={supply.id}>{supply.name}</option>)}
-        </select>
+        <InlineSelect
+          value={form.supply_house_id}
+          onChange={(value) => onChange({ supply_house_id: value })}
+          disabled={!canManage || saving}
+          className="w-full"
+          options={[{ value: "", label: "None (free-text vendor)" }, ...supplyHouses.map((supply) => ({ value: supply.id, label: supply.name }))]}
+        />
       </label>
 
       <label className="block text-xs">
@@ -687,28 +704,41 @@ function PoPanel({ canManage, jobs, supplyHouses, form, saving, onChange, onSave
 
       <label className="block text-xs">
         <span className="mb-1 block text-muted-foreground">Job</span>
-        <select value={form.job_id} onChange={(event) => onChange({ job_id: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-          {jobs.map((job) => <option key={job.id} value={job.id}>{job.address}</option>)}
-        </select>
+        <InlineSelect
+          value={form.job_id}
+          onChange={(value) => onChange({ job_id: value })}
+          disabled={!canManage || saving}
+          className="w-full"
+          options={jobs.map((job) => ({ value: job.id, label: job.address }))}
+        />
       </label>
 
       <label className="block text-xs">
         <span className="mb-1 block text-muted-foreground">Supply house</span>
-        <select value={form.supply_house_id} onChange={(event) => onChange({ supply_house_id: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-          <option value="">None</option>
-          {supplyHouses.map((supply) => <option key={supply.id} value={supply.id}>{supply.name}</option>)}
-        </select>
+        <InlineSelect
+          value={form.supply_house_id}
+          onChange={(value) => onChange({ supply_house_id: value })}
+          disabled={!canManage || saving}
+          className="w-full"
+          options={[{ value: "", label: "None" }, ...supplyHouses.map((supply) => ({ value: supply.id, label: supply.name }))]}
+        />
       </label>
 
       <div className="grid grid-cols-[1fr_120px] gap-2">
         <label className="block text-xs">
           <span className="mb-1 block text-muted-foreground">Status</span>
-          <select value={form.status} onChange={(event) => onChange({ status: event.target.value as PoForm["status"] })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-            <option value="pending_value">Pending value</option>
-            <option value="sent">Sent</option>
-            <option value="draft">Draft</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <InlineSelect
+            value={form.status}
+            onChange={(value) => onChange({ status: value as PoForm["status"] })}
+            disabled={!canManage || saving}
+            className="w-full"
+            options={[
+              { value: "pending_value", label: "Pending value" },
+              { value: "sent", label: "Sent" },
+              { value: "draft", label: "Draft" },
+              { value: "cancelled", label: "Cancelled" },
+            ]}
+          />
         </label>
         <label className="block text-xs">
           <span className="mb-1 block text-muted-foreground">Estimate</span>

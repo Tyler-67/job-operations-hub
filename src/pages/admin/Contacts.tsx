@@ -3,6 +3,8 @@ import { RefreshCw } from "lucide-react";
 import { fetchContacts, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
 import { pullCrew } from "@/lib/settings";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
+import { useConfirm } from "@/components/dialogs";
 
 const ROLE_LABELS: Record<string, string> = {
   customer: "Customer",
@@ -22,6 +24,7 @@ export default function AdminContacts() {
   const { user } = useSession();
   // Crew pull writes app records, so it's owner_admin/support_admin (matches contacts-sync POST).
   const canPull = user?.role === "owner_admin" || user?.role === "support_admin";
+  const confirm = useConfirm();
 
   const [data, setData] = useState<ContactsListResponse | null>(null);
   const [query, setQuery] = useState("");
@@ -55,7 +58,11 @@ export default function AdminContacts() {
 
   async function handlePullCrew() {
     if (!canPull) return;
-    if (!window.confirm("Pull crew from Uptiq now?\n\nImports every Uptiq contact tagged \"crew\" as a crew contact here (created or updated, matched by Uptiq id). Read-only in Uptiq.")) return;
+    if (!(await confirm({
+      title: "Pull crew from Uptiq now?",
+      body: "Imports every Uptiq contact tagged “crew” as a crew contact here (created or updated, matched by Uptiq id). Read-only in Uptiq.",
+      confirmLabel: "Pull crew",
+    }))) return;
     setPulling(true);
     setError(null);
     setNotice(null);
@@ -84,10 +91,12 @@ export default function AdminContacts() {
           placeholder="Search name, email, phone, id..."
           className="h-8 w-56 rounded-sm border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
         />
-        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} className="h-8 rounded-sm border border-input bg-background px-2 text-xs">
-          <option value="all">All roles</option>
-          {roles.map((r) => <option key={r} value={r}>{roleLabel(r)} ({data?.role_counts[r]})</option>)}
-        </select>
+        <InlineSelect
+          value={roleFilter}
+          onChange={setRoleFilter}
+          className="h-8 w-44"
+          options={[{ value: "all", label: "All roles" }, ...roles.map((r) => ({ value: r, label: `${roleLabel(r)} (${data?.role_counts[r]})` }))]}
+        />
         {canPull && (
           <button type="button" onClick={handlePullCrew} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <RefreshCw className={`h-3.5 w-3.5 ${pulling ? "animate-spin" : ""}`} />

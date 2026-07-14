@@ -14,6 +14,8 @@ import {
   type JobStatesResponse,
 } from "@/lib/job-states";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
+import { useConfirm } from "@/components/dialogs";
 
 const TRIGGERS = [
   "manual",
@@ -85,6 +87,7 @@ function nextSortOrder(states: JobState[]) {
 export default function AdminJobStates() {
   const { user } = useSession();
   const canManage = canManageJobStates(user?.role);
+  const confirm = useConfirm();
   const [data, setData] = useState<JobStatesResponse | null>(null);
   const [form, setForm] = useState<StateForm>(blankStateForm());
   const [transitionForm, setTransitionForm] = useState<TransitionForm>({ from_state_id: "", trigger: "manual", to_state_id: "" });
@@ -318,13 +321,13 @@ export default function AdminJobStates() {
                                 type="button"
                                 title="Archive"
                                 disabled={!canManage || saving}
-                                onClick={(event) => {
+                                onClick={async (event) => {
                                   event.stopPropagation();
                                   if (activeJobs > 0) {
                                     setForm(stateToForm(state));
                                     setArchiveTarget(state);
                                     setReassignStateId(activeStates.find((item) => item.id !== state.id)?.id ?? "");
-                                  } else if (window.confirm(`Archive ${state.label}?`)) {
+                                  } else if (await confirm({ title: `Archive ${state.label}?`, confirmLabel: "Archive", destructive: true })) {
                                     void archiveState(state);
                                   }
                                 }}
@@ -375,19 +378,28 @@ export default function AdminJobStates() {
                   {canManage && activeStates.length > 1 && (
                     <tr className="bg-card">
                       <td className="border-t border-border px-3 py-2">
-                        <select value={transitionForm.from_state_id} onChange={(event) => setTransitionForm((current) => ({ ...current, from_state_id: event.target.value }))} className="h-8 w-full rounded-sm border border-input bg-background px-2 text-xs">
-                          {activeStates.map((state) => <option key={state.id} value={state.id}>{state.label}</option>)}
-                        </select>
+                        <InlineSelect
+                          value={transitionForm.from_state_id}
+                          onChange={(value) => setTransitionForm((current) => ({ ...current, from_state_id: value }))}
+                          className="h-8 w-full"
+                          options={activeStates.map((state) => ({ value: state.id, label: state.label }))}
+                        />
                       </td>
                       <td className="border-t border-border px-3 py-2">
-                        <select value={transitionForm.trigger} onChange={(event) => setTransitionForm((current) => ({ ...current, trigger: event.target.value }))} className="h-8 w-full rounded-sm border border-input bg-background px-2 font-mono text-xs">
-                          {TRIGGERS.map((trigger) => <option key={trigger} value={trigger}>{trigger}</option>)}
-                        </select>
+                        <InlineSelect
+                          value={transitionForm.trigger}
+                          onChange={(value) => setTransitionForm((current) => ({ ...current, trigger: value }))}
+                          className="h-8 w-full font-mono"
+                          options={TRIGGERS.map((trigger) => ({ value: trigger, label: trigger }))}
+                        />
                       </td>
                       <td className="border-t border-border px-3 py-2">
-                        <select value={transitionForm.to_state_id} onChange={(event) => setTransitionForm((current) => ({ ...current, to_state_id: event.target.value }))} className="h-8 w-full rounded-sm border border-input bg-background px-2 text-xs">
-                          {activeStates.map((state) => <option key={state.id} value={state.id}>{state.label}</option>)}
-                        </select>
+                        <InlineSelect
+                          value={transitionForm.to_state_id}
+                          onChange={(value) => setTransitionForm((current) => ({ ...current, to_state_id: value }))}
+                          className="h-8 w-full"
+                          options={activeStates.map((state) => ({ value: state.id, label: state.label }))}
+                        />
                       </td>
                       <td className="border-t border-border px-3 py-2 text-right">
                         <button type="button" title="Add transition" disabled={saving || transitionForm.from_state_id === transitionForm.to_state_id} onClick={saveTransition} className="icon-btn">
@@ -410,9 +422,12 @@ export default function AdminJobStates() {
                 </div>
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Move jobs to</span>
-                  <select value={reassignStateId} onChange={(event) => setReassignStateId(event.target.value)} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs">
-                    {activeStates.filter((state) => state.id !== archiveTarget.id).map((state) => <option key={state.id} value={state.id}>{state.label}</option>)}
-                  </select>
+                  <InlineSelect
+                    value={reassignStateId}
+                    onChange={setReassignStateId}
+                    className="w-full"
+                    options={activeStates.filter((state) => state.id !== archiveTarget.id).map((state) => ({ value: state.id, label: state.label }))}
+                  />
                 </label>
                 <div className="flex gap-2">
                   <button type="button" disabled={saving || !reassignStateId} onClick={() => archiveState(archiveTarget, reassignStateId)} className="inline-flex h-8 items-center gap-1 rounded-sm bg-destructive px-3 text-xs font-medium text-destructive-foreground hover:opacity-90">

@@ -15,6 +15,8 @@ import {
 } from "@/lib/jobs";
 import { fetchContacts, type ContactRow } from "@/lib/contacts";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
+import { usePrompt } from "@/components/dialogs";
 
 interface FormState {
   address: string;
@@ -117,6 +119,7 @@ export default function JobDetail() {
   const navigate = useNavigate();
   const { user } = useSession();
   const canManage = canManageJobs(user?.role);
+  const promptText = usePrompt();
 
   const [detail, setDetail] = useState<JobDetailResponse | null>(null);
   const [states, setStates] = useState<JobState[]>([]);
@@ -276,7 +279,13 @@ export default function JobDetail() {
 
   async function handleMarkPaid() {
     if (!canManage || isNew || !id) return;
-    const invoiceNumber = window.prompt("Invoice number (optional)", form.invoice_number);
+    const invoiceNumber = await promptText({
+      title: "Mark job paid",
+      label: "Invoice number (optional)",
+      defaultValue: form.invoice_number,
+      placeholder: "e.g. INV-1042",
+      confirmLabel: "Mark paid",
+    });
     if (invoiceNumber === null) return;
 
     setSaving(true);
@@ -383,10 +392,14 @@ export default function JobDetail() {
               <input required maxLength={200} disabled={readOnly} value={form.address} onChange={(event) => update("address", event.target.value)} className={inputClass(readOnly)} />
             </Field>
             <Field label="Current state">
-              <select disabled={readOnly} value={form.current_state_id} onChange={(event) => update("current_state_id", event.target.value)} className={inputClass(readOnly)}>
-                {states.length === 0 && <option value="">No states configured</option>}
-                {states.map((state) => <option key={state.id} value={state.id}>{state.sort_order}. {state.label}</option>)}
-              </select>
+              <InlineSelect
+                disabled={readOnly}
+                value={form.current_state_id}
+                onChange={(value) => update("current_state_id", value)}
+                className={inputClass(readOnly)}
+                placeholder={states.length === 0 ? "No states configured" : "Select a state"}
+                options={states.map((state) => ({ value: state.id, label: `${state.sort_order}. ${state.label}` }))}
+              />
             </Field>
 
             <Field label="Customer name">
@@ -395,26 +408,26 @@ export default function JobDetail() {
             <Field label="Crew">
               <div className="space-y-1.5">
                 {!readOnly && (
-                  <select
-                    disabled={saving}
+                  <InlineSelect
+                    disabled={saving || !availableCrew.length}
                     value=""
-                    onChange={(event) => addCrew(event.target.value)}
+                    onChange={addCrew}
                     className={inputClass(readOnly)}
-                  >
-                    <option value="">{availableCrew.length ? "+ Add crew from contacts…" : "No more crew contacts"}</option>
-                    {availableCrew.map((contact) => (
-                      <option key={contact.id} value={contact.name ?? ""}>{contact.name ?? "(unnamed)"}</option>
-                    ))}
-                  </select>
+                    placeholder={availableCrew.length ? "+ Add crew from contacts…" : "No more crew contacts"}
+                    options={availableCrew.map((contact) => ({ value: contact.name ?? "", label: contact.name ?? "(unnamed)" }))}
+                  />
                 )}
                 <input maxLength={300} disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
               </div>
             </Field>
             <Field label="Crew lead (gets the daily check-in text)">
-              <select disabled={readOnly} value={form.crew_lead} onChange={(event) => update("crew_lead", event.target.value)} className={inputClass(readOnly)}>
-                <option value="">Auto (first crew member)</option>
-                {crewOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <InlineSelect
+                disabled={readOnly}
+                value={form.crew_lead}
+                onChange={(value) => update("crew_lead", value)}
+                className={inputClass(readOnly)}
+                options={[{ value: "", label: "Auto (first crew member)" }, ...crewOptions.map((name) => ({ value: name, label: name }))]}
+              />
             </Field>
 
             <Field label="Customer email">

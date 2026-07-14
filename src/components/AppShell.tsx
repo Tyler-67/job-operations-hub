@@ -16,6 +16,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DialogProvider } from "@/components/dialogs";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -81,6 +82,7 @@ export default function AppShell() {
   }
 
   return (
+    <DialogProvider>
     <div className="grid h-screen grid-cols-[220px_1fr] grid-rows-[44px_1fr] bg-background">
       <header className="col-span-2 flex items-center justify-between border-b border-border bg-sidebar px-4 text-sidebar-foreground">
         <div className="flex items-center gap-3">
@@ -162,5 +164,6 @@ export default function AppShell() {
         </div>
       )}
     </div>
+    </DialogProvider>
   );
 }

@@ -19,6 +19,7 @@ import {
   type UsersResponse,
 } from "@/lib/users";
 import { useSession } from "@/lib/session";
+import { InlineSelect } from "@/components/InlineSelect";
 
 interface UserForm {
   id?: string;
@@ -261,16 +262,26 @@ export default function AdminUsers() {
             className="h-8 w-64 rounded-sm border border-input bg-background pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
-        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} className="h-8 rounded-sm border border-input bg-background px-2 text-xs">
-          <option value="all">All roles</option>
-          {roleOptions.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
-          {user?.role !== "support_admin" && <option value="support_admin">support admin</option>}
-        </select>
-        <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-8 rounded-sm border border-input bg-background px-2 text-xs">
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="all">All status</option>
-        </select>
+        <InlineSelect
+          value={roleFilter}
+          onChange={setRoleFilter}
+          className="h-8 w-40"
+          options={[
+            { value: "all", label: "All roles" },
+            ...roleOptions.map((role) => ({ value: role, label: roleLabel(role) })),
+            ...(user?.role !== "support_admin" ? [{ value: "support_admin", label: "support admin" }] : []),
+          ]}
+        />
+        <InlineSelect
+          value={status}
+          onChange={setStatus}
+          className="h-8 w-32"
+          options={[
+            { value: "active", label: "Active" },
+            { value: "inactive", label: "Inactive" },
+            { value: "all", label: "All status" },
+          ]}
+        />
         {canManage && (
           <button type="button" onClick={resetForm} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
             <UserPlus className="h-3.5 w-3.5" />
@@ -385,17 +396,29 @@ export default function AdminUsers() {
               <div className="grid grid-cols-[1fr_120px] gap-2">
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Role</span>
-                  <select value={form.role} onChange={(event) => updateForm({ role: event.target.value as AppRole })} disabled={!canManage || saving || supportLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65">
-                    {roleOptions.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
-                    {supportLocked && <option value="support_admin">support admin</option>}
-                  </select>
+                  <InlineSelect
+                    value={form.role}
+                    onChange={(value) => updateForm({ role: value as AppRole })}
+                    disabled={!canManage || saving || supportLocked}
+                    className="w-full"
+                    options={[
+                      ...roleOptions.map((role) => ({ value: role, label: roleLabel(role) })),
+                      ...(supportLocked ? [{ value: "support_admin", label: "support admin" }] : []),
+                    ]}
+                  />
                 </label>
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Status</span>
-                  <select value={form.active ? "active" : "inactive"} onChange={(event) => updateForm({ active: event.target.value === "active" })} disabled={!canManage || saving || editingSelf || supportLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65">
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
+                  <InlineSelect
+                    value={form.active ? "active" : "inactive"}
+                    onChange={(value) => updateForm({ active: value === "active" })}
+                    disabled={!canManage || saving || editingSelf || supportLocked}
+                    className="w-full"
+                    options={[
+                      { value: "active", label: "Active" },
+                      { value: "inactive", label: "Inactive" },
+                    ]}
+                  />
                 </label>
               </div>
 
