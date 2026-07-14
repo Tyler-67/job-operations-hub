@@ -256,14 +256,24 @@ async function fireCron(fn: string) {
   const base = (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
   const secret = (Deno.env.get("CRON_SECRET") ?? "").trim();
   if (!base || !secret) throw new Error("cron_runner_misconfigured");
-  const url = `${base}/functions/v1/${fn}${fn === "cron-drain-notifications" ? "" : "?force=1"}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-cron-secret": secret },
-    body: "{}",
-  });
-  const result = await res.json().catch(() => ({}));
-  return { ok: res.ok, cron: fn, status: res.status, result };
+  const invoke = async (target: string, query = "") => {
+    const res = await fetch(`${base}/functions/v1/${target}${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-cron-secret": secret },
+      body: "{}",
+    });
+    return { ok: res.ok, status: res.status, result: await res.json().catch(() => ({})) };
+  };
+
+  const primary = await invoke(fn, fn === "cron-drain-notifications" ? "" : "?force=1");
+  // The enqueueing crons (check-ins / inspection reminders / weekly report) only QUEUE messages;
+  // the drain is what actually sends. Chain a drain so the button sends end-to-end ("on press"),
+  // instead of leaving rows pending until the next 15-min drain tick.
+  let drain: { ok: boolean; status: number; result: unknown } | null = null;
+  if (fn !== "cron-drain-notifications" && primary.ok) {
+    drain = await invoke("cron-drain-notifications");
+  }
+  return { ok: primary.ok, cron: fn, status: primary.status, result: primary.result, drain };
 }
 
 Deno.serve(async (req) => {

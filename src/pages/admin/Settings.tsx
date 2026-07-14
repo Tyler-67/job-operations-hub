@@ -246,7 +246,8 @@ export default function AdminSettings() {
     setError(null);
     try {
       const res = await runCron(cron);
-      setCronResult(`${label}: ${res.ok ? "OK" : `error ${res.status}`} — ${JSON.stringify(res.result)}`);
+      const drainMsg = res.drain ? ` · sent: ${JSON.stringify(res.drain.result)}` : "";
+      setCronResult(`${label}: ${res.ok ? "OK" : `error ${res.status}`} — ${JSON.stringify(res.result)}${drainMsg}`);
     } catch (err) {
       setCronResult(`${label}: ${err instanceof Error ? err.message : "failed"}`);
     } finally {
@@ -405,8 +406,9 @@ export default function AdminSettings() {
                 <div className="space-y-3 px-4 py-4">
                   <p className="text-xs text-muted-foreground">
                     Fire a scheduled job now, ignoring its configured send time. <strong>Sends real SMS/email</strong> via
-                    Uptiq to the configured contacts &mdash; for testing. Check-ins and inspection reminders <em>enqueue</em>
-                    messages; click <strong>Drain queue</strong> to send whatever is queued (also runs on its own every ~15 min).
+                    Uptiq to the configured contacts &mdash; for testing. Send check-ins / Inspection reminders / Weekly report
+                    now <strong>queue and drain in one press</strong>, so messages go out immediately. <strong>Drain queue</strong>
+                    re-sends anything still pending (also runs on its own every ~15 min).
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <CronButton label="Send check-ins" busy={cronBusy === "check-ins"} disabled={cronBusy !== null} onClick={() => handleRunCron("check-ins", "Send check-ins")} />

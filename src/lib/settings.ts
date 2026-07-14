@@ -100,6 +100,8 @@ export interface RunCronResult {
   cron: string;
   status: number;
   result: Record<string, unknown>;
+  // Enqueueing crons chain a drain so the button sends end-to-end; drain counts land here.
+  drain?: { ok: boolean; status: number; result: Record<string, unknown> } | null;
 }
 
 // Testing tool: fire a scheduled cron on demand (server-side, secret stays on the server).
