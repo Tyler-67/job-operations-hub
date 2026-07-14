@@ -79,22 +79,24 @@ Deno.serve(async (req) => {
     const eligibleJobs = (jobs ?? []).filter((j: any) => checkInStates.has(j.current_state_id));
     if (!eligibleJobs.length) continue;
 
-    // Lead crew for those jobs, with the contact's Uptiq id (the SMS recipient) + uuid
-    // (the token binding). is_lead only, per the configured recipient model.
-    const { data: leads } = await sb.from("job_crew")
+    // EVERY crew member on those jobs (not just the lead) gets their own check-in link, so each
+    // assigned crew can self-report. Each row carries the contact's Uptiq id (the SMS recipient) +
+    // uuid (the token binding); crew without a Uptiq id are skipped (nothing to text). The lead
+    // flag still matters for other flows (decision outcomes / notices), just not for who checks in.
+    const { data: crewRows } = await sb.from("job_crew")
       .select("job_id, contacts(id, uptiq_contact_id)")
-      .in("job_id", eligibleJobs.map((j: any) => j.id)).eq("is_lead", true);
-    const leadsByJob = new Map<string, any[]>();
-    for (const row of leads ?? []) {
-      const arr = leadsByJob.get(row.job_id as string) ?? [];
+      .in("job_id", eligibleJobs.map((j: any) => j.id));
+    const crewByJob = new Map<string, any[]>();
+    for (const row of crewRows ?? []) {
+      const arr = crewByJob.get(row.job_id as string) ?? [];
       arr.push(row);
-      leadsByJob.set(row.job_id as string, arr);
+      crewByJob.set(row.job_id as string, arr);
     }
 
     for (const job of eligibleJobs) {
       const stateLabel = checkInStates.get(job.current_state_id) ?? "";
-      for (const lead of leadsByJob.get(job.id) ?? []) {
-        const contact = (lead.contacts ?? {}) as { id?: string; uptiq_contact_id?: string | null };
+      for (const member of crewByJob.get(job.id) ?? []) {
+        const contact = (member.contacts ?? {}) as { id?: string; uptiq_contact_id?: string | null };
         const contactId = contact.id ?? "";
         const uptiqId = (contact.uptiq_contact_id ?? "").trim();
         if (!contactId || !uptiqId) { skipped++; continue; }
