@@ -13,6 +13,7 @@ import {
   type JobDetailResponse,
   type JobState,
 } from "@/lib/jobs";
+import { fetchContacts, type ContactRow } from "@/lib/contacts";
 import { useSession } from "@/lib/session";
 
 interface FormState {
@@ -124,6 +125,18 @@ export default function JobDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [crewContacts, setCrewContacts] = useState<ContactRow[]>([]);
+
+  // Crew dropdown options come from the contacts table (role=crew, active) — the crew synced
+  // from the Uptiq "crew" tag. Only editors need it; the read is admin-gated.
+  useEffect(() => {
+    if (!canManage) return;
+    let active = true;
+    fetchContacts()
+      .then((res) => { if (active) setCrewContacts(res.contacts.filter((c) => c.role === "crew" && c.active)); })
+      .catch(() => { /* leave the dropdown empty on failure — the text field still works */ });
+    return () => { active = false; };
+  }, [canManage]);
 
   useEffect(() => {
     let active = true;
@@ -178,6 +191,20 @@ export default function JobDetail() {
   );
 
   const crewOptions = useMemo(() => splitCrew(form.crew_names), [form.crew_names]);
+
+  // Crew contacts not already on the job (case-insensitive by name), for the "add crew" dropdown.
+  const availableCrew = useMemo(() => {
+    const chosen = new Set(crewOptions.map((name) => name.toLowerCase()));
+    return crewContacts.filter((contact) => contact.name && !chosen.has(contact.name.toLowerCase()));
+  }, [crewContacts, crewOptions]);
+
+  function addCrew(name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    const current = splitCrew(form.crew_names);
+    if (current.some((existing) => existing.toLowerCase() === clean.toLowerCase())) return;
+    update("crew_names", [...current, clean].join(", "));
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setNotice(null);
@@ -366,7 +393,22 @@ export default function JobDetail() {
               <input disabled={readOnly} value={form.customer_name} onChange={(event) => update("customer_name", event.target.value)} className={inputClass(readOnly)} />
             </Field>
             <Field label="Crew">
-              <input disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
+              <div className="space-y-1.5">
+                {!readOnly && (
+                  <select
+                    disabled={saving}
+                    value=""
+                    onChange={(event) => addCrew(event.target.value)}
+                    className={inputClass(readOnly)}
+                  >
+                    <option value="">{availableCrew.length ? "+ Add crew from contacts…" : "No more crew contacts"}</option>
+                    {availableCrew.map((contact) => (
+                      <option key={contact.id} value={contact.name ?? ""}>{contact.name ?? "(unnamed)"}</option>
+                    ))}
+                  </select>
+                )}
+                <input disabled={readOnly} value={form.crew_names} onChange={(event) => update("crew_names", event.target.value)} placeholder="Comma-separated crew names" className={inputClass(readOnly)} />
+              </div>
             </Field>
             <Field label="Crew lead (gets the daily check-in text)">
               <select disabled={readOnly} value={form.crew_lead} onChange={(event) => update("crew_lead", event.target.value)} className={inputClass(readOnly)}>
