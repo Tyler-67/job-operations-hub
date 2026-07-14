@@ -70,9 +70,13 @@ Deno.serve(async (req) => {
     const results: any[] = [];
     for (const c of found) {
       if (!c.id) { skipped++; continue; }
-      const { data: existing, error: exErr } = await sb
-        .from("contacts").select("id").eq("location_id", locId).eq("uptiq_contact_id", c.id).maybeSingle();
+      // Dedupe against existing CREW rows only (limit(1) — a Uptiq id can be shared by other-role
+      // app contacts, e.g. a customer, so maybeSingle across all roles could match multiple/throw
+      // and we must not flip a non-crew contact to crew).
+      const { data: existingRows, error: exErr } = await sb
+        .from("contacts").select("id").eq("location_id", locId).eq("role", "crew").eq("uptiq_contact_id", c.id).limit(1);
       if (exErr) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: exErr.message }); continue; }
+      const existing = existingRows?.[0] ?? null;
       const patch: Record<string, unknown> = { email: c.email, phone: c.phone, role: "crew", active: true };
       if (c.name) patch.name = c.name;
       if (existing) {
