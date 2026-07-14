@@ -15,6 +15,7 @@ import {
   type PurchaseOrderWithDetails,
   type PoStatus,
 } from "@/lib/expenses";
+import { fetchPhotoReadUrls, isPdfPath } from "@/lib/photos";
 import { useSession } from "@/lib/session";
 
 type Tab = "po_queue" | "expenses" | "purchase_orders";
@@ -161,6 +162,18 @@ export default function AdminExpenses() {
   const purchaseOrders = useMemo(() => data?.purchase_orders ?? [], [data?.purchase_orders]);
   const expenses = useMemo(() => data?.expenses ?? [], [data?.expenses]);
   const pendingQueue = useMemo(() => purchaseOrders.filter((po) => po.status === "pending_value"), [purchaseOrders]);
+
+  // Signed read URLs for the uploaded receipt/parts photos (private bucket → paths need signing).
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string | null>>({});
+  useEffect(() => {
+    const paths = expenses.flatMap((e) => [e.receipt_url, e.parts_photo_url]);
+    if (!paths.some(Boolean)) { setPhotoUrls({}); return; }
+    let active = true;
+    fetchPhotoReadUrls(paths)
+      .then((urls) => { if (active) setPhotoUrls(urls); })
+      .catch(() => { /* thumbnails just won't render; the row still shows the expense */ });
+    return () => { active = false; };
+  }, [expenses]);
 
   useEffect(() => {
     const firstJobId = jobs[0]?.id ?? "";
@@ -380,7 +393,7 @@ export default function AdminExpenses() {
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_400px]">
           <main className="overflow-auto">
             {tab === "expenses" ? (
-              <ExpensesTable rows={filteredExpenses} canManage={canManage} saving={saving} onEdit={editExpense} onDelete={removeExpense} />
+              <ExpensesTable rows={filteredExpenses} canManage={canManage} saving={saving} photoUrls={photoUrls} onEdit={editExpense} onDelete={removeExpense} />
             ) : (
               <PurchaseOrdersTable rows={filteredPurchaseOrders} canManage={canManage} saving={saving} onValue={startValuePo} showStatus={tab === "purchase_orders"} />
             )}
@@ -493,10 +506,25 @@ function PurchaseOrdersTable({ rows, canManage, saving, onValue, showStatus }: {
   );
 }
 
-function ExpensesTable({ rows, canManage, saving, onEdit, onDelete }: {
+function PhotoThumb({ path, urls, label }: { path: string | null | undefined; urls: Record<string, string | null>; label: string }) {
+  if (!path) return null;
+  const url = urls[path];
+  if (!url) return <span className="text-2xs text-muted-foreground" title={path}>{label}…</span>;
+  if (isPdfPath(path)) {
+    return <a href={url} target="_blank" rel="noreferrer" className="text-2xs text-accent hover:underline">{label} (PDF)</a>;
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title={`${label} — open full size`}>
+      <img src={url} alt={label} className="h-10 w-10 rounded-sm border border-border object-cover" loading="lazy" />
+    </a>
+  );
+}
+
+function ExpensesTable({ rows, canManage, saving, photoUrls, onEdit, onDelete }: {
   rows: JobExpenseWithDetails[];
   canManage: boolean;
   saving: boolean;
+  photoUrls: Record<string, string | null>;
   onEdit: (expense: JobExpenseWithDetails) => void;
   onDelete: (expense: JobExpenseWithDetails) => void;
 }) {
@@ -509,7 +537,7 @@ function ExpensesTable({ rows, canManage, saving, onEdit, onDelete }: {
           <th className="w-[18%] border-b border-border px-3 py-2 text-left font-medium">Vendor</th>
           <th className="border-b border-border px-3 py-2 text-left font-medium">Description</th>
           <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Amount</th>
-          <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">Receipt</th>
+          <th className="w-28 border-b border-border px-3 py-2 text-left font-medium">Photos</th>
           <th className="w-20 border-b border-border px-3 py-2 text-right font-medium">Actions</th>
         </tr>
       </thead>
@@ -533,11 +561,15 @@ function ExpensesTable({ rows, canManage, saving, onEdit, onDelete }: {
             <td className="px-3 py-2 text-muted-foreground">{expense.vendor ?? "-"}</td>
             <td className="px-3 py-2">
               <div className="truncate">{expense.description ?? "-"}</div>
-              {expense.parts_photo_url && <div className="mt-0.5 truncate text-2xs text-muted-foreground">parts photo attached</div>}
             </td>
             <td className="px-3 py-2 text-right font-mono-num">{money(expense.amount)}</td>
             <td className="px-3 py-2">
-              {expense.receipt_url ? <a href={expense.receipt_url} className="text-accent hover:underline" target="_blank" rel="noreferrer">Open</a> : <span className="text-muted-foreground">-</span>}
+              {(expense.receipt_url || expense.parts_photo_url) ? (
+                <div className="flex items-center gap-1.5">
+                  <PhotoThumb path={expense.receipt_url} urls={photoUrls} label="Receipt" />
+                  <PhotoThumb path={expense.parts_photo_url} urls={photoUrls} label="Parts" />
+                </div>
+              ) : <span className="text-muted-foreground">-</span>}
             </td>
             <td className="px-3 py-2">
               <div className="flex justify-end gap-1">
