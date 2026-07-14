@@ -124,7 +124,9 @@ Deno.serve(async (req) => {
           template_key: "daily_check_in_link",
           payload: { link, company_name: branding.company_name, address: job.address ?? null },
           scheduled_for: new Date().toISOString(),
-          dedupe_key: `notif:check_in_link:${job.id}:${contactId}:${date}`,
+          // Forced testing runs skip the per-day dedupe (null key = no unique collision) so every
+          // eligible lead gets a fresh link on every click; the scheduled run keeps its dedupe.
+          dedupe_key: force ? null : `notif:check_in_link:${job.id}:${contactId}:${date}`,
         });
         if (insErr) {
           if (String(insErr.message ?? insErr).toLowerCase().includes("duplicate")) { skipped++; continue; }

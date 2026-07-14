@@ -89,7 +89,8 @@ Deno.serve(async (req) => {
           template_key: "inspection_date_link",
           payload: { link, address: job.address ?? null },
           scheduled_for: new Date().toISOString(),
-          dedupe_key: `notif:insp_date:${job.id}:${date}`,
+          // Forced testing runs skip dedupe so no contact is skipped on repeat clicks.
+          dedupe_key: force ? null : `notif:insp_date:${job.id}:${date}`,
         });
         if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
         dateNudges++;
@@ -99,7 +100,7 @@ Deno.serve(async (req) => {
             template_key: "inspection_reminder_office_notice",
             payload: { phase: "date", address: job.address ?? null },
             scheduled_for: new Date().toISOString(),
-            dedupe_key: `notif:insp_date_office:${job.id}:${date}`,
+            dedupe_key: force ? null : `notif:insp_date_office:${job.id}:${date}`,
           });
           if (oErr && !isDuplicate(oErr)) throw oErr;
         }
@@ -116,7 +117,7 @@ Deno.serve(async (req) => {
             fail_link: buildActionLink(appBaseUrl, DECISION_PATH, fail.token),
           },
           scheduled_for: new Date().toISOString(),
-          dedupe_key: `notif:insp_result:${job.id}:${inspectionDate}`,
+          dedupe_key: force ? null : `notif:insp_result:${job.id}:${inspectionDate}`,
         });
         if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
         resultAsks++;
@@ -126,7 +127,7 @@ Deno.serve(async (req) => {
             template_key: "inspection_reminder_office_notice",
             payload: { phase: "result", address: job.address ?? null },
             scheduled_for: new Date().toISOString(),
-            dedupe_key: `notif:insp_result_office:${job.id}:${inspectionDate}`,
+            dedupe_key: force ? null : `notif:insp_result_office:${job.id}:${inspectionDate}`,
           });
           if (oErr && !isDuplicate(oErr)) throw oErr;
         }
