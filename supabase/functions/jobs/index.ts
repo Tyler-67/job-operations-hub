@@ -5,7 +5,7 @@ import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
 import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
-import { syncInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
+import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
@@ -279,7 +279,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id, inspection_date, inspection_appointment_id")
+    .select("id, state_set_id, active, inspection_date, inspection_appointment_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -331,6 +331,12 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
     if (newDate && (newDate !== oldDate || !existing.inspection_appointment_id)) {
       calendar = await syncInspectionAppointment(sb, { jobId });
     }
+  }
+
+  // Archiving a job cancels its scheduled Uptiq inspection appointment (best-effort) so the
+  // inspections calendar doesn't keep a dead slot. Only on the active true -> false transition.
+  if ("active" in body && patch.active === false && existing.active && existing.inspection_appointment_id) {
+    await cancelInspectionAppointment(sb, { jobId });
   }
 
   const detail = await getJobDetail(sb, locationId, jobId);

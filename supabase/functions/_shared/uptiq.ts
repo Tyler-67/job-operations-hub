@@ -169,6 +169,13 @@ export const uptiq = {
       body: JSON.stringify(payload),
     });
   },
+  // Remove an appointment from the calendar (job archived, or cleaning up a test event).
+  async deleteAppointment(eventId: string) {
+    return callUptiq(`/calendars/events/appointments/${eventId}`, {
+      method: "DELETE",
+      version: "2021-07-28",
+    });
+  },
   async applyTag(contactId: string, tag: string) {
     return callUptiq(`/contacts/${contactId}/tags`, {
       method: "POST",

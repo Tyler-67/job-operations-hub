@@ -12,7 +12,7 @@ import { uptiq } from "./uptiq.ts";
 
 export interface InspectionCalendarResult {
   ok: boolean;
-  action: "created" | "updated" | "skipped_no_calendar" | "skipped_no_date" | "failed";
+  action: "created" | "updated" | "cancelled" | "skipped_no_calendar" | "skipped_no_date" | "skipped_no_appointment" | "failed";
   status?: number;
   error?: string;
   detail?: string;
@@ -96,4 +96,34 @@ export async function syncInspectionAppointment(
   const newId = appointmentIdFrom(res.data);
   if (newId) await sb.from("jobs").update({ inspection_appointment_id: newId }).eq("id", job.id);
   return await logResult({ ok: true, action: "created", status: res.status, appointment_id: newId });
+}
+
+// Remove a job's inspection appointment from the Uptiq calendar (job archived, or cleaning up a
+// test event). Best-effort + logged; clears jobs.inspection_appointment_id on success so the job
+// and calendar stay in sync. No-op when the job has no stored appointment.
+export async function cancelInspectionAppointment(
+  sb: any,
+  opts: { jobId: string },
+): Promise<InspectionCalendarResult> {
+  const { data: job } = await sb
+    .from("jobs")
+    .select("id, location_id, inspection_appointment_id")
+    .eq("id", opts.jobId)
+    .maybeSingle();
+  const apptId = (job?.inspection_appointment_id as string | null)?.trim() || null;
+  if (!job || !apptId) return { ok: false, action: "skipped_no_appointment" };
+
+  const res = await uptiq.deleteAppointment(apptId);
+  const result: InspectionCalendarResult = res.ok
+    ? { ok: true, action: "cancelled", status: res.status, appointment_id: apptId }
+    : { ok: false, action: "failed", status: res.status, error: typeof res.error === "string" ? res.error : `HTTP ${res.status}` };
+  // Only clear the stored id when the delete actually succeeded, so a failed cancel can be retried.
+  if (res.ok) await sb.from("jobs").update({ inspection_appointment_id: null }).eq("id", job.id);
+  await sb.from("event_log").insert({
+    location_id: job.location_id,
+    source: "app",
+    kind: "calendar.inspection_appointment",
+    payload: { job_id: job.id, action: result.action, status: result.status ?? null, error: result.error ?? null, appointment_id: apptId, cancel: true },
+  });
+  return result;
 }
