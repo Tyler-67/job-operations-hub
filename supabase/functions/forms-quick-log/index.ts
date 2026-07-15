@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
     // Re-validate: the contact must actually be crew on this job, and the job active.
     const { data: job, error: jobErr } = await sb
       .from("jobs")
-      .select("id, location_id, current_state_id, address, active")
+      .select("id, location_id, current_state_id, address, active, total_hours")
       .eq("id", jobId)
       .maybeSingle();
     if (jobErr) throw jobErr;
@@ -105,12 +105,11 @@ Deno.serve(async (req) => {
     // (source='check_in') for the same job/crew is never relabeled as unlinked work.
     await sb.from("daily_logs").update({ source: "quick_log" }).eq("id", dailyLogId).is("source", null);
 
-    // 2. Roll authoritative total hours onto the job (recomputed from the sum, so replays
-    //    never double-count) and apply this log's progress when provided.
-    const { data: logs, error: logsErr } = await sb.from("daily_logs").select("hours_worked").eq("job_id", jobId);
-    if (logsErr) throw logsErr;
-    const totalHours = (logs ?? []).reduce((sum: number, r: any) => sum + Number(r.hours_worked ?? 0), 0);
-    const jobPatch: Record<string, unknown> = { total_hours: totalHours };
+    // 2. Add this submission's hours to the job's running total (preserves any office correction)
+    //    instead of re-summing the daily logs — same rule as the daily check-in.
+    const jobPatch: Record<string, unknown> = {
+      total_hours: Number(job.total_hours ?? 0) + (input.hoursWorked ?? 0),
+    };
     if (input.stateProgressPct !== null) jobPatch.state_progress_pct = input.stateProgressPct;
     const { error: jobPatchErr } = await sb.from("jobs").update(jobPatch).eq("id", jobId);
     if (jobPatchErr) throw jobPatchErr;

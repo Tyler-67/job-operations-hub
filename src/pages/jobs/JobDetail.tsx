@@ -246,12 +246,15 @@ export default function JobDetail() {
     setSaving(true);
     setError(null);
     try {
+      // Only send hours when the office actually changed the field, so a bare re-save never
+      // overwrites hours a crew check-in has compiled onto the job since it was loaded.
+      const enteredHours = nonNegative(form.total_hours);
       const payload = {
         address: form.address,
         current_state_id: form.current_state_id || null,
         state_progress_pct: percent(form.state_progress_pct),
         job_completion_pct: percent(form.job_completion_pct),
-        total_hours: nonNegative(form.total_hours),
+        ...(isNew || enteredHours !== Number(detail?.job.total_hours ?? NaN) ? { total_hours: enteredHours } : {}),
         original_estimate: form.original_estimate ? nonNegative(form.original_estimate) : null,
         invoice_number: form.invoice_number || null,
         start_date: form.start_date || null,

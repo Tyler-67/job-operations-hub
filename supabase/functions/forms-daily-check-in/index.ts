@@ -41,15 +41,13 @@ async function consumeToken(sb: any, token: string) {
   return data ?? null;
 }
 
-async function recomputeJobTotals(sb: any, jobId: string) {
-  const [{ data: logs, error: logsErr }, { data: expenses, error: expErr }] = await Promise.all([
-    sb.from("daily_logs").select("hours_worked").eq("job_id", jobId),
-    sb.from("job_expenses").select("kind, amount").eq("job_id", jobId),
-  ]);
-  if (logsErr) throw logsErr;
+// Expense totals are recomputed from the sum (the office edits expenses elsewhere, so re-deriving
+// keeps them authoritative). Hours are NOT summed here — each check-in ADDS its hours to the job's
+// running total (step 3), so an office correction to the hours is never reverted by a later check-in.
+async function recomputeExpenseTotals(sb: any, jobId: string) {
+  const { data: expenses, error: expErr } = await sb.from("job_expenses").select("kind, amount").eq("job_id", jobId);
   if (expErr) throw expErr;
 
-  const totalHours = (logs ?? []).reduce((sum: number, r: any) => sum + Number(r.hours_worked ?? 0), 0);
   let fieldPurchase = 0;
   let po = 0;
   let total = 0;
@@ -59,7 +57,7 @@ async function recomputeJobTotals(sb: any, jobId: string) {
     if (e.kind === "field_purchase") fieldPurchase += amount;
     else if (e.kind === "po") po += amount;
   }
-  return { totalHours, fieldPurchase, po, total };
+  return { fieldPurchase, po, total };
 }
 
 // v1 Test 12: when a check-in records a field-purchase expense, text BOTH owner and
@@ -305,7 +303,7 @@ Deno.serve(async (req) => {
 
     const { data: job, error: jobErr } = await sb
       .from("jobs")
-      .select("id, location_id, state_set_id, current_state_id, address")
+      .select("id, location_id, state_set_id, current_state_id, address, total_hours")
       .eq("id", jobId)
       .maybeSingle();
     if (jobErr) throw jobErr;
@@ -409,11 +407,13 @@ Deno.serve(async (req) => {
       purchaseOrderId = poRow.id as string;
     }
 
-    // 3. Roll authoritative totals onto the job (recomputed from sums, so replays
-    //    never double-count) and apply this log's progress.
-    const totals = await recomputeJobTotals(sb, jobId);
+    // 3. Roll totals onto the job. Expenses recompute from sums (replay-safe). Hours ADD this
+    //    submission's amount to the job's running total — which already includes any office
+    //    correction — so an office hours edit is never reverted by a later check-in. (This is the
+    //    same amount the daily log grew by, and the single-use token means it's added exactly once.)
+    const totals = await recomputeExpenseTotals(sb, jobId);
     const jobPatch: Record<string, unknown> = {
-      total_hours: totals.totalHours,
+      total_hours: Number(job.total_hours ?? 0) + (input.hoursWorked ?? 0),
       total_field_purchase_expenses: totals.fieldPurchase,
       total_po_expenses: totals.po,
       total_expenses: totals.total,
