@@ -5,6 +5,7 @@ import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
 import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
+import { syncInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
@@ -278,7 +279,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id")
+    .select("id, state_set_id, inspection_date, inspection_appointment_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -318,7 +319,22 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
     await maybeEnqueueReviewRequest(sb, jobId, patch.current_state_id as string);
   }
   await replaceJobPeople(sb, locationId, jobId, body);
-  return await getJobDetail(sb, locationId, jobId);
+
+  // When the inspection date is set or moved, sync the Uptiq inspections-calendar appointment
+  // (best-effort, same helper as the owner SMS date-form). Skipped on unrelated saves so an
+  // unchanged date with an existing appointment doesn't re-hit Uptiq. The office form has no slot,
+  // so the helper defaults to the morning (9am) window.
+  let calendar: InspectionCalendarResult | undefined;
+  if ("inspection_date" in body) {
+    const newDate = patch.inspection_date as string | null;
+    const oldDate = existing.inspection_date ? String(existing.inspection_date).slice(0, 10) : null;
+    if (newDate && (newDate !== oldDate || !existing.inspection_appointment_id)) {
+      calendar = await syncInspectionAppointment(sb, { jobId });
+    }
+  }
+
+  const detail = await getJobDetail(sb, locationId, jobId);
+  return calendar ? { ...detail, calendar } : detail;
 }
 
 Deno.serve(async (req) => {
@@ -403,7 +419,13 @@ Deno.serve(async (req) => {
       if (error) throw error;
 
       await replaceJobPeople(sb, locationId, job.id, body);
-      return json(await getJobDetail(sb, locationId, job.id), 201);
+      // A new job created with an inspection date lands on the Uptiq inspections calendar too.
+      let calendar: InspectionCalendarResult | undefined;
+      if (cleanText(body.inspection_date)) {
+        calendar = await syncInspectionAppointment(sb, { jobId: job.id });
+      }
+      const detail = await getJobDetail(sb, locationId, job.id);
+      return json(calendar ? { ...detail, calendar } : detail, 201);
     }
 
     if (req.method === "PATCH") {

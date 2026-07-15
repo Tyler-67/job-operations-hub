@@ -60,3 +60,40 @@ export function buildAppointmentTimes(
     endLocal: `${dateStr}T${pad(h + 1)}:00:00`,
   };
 }
+
+// The UTC offset ("-05:00") for an IANA timezone on a given calendar date, DST-aware. Computed by
+// formatting a probe instant into the zone's wall clock and diffing against UTC — no reliance on
+// Intl "longOffset" support. A noon-UTC probe stays clear of the DST transition hour. Unknown zone
+// falls back to UTC rather than throwing.
+export function tzOffset(dateStr: string, timeZone: string): string {
+  try {
+    const probe = new Date(`${dateStr}T12:00:00Z`);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone, hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(probe);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const min = Math.round((asUTC - probe.getTime()) / 60000);
+    const sign = min >= 0 ? "+" : "-";
+    const abs = Math.abs(min);
+    return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  } catch {
+    return "+00:00";
+  }
+}
+
+// Timezone-aware inspection window: the slot's wall-clock hour in the company timezone, expressed
+// as ISO8601 WITH offset (e.g. "2026-07-20T09:00:00-05:00") — what the Uptiq/LeadConnector
+// appointments API needs to land the event at the right LOCAL hour. Without a timezone it returns
+// the zone-less wall-clock string (the API then assumes the calendar's own zone).
+export function appointmentTimesWithZone(
+  dateStr: string,
+  slot: InspectionSlot,
+  timeZone?: string | null,
+): { start: string; end: string } {
+  const { startLocal, endLocal } = buildAppointmentTimes(dateStr, slot);
+  if (!timeZone) return { start: startLocal, end: endLocal };
+  const off = tzOffset(dateStr, timeZone);
+  return { start: `${startLocal}${off}`, end: `${endLocal}${off}` };
+}

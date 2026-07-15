@@ -11,6 +11,7 @@ import {
   markJobPaid,
   shortDate,
   updateJob,
+  type InspectionCalendarSync,
   type JobDecisionAction,
   type JobDetailResponse,
   type JobState,
@@ -122,6 +123,19 @@ function decisionButtonClass(tone: DecisionTone) {
   if (tone === "pass") return `${base} border-success/40 text-success hover:bg-success/10`;
   if (tone === "fail") return `${base} border-destructive/40 text-destructive hover:bg-destructive/10`;
   return `${base} border-border hover:bg-muted`;
+}
+
+// Turn the inspection-calendar sync outcome into a short line appended to the save notice, so an
+// office user sees whether the inspection actually reached the Uptiq calendar (instead of failing
+// silently). skipped_* (no calendar configured / no date) is intentionally quiet.
+function calendarNotice(cal: InspectionCalendarSync | undefined): string {
+  if (!cal) return "";
+  if (cal.action === "created") return "Inspection added to the Uptiq calendar.";
+  if (cal.action === "updated") return "Inspection updated on the Uptiq calendar.";
+  // Honest but non-alarming: the usual cause is the token lacking Calendars scope, which flips to
+  // a success message once it's granted. The exact provider error is captured in event_log.
+  if (cal.action === "failed") return "The inspection didn't sync to the Uptiq calendar.";
+  return "";
 }
 
 export default function JobDetail() {
@@ -263,7 +277,8 @@ export default function JobDetail() {
         original_estimate: numberInput(saved.job.original_estimate),
         invoice_number: saved.job.invoice_number ?? "",
       } }));
-      setNotice("Job saved.");
+      const calMsg = calendarNotice(saved.calendar);
+      setNotice(calMsg ? `Job saved. ${calMsg}` : "Job saved.");
       if (isNew) navigate(`/jobs/${saved.job.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save job");

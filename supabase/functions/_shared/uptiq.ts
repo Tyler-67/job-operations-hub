@@ -160,6 +160,15 @@ export const uptiq = {
       body: JSON.stringify(payload),
     });
   },
+  // Re-schedule an existing appointment (e.g. the inspection date moved) instead of creating a
+  // duplicate. Same payload shape as create; the event id comes from the stored appointment id.
+  async updateAppointment(eventId: string, payload: Record<string, unknown>) {
+    return callUptiq(`/calendars/events/appointments/${eventId}`, {
+      method: "PUT",
+      version: "2021-07-28",
+      body: JSON.stringify(payload),
+    });
+  },
   async applyTag(contactId: string, tag: string) {
     return callUptiq(`/contacts/${contactId}/tags`, {
       method: "POST",

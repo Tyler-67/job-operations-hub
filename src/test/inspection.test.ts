@@ -5,6 +5,8 @@ import {
   buildAppointmentTimes,
   slotHour,
   slotLabel,
+  tzOffset,
+  appointmentTimesWithZone,
 } from "../../supabase/functions/_shared/inspection";
 
 describe("isValidIsoDate", () => {
@@ -58,5 +60,33 @@ describe("slot helpers", () => {
     expect(slotHour("1pm")).toBe(13);
     expect(slotLabel("9am")).toBe("9:00 AM");
     expect(slotLabel("1pm")).toBe("1:00 PM");
+  });
+});
+
+describe("tzOffset", () => {
+  it("is DST-aware for a US zone", () => {
+    // America/Chicago: CDT (-05:00) in July, CST (-06:00) in January.
+    expect(tzOffset("2026-07-20", "America/Chicago")).toBe("-05:00");
+    expect(tzOffset("2026-01-20", "America/Chicago")).toBe("-06:00");
+    expect(tzOffset("2026-07-20", "America/Denver")).toBe("-06:00");
+  });
+  it("returns +00:00 for UTC and for an unknown zone", () => {
+    expect(tzOffset("2026-07-20", "UTC")).toBe("+00:00");
+    expect(tzOffset("2026-07-20", "Not/AZone")).toBe("+00:00");
+  });
+});
+
+describe("appointmentTimesWithZone", () => {
+  it("suffixes the company offset so the local hour is unambiguous", () => {
+    expect(appointmentTimesWithZone("2026-07-20", "9am", "America/Chicago")).toEqual({
+      start: "2026-07-20T09:00:00-05:00",
+      end: "2026-07-20T10:00:00-05:00",
+    });
+  });
+  it("falls back to zone-less wall-clock when no timezone is given", () => {
+    expect(appointmentTimesWithZone("2026-07-20", "1pm", null)).toEqual({
+      start: "2026-07-20T13:00:00",
+      end: "2026-07-20T14:00:00",
+    });
   });
 });

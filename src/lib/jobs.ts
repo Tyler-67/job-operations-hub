@@ -78,12 +78,24 @@ export interface JobsResponse {
   default_state_set_id: string | null;
 }
 
+// Result of syncing a job's inspection to the Uptiq inspections calendar. Present on a job
+// create/save response only when the inspection date was set or changed on that request.
+export interface InspectionCalendarSync {
+  ok: boolean;
+  action: "created" | "updated" | "skipped_no_calendar" | "skipped_no_date" | "failed";
+  status?: number;
+  error?: string;
+  detail?: string;
+  appointment_id?: string | null;
+}
+
 export interface JobDetailResponse {
   job: JobSummary;
   states: JobState[];
   daily_logs: DailyLog[];
   purchase_orders: PurchaseOrder[];
   expenses: JobExpense[];
+  calendar?: InspectionCalendarSync;
 }
 
 export interface SaveJobPayload {

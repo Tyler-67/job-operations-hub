@@ -10,8 +10,8 @@
 // or unreachable calendar can never block the owner from recording the date.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
-import { buildAppointmentTimes, normalizeInspectionDateInput, slotLabel } from "../_shared/inspection.ts";
-import { uptiq } from "../_shared/uptiq.ts";
+import { normalizeInspectionDateInput } from "../_shared/inspection.ts";
+import { syncInspectionAppointment } from "../_shared/inspection-calendar.ts";
 
 const INSPECTION_DATE_ACTION = "inspection_date";
 
@@ -68,45 +68,29 @@ Deno.serve(async (req) => {
     const { error: updErr } = await sb.from("jobs").update({ inspection_date: input.inspectionDate }).eq("id", jobId);
     if (updErr) throw updErr;
 
-    // 2. Best-effort calendar appointment on the company's inspections calendar. Gated on
-    //    a configured calendar + owner contact; any Uptiq error is captured, not thrown,
-    //    so the recorded date stands regardless of calendar state.
-    let appointment = "skipped_no_calendar";
-    const { data: settings } = await sb
-      .from("company_settings")
-      .select("inspections_calendar_id, owner_contact_id")
-      .eq("location_id", job.location_id)
-      .maybeSingle();
-    const calendarId = (settings?.inspections_calendar_id as string | null)?.trim() || null;
-    const ownerContactId = (settings?.owner_contact_id as string | null)?.trim() || null;
-    if (calendarId && ownerContactId) {
-      const { startLocal, endLocal } = buildAppointmentTimes(input.inspectionDate, input.slot);
-      // Field shape follows the Uptiq (LeadConnector) appointments API.
-      const res = await uptiq.createAppointment({
-        calendarId,
-        locationId: job.location_id,
-        contactId: ownerContactId,
-        startTime: startLocal,
-        endTime: endLocal,
-        title: `Inspection — ${job.address ?? "job site"} (${slotLabel(input.slot)})`,
-        ignoreFreeSlotValidation: true,
-      });
-      appointment = res.ok ? "created" : "failed";
-    }
+    // 2. Best-effort calendar appointment on the company's inspections calendar (shared helper,
+    //    also used by the office job form). Any Uptiq error is returned, not thrown, so the
+    //    recorded date stands regardless of calendar/scope state.
+    const cal = await syncInspectionAppointment(sb, { jobId, slot: input.slot });
 
-    // 3. Idempotent audit entry (date is the natural per-job dedupe key).
+    // 3. Idempotent audit entry (date is the natural per-job dedupe key). Records the REAL
+    //    calendar outcome (status + error) so a failed sync is diagnosable, not silent.
     const { error: evtErr } = await sb.from("event_log").insert({
       location_id: job.location_id,
       source: "form",
       kind: "form.inspection_date",
       dedupe_key: `inspection_date:${jobId}:${input.inspectionDate}`,
       actor_contact_id: claim.contact_id ?? null,
-      payload: { job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot, appointment },
+      payload: {
+        job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot,
+        appointment: cal.action, appointment_status: cal.status ?? null,
+        appointment_error: cal.error ?? null, appointment_detail: cal.detail ?? null,
+      },
       status: "ok",
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
 
-    return json({ ok: true, job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot, appointment });
+    return json({ ok: true, job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot, appointment: cal.action, calendar: cal });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return json({ error: message }, 500);
