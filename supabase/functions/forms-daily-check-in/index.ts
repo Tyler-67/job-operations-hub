@@ -13,6 +13,8 @@ import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.t
 import { applyTransition } from "../_shared/state-machine.ts";
 import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
 import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
+import { localContext } from "../_shared/check-in-schedule.ts";
+import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
 
@@ -118,7 +120,8 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
   address: string;
   toStateId: string | null;
 }) {
-  const [{ data: settings, error: settingsErr }, phaseRes] = await Promise.all([
+  const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
+  const [{ data: settings, error: settingsErr }, phaseRes, { data: locRow }] = await Promise.all([
     sb.from("company_settings")
       .select("owner_contact_id, office_contact_id")
       .eq("location_id", opts.locationId)
@@ -126,31 +129,49 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
     opts.toStateId
       ? sb.from("job_states").select("label").eq("id", opts.toStateId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    sb.from("locations").select("timezone").eq("id", opts.locationId).maybeSingle(),
   ]);
   if (settingsErr) throw settingsErr;
   if (phaseRes.error) throw phaseRes.error;
 
-  const now = new Date().toISOString();
-  const payload = {
-    job_id: opts.jobId,
-    log_date: opts.logDate,
-    address: opts.address,
-    phase_label: typeof phaseRes.data?.label === "string" ? phaseRes.data.label : null,
-  };
-  for (const raw of [settings?.owner_contact_id, settings?.office_contact_id]) {
-    const contactId = typeof raw === "string" ? raw.trim() : "";
-    if (!contactId) continue;
+  const ownerContactId = typeof settings?.owner_contact_id === "string" ? settings.owner_contact_id.trim() : "";
+  const officeContactId = typeof settings?.office_contact_id === "string" ? settings.office_contact_id.trim() : "";
+
+  // OFFICE: heads-up only. The "the owner will be asked to schedule" copy is correct here — the
+  // office can't set the date, so it just needs to know a request came in.
+  if (officeContactId) {
     const { error: insErr } = await sb.from("scheduled_notifications").insert({
       location_id: opts.locationId,
       job_id: opts.jobId,
       channel: "sms",
-      recipient: contactId,
+      recipient: officeContactId,
       template_key: "inspection_requested_notice",
-      payload,
-      scheduled_for: now,
-      dedupe_key: `notif:insp_requested:${opts.jobId}:${opts.logDate}:${contactId}`,
+      payload: {
+        job_id: opts.jobId,
+        log_date: opts.logDate,
+        address: opts.address,
+        phase_label: typeof phaseRes.data?.label === "string" ? phaseRes.data.label : null,
+      },
+      scheduled_for: new Date().toISOString(),
+      dedupe_key: `notif:insp_requested:${opts.jobId}:${opts.logDate}:${officeContactId}`,
     });
     if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
+  }
+
+  // OWNER: the actual date-picker link, immediately — not a third-person "the owner will be asked"
+  // teaser. Same helper + dedupe key as the reminder cron (keyed on the company-local date), so a
+  // same-day cron run collapses to one message; the cron still follows up on later days if unset.
+  if (ownerContactId && appBaseUrl) {
+    const tz = (typeof locRow?.timezone === "string" && locRow.timezone.trim()) || "America/Chicago";
+    const { date: localDate } = localContext(tz, new Date());
+    await queueInspectionDateAsk(sb, {
+      locationId: opts.locationId,
+      jobId: opts.jobId,
+      address: opts.address,
+      ownerContactId,
+      appBaseUrl,
+      localDate,
+    });
   }
 }
 

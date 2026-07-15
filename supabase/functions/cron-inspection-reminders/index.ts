@@ -12,9 +12,8 @@
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
+import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
 
-const INSPECTION_DATE_ACTION = "inspection_date";
-const INSPECTION_DATE_PATH = "/forms/inspection-date";
 const DECISION_PATH = "/action/decision";
 
 function isDuplicate(error: unknown): boolean {
@@ -78,21 +77,12 @@ Deno.serve(async (req) => {
       const inspectionDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
 
       if (!inspectionDate) {
-        // Branch A: the owner still needs to pick a date.
-        const minted = await mintActionToken(sb, {
-          action: INSPECTION_DATE_ACTION, jobId: job.id, contactId: null,
-          payload: { address: job.address ?? null },
+        // Branch A: the owner still needs to pick a date (shared with the check-in immediate send).
+        const sent = await queueInspectionDateAsk(sb, {
+          locationId: loc, jobId: job.id, address: job.address ?? null,
+          ownerContactId, appBaseUrl, localDate: date, force,
         });
-        const link = buildActionLink(appBaseUrl, INSPECTION_DATE_PATH, minted.token);
-        const { error } = await sb.from("scheduled_notifications").insert({
-          location_id: loc, job_id: job.id, channel: "sms", recipient: ownerContactId,
-          template_key: "inspection_date_link",
-          payload: { link, address: job.address ?? null },
-          scheduled_for: new Date().toISOString(),
-          // Forced testing runs skip dedupe so no contact is skipped on repeat clicks.
-          dedupe_key: force ? null : `notif:insp_date:${job.id}:${date}`,
-        });
-        if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
+        if (!sent) { skipped++; continue; }
         dateNudges++;
         if (officeContactId) {
           const { error: oErr } = await sb.from("scheduled_notifications").insert({
