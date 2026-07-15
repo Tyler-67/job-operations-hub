@@ -18,6 +18,15 @@ function cleanEmail(value: unknown) {
   return email;
 }
 
+// Email is required for a supply house (parts orders are emailed to it). Validates the format
+// and rejects an empty value. NOTE: this guards the admin CRUD only — the Uptiq contact pull
+// writes supply_house_contacts directly and stays lenient (a pulled house may lack an email).
+function requireEmail(value: unknown): string {
+  const email = cleanEmail(value);
+  if (!email) throw new Error("email_required");
+  return email;
+}
+
 function boolValue(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -74,7 +83,8 @@ const TEXT_FIELDS = ["rep_name", "address", "phone", "account_number", "uptiq_co
 
 function housePatch(body: Record<string, unknown>) {
   const patch: Record<string, unknown> = {};
-  if ("email" in body) patch.email = cleanEmail(body.email);
+  // Email is required: setting it always demands a valid, non-empty address (can't blank it out).
+  if ("email" in body) patch.email = requireEmail(body.email);
   for (const key of TEXT_FIELDS) {
     if (key in body) patch[key] = cleanText(body[key]);
   }
@@ -85,6 +95,7 @@ function housePatch(body: Record<string, unknown>) {
 async function createSupplyHouse(sb: any, locationId: string, body: Record<string, unknown>) {
   const name = cleanText(body.name);
   if (!name) throw new Error("name_required");
+  const email = requireEmail(body.email); // required on create (also rejects a malformed address)
   await assertNameFree(sb, locationId, name);
 
   const patch = housePatch(body);
@@ -92,6 +103,7 @@ async function createSupplyHouse(sb: any, locationId: string, body: Record<strin
     location_id: locationId,
     name,
     ...patch,
+    email,
     active: patch.active ?? true,
   });
   if (error) throw error;
@@ -152,7 +164,7 @@ Deno.serve(async (req) => {
     return json({ error: "method_not_allowed" }, 405);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const status = ["name_required", "invalid_email"].includes(message)
+    const status = ["name_required", "email_required", "invalid_email"].includes(message)
       ? 400
       : message === "not_found"
         ? 404

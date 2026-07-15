@@ -97,7 +97,7 @@ export default function AdminSupplyHouses() {
   }
 
   async function save() {
-    if (!canManage || !form.name.trim()) return;
+    if (!canManage || !form.name.trim() || !form.email.trim()) return;
     setSaving(true);
     setError(null);
     try {
@@ -107,7 +107,7 @@ export default function AdminSupplyHouses() {
         rep_name: form.rep_name.trim() || null,
         address: form.address.trim() || null,
         phone: form.phone.trim() || null,
-        email: form.email.trim() || null,
+        email: form.email.trim(),
         account_number: form.account_number.trim() || null,
         uptiq_contact_id: form.uptiq_contact_id.trim() || null,
         notes: form.notes.trim() || null,
@@ -201,7 +201,7 @@ export default function AdminSupplyHouses() {
                   <h2 className="text-sm font-semibold">{editing ? "Edit Supply House" : "New Supply House"}</h2>
                 </div>
 
-                <Field label="Name">
+                <Field label="Name" required>
                   <input value={form.name} onChange={(event) => update("name", event.target.value)} disabled={saving} className={inputClass} />
                 </Field>
                 <Field label="Rep name">
@@ -218,8 +218,8 @@ export default function AdminSupplyHouses() {
                     <input value={form.account_number} onChange={(event) => update("account_number", event.target.value)} disabled={saving} className={inputClass} />
                   </Field>
                 </div>
-                <Field label="Email">
-                  <input value={form.email} onChange={(event) => update("email", event.target.value)} disabled={saving} className={inputClass} />
+                <Field label="Email" required>
+                  <input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} disabled={saving} className={inputClass} />
                 </Field>
                 <Field label="Uptiq contact ID (for parts-order emails)">
                   <input value={form.uptiq_contact_id} onChange={(event) => update("uptiq_contact_id", event.target.value)} disabled={saving} className={inputClass} />
@@ -233,7 +233,7 @@ export default function AdminSupplyHouses() {
                 </label>
 
                 <div className="flex gap-2 border-t border-border pt-4">
-                  <button type="button" disabled={saving || !form.name.trim()} onClick={save} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+                  <button type="button" disabled={saving || !form.name.trim() || !form.email.trim()} onClick={save} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
                     <Save className="h-3.5 w-3.5" />
                     {saving ? "Saving..." : "Save"}
                   </button>
@@ -251,10 +251,10 @@ export default function AdminSupplyHouses() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block text-xs">
-      <span className="mb-1 block text-muted-foreground">{label}</span>
+      <span className="mb-1 block text-muted-foreground">{label}{required ? <span className="text-destructive"> *</span> : null}</span>
       {children}
     </label>
   );

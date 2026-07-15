@@ -14,7 +14,7 @@ export interface SaveSupplyHousePayload {
   rep_name?: string | null;
   address?: string | null;
   phone?: string | null;
-  email?: string | null;
+  email: string;
   account_number?: string | null;
   uptiq_contact_id?: string | null;
   notes?: string | null;
