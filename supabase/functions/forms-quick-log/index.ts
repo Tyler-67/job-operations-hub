@@ -9,6 +9,7 @@
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { normalizeQuickLogInput, buildQuickLogLogFields } from "../_shared/quick-log.ts";
+import { accumulateHours } from "../_shared/check-in.ts";
 
 const QUICK_LOG_ACTION = "quick_log";
 
@@ -73,11 +74,23 @@ Deno.serve(async (req) => {
     if (memErr) throw memErr;
     if (!membership) return json({ error: "not_crew_on_job" }, 403);
 
-    // 1. Upsert the daily log (UNIQUE(log_date, job_id, crew_contact_id) keeps it idempotent).
+    // 1. Upsert the daily log (UNIQUE(log_date, job_id, crew_contact_id)). Hours ACCUMULATE across
+    //    the crew's same-day logs (add, don't replace) — same "hours compile" rule as the check-in.
+    const { data: existingLog } = await sb
+      .from("daily_logs")
+      .select("hours_worked")
+      .eq("log_date", input.logDate)
+      .eq("job_id", jobId)
+      .eq("crew_contact_id", crewContactId)
+      .maybeSingle();
+    const priorHours = existingLog ? Number(existingLog.hours_worked ?? 0) : null;
+    const logFields = buildQuickLogLogFields(input);
+    logFields.hours_worked = accumulateHours(priorHours, input.hoursWorked);
+
     const { data: log, error: logErr } = await sb
       .from("daily_logs")
       .upsert({
-        ...buildQuickLogLogFields(input),
+        ...logFields,
         job_id: jobId,
         crew_contact_id: crewContactId,
         state_id: job.current_state_id,

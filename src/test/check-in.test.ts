@@ -1,10 +1,24 @@
 import { describe, it, expect } from "vitest";
 import {
+  accumulateHours,
   buildDailyLogFields,
   classifyParts,
   normalizeCheckInInput,
   todayIso,
 } from "../../supabase/functions/_shared/check-in";
+
+describe("accumulateHours", () => {
+  it("adds a submission's hours to the day's prior total", () => {
+    expect(accumulateHours(8, 5)).toBe(13);
+  });
+  it("treats a first check-in with no prior as the submitted value", () => {
+    expect(accumulateHours(null, 8)).toBe(8);
+  });
+  it("leaves the prior total untouched when no hours are entered", () => {
+    expect(accumulateHours(8, null)).toBe(8);
+    expect(accumulateHours(null, null)).toBeNull();
+  });
+});
 
 describe("normalizeCheckInInput", () => {
   it("cleans, bounds, and types the raw form body", () => {

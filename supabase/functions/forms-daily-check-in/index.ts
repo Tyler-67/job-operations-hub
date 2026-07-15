@@ -11,7 +11,7 @@
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { applyTransition } from "../_shared/state-machine.ts";
-import { buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
+import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
 import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
@@ -296,11 +296,25 @@ Deno.serve(async (req) => {
       typeof tokenPayload.log_date === "string" ? tokenPayload.log_date : undefined,
     );
 
-    // 1. Upsert the daily log (UNIQUE(log_date, job_id, crew_contact_id) keeps it idempotent).
+    // 1. Upsert the daily log (UNIQUE(log_date, job_id, crew_contact_id)). Hours ACCUMULATE across
+    //    a crew's same-day check-ins (add, don't replace) so every check-in's hours compile into the
+    //    day's total; all other fields take the latest submission. Read-then-add is fine here: each
+    //    submission is a single-use token (no concurrent taps for the same crew/day).
+    const { data: existingLog } = await sb
+      .from("daily_logs")
+      .select("hours_worked")
+      .eq("log_date", input.logDate)
+      .eq("job_id", jobId)
+      .eq("crew_contact_id", crewContactId)
+      .maybeSingle();
+    const priorHours = existingLog ? Number(existingLog.hours_worked ?? 0) : null;
+    const logFields = buildDailyLogFields(input);
+    logFields.hours_worked = accumulateHours(priorHours, input.hoursWorked);
+
     const { data: log, error: logErr } = await sb
       .from("daily_logs")
       .upsert({
-        ...buildDailyLogFields(input),
+        ...logFields,
         job_id: jobId,
         crew_contact_id: crewContactId,
         state_id: job.current_state_id,

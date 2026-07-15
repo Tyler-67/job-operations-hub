@@ -150,6 +150,15 @@ export function classifyParts(input: CheckInInput): PartsClassification {
   return { expense: null, purchaseOrder: null };
 }
 
+// A crew's hours ADD UP across every check-in for the same day (they "compile") rather than the
+// latest submission replacing the day's entry. `prior` is the day's existing logged hours (null if
+// the crew hasn't logged yet); a submission that enters no hours leaves the prior total untouched.
+// All other daily-log fields (progress, issues, parts, photos) still take the latest submission.
+export function accumulateHours(prior: number | null, submitted: number | null): number | null {
+  if (submitted === null) return prior;
+  return (prior ?? 0) + submitted;
+}
+
 // Maps normalized input to the daily_logs column shape (minus the keys the
 // function supplies: job_id, crew_contact_id, state_id).
 export function buildDailyLogFields(input: CheckInInput): Record<string, unknown> {
