@@ -8,14 +8,15 @@ import {
   canManageSettings,
   fetchSettings,
   moneyLabel,
-  pullCrew,
-  runCron,
+  pullContacts,
+  runCrons,
   saveSettings,
   syncContacts,
   timeForInput,
   type ContactsSyncResult,
-  type CrewPullResult,
+  type ContactsPullResult,
   type CronKey,
+  type RunCronsResult,
   type CompanySettings,
   type SettingsLocation,
   type SettingsResponse,
@@ -23,6 +24,23 @@ import {
 import { useSession } from "@/lib/session";
 import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
+import { fetchContacts, deleteContactConversation, sendTest, type ContactRow, type ConversationDeleteResult, type SendTestResult } from "@/lib/contacts";
+
+// The crons the debug kit can fire, in display order. Drain runs last (it's the sender).
+const CRON_TARGETS: { key: CronKey; label: string; note: string }[] = [
+  { key: "check-ins", label: "Send check-ins", note: "texts each active job's crew their check-in link" },
+  { key: "inspection-reminders", label: "Inspection reminders", note: "owner date-ask + PASS/FAIL result links" },
+  { key: "weekly-report", label: "Weekly report", note: "owner/office weekly digest email" },
+  { key: "drain", label: "Drain queue", note: "sends anything still pending (auto-runs after the above)" },
+];
+
+// The run_crons result reports the underlying edge-function name; map it back to a friendly label.
+const CRON_LABEL_BY_FN: Record<string, string> = {
+  "cron-send-check-ins": "Send check-ins",
+  "cron-inspection-reminders": "Inspection reminders",
+  "cron-weekly-report": "Weekly report",
+  "cron-drain-notifications": "Drain queue",
+};
 
 interface SettingsForm {
   company_name: string;
@@ -153,12 +171,22 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [cronBusy, setCronBusy] = useState<CronKey | null>(null);
-  const [cronResult, setCronResult] = useState<string | null>(null);
+  const [cronSelected, setCronSelected] = useState<CronKey[]>(["check-ins", "inspection-reminders", "weekly-report"]);
+  const [cronBusy, setCronBusy] = useState(false);
+  const [cronResult, setCronResult] = useState<RunCronsResult | null>(null);
   const [contactsBusy, setContactsBusy] = useState<"preview" | "sync" | null>(null);
   const [contactsResult, setContactsResult] = useState<ContactsSyncResult | null>(null);
-  const [crewBusy, setCrewBusy] = useState<"preview" | "pull" | null>(null);
-  const [crewResult, setCrewResult] = useState<CrewPullResult | null>(null);
+  const [pullBusy, setPullBusy] = useState<"preview" | "pull" | null>(null);
+  const [pullResult, setPullResult] = useState<ContactsPullResult | null>(null);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [testContactId, setTestContactId] = useState("");
+  const [testChannel, setTestChannel] = useState<"sms" | "email">("sms");
+  const [testMessage, setTestMessage] = useState("");
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState<SendTestResult | null>(null);
+  const [convContactId, setConvContactId] = useState("");
+  const [convBusy, setConvBusy] = useState<"preview" | "delete" | null>(null);
+  const [convResult, setConvResult] = useState<ConversationDeleteResult | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -175,6 +203,14 @@ export default function AdminSettings() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+
+  // Uptiq-linked contacts for the Conversations debug tool's picker (only these have a thread).
+  useEffect(() => {
+    if (!canSyncContacts) return;
+    fetchContacts()
+      .then((res) => setContacts(res.contacts.filter((c) => c.uptiq_contact_id)))
+      .catch(() => { /* leave the picker empty on failure */ });
+  }, [canSyncContacts]);
 
   const supplyHouses = useMemo(() => data?.supply_houses ?? [], [data?.supply_houses]);
   const weekdayLabel = WEEKDAYS.filter((day) => form.check_in_weekdays.includes(day.value)).map((day) => day.label).join(", ");
@@ -246,23 +282,28 @@ export default function AdminSettings() {
     }
   }
 
-  async function handleRunCron(cron: CronKey, label: string) {
+  function toggleCron(key: CronKey) {
+    setCronResult(null);
+    setCronSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
+  }
+
+  async function handleRunCrons() {
+    if (!cronSelected.length) return;
+    const labels = CRON_TARGETS.filter((t) => cronSelected.includes(t.key)).map((t) => t.label).join(", ");
     if (!(await confirm({
-      title: `Run “${label}” now?`,
-      body: "This fires the cron immediately (ignoring its send-time) and sends real messages via Uptiq to the configured contacts. Use for testing only.",
-      confirmLabel: "Run now",
+      title: "Run selected now?",
+      body: `Fires now, ignoring send times: ${labels}. Each send-cron is forced, then the queue is drained once so messages actually go out. Sends real SMS/email via Uptiq — for testing.`,
+      confirmLabel: "Run selected",
     }))) return;
-    setCronBusy(cron);
+    setCronBusy(true);
     setCronResult(null);
     setError(null);
     try {
-      const res = await runCron(cron);
-      const drainMsg = res.drain ? ` · sent: ${JSON.stringify(res.drain.result)}` : "";
-      setCronResult(`${label}: ${res.ok ? "OK" : `error ${res.status}`} — ${JSON.stringify(res.result)}${drainMsg}`);
+      setCronResult(await runCrons(cronSelected));
     } catch (err) {
-      setCronResult(`${label}: ${err instanceof Error ? err.message : "failed"}`);
+      setError(err instanceof Error ? err.message : "Cron run failed");
     } finally {
-      setCronBusy(null);
+      setCronBusy(false);
     }
   }
 
@@ -284,21 +325,88 @@ export default function AdminSettings() {
     }
   }
 
-  async function handlePullCrew(dryRun: boolean) {
+  async function handlePull(dryRun: boolean) {
     if (!dryRun && !(await confirm({
-      title: "Pull crew from Uptiq now?",
-      body: "Imports every Uptiq contact tagged “crew” as a crew contact in Daily Burn (created or updated, matched by Uptiq id). Read-only in Uptiq; it only adds/updates crew here and never removes anyone.",
-      confirmLabel: "Pull crew",
+      title: "Pull contacts from Uptiq now?",
+      body: "Imports every tagged Uptiq contact into this Contacts list by role (crew/customer/owner/office/supply house), and links supply houses into the Supply Houses list too. Read-only in Uptiq; additive (never removes anyone); untagged/unrecognized contacts are skipped.",
+      confirmLabel: "Import",
     }))) return;
-    setCrewBusy(dryRun ? "preview" : "pull");
-    setCrewResult(null);
+    setPullBusy(dryRun ? "preview" : "pull");
+    setPullResult(null);
     setError(null);
     try {
-      setCrewResult(await pullCrew({ dryRun }));
+      setPullResult(await pullContacts({ dryRun }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Crew pull failed");
+      setError(err instanceof Error ? err.message : "Contact pull failed");
     } finally {
-      setCrewBusy(null);
+      setPullBusy(null);
+    }
+  }
+
+  async function handleSendTest() {
+    const contact = contacts.find((c) => c.id === testContactId);
+    const uptiqId = contact?.uptiq_contact_id ?? "";
+    if (!uptiqId) return;
+    if (!(await confirm({
+      title: `Send a test ${testChannel === "email" ? "email" : "SMS"}?`,
+      body: `Sends one ${testChannel === "email" ? "email" : "text"} to ${contact?.name ?? "this contact"} via Uptiq right now (bypasses the queue). For testing message delivery.`,
+      confirmLabel: "Send test",
+    }))) return;
+    setTestBusy(true);
+    setTestResult(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await sendTest({
+        uptiqContactId: uptiqId,
+        channel: testChannel,
+        message: testMessage.trim() || undefined,
+        subject: testChannel === "email" ? (testMessage.trim() || undefined) : undefined,
+      });
+      setTestResult(res);
+      setNotice(res.provider_ok ? `Test ${testChannel} sent to ${contact?.name ?? "contact"}.` : `Provider returned ${res.provider_status}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Test send failed");
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
+  async function handleConvPreview() {
+    if (!convContactId) return;
+    setConvBusy("preview");
+    setConvResult(null);
+    setError(null);
+    try {
+      setConvResult(await deleteContactConversation(convContactId, true));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Conversation preview failed");
+    } finally {
+      setConvBusy(null);
+    }
+  }
+
+  async function handleConvDelete() {
+    if (!convContactId) return;
+    const contact = contacts.find((c) => c.id === convContactId);
+    if (!(await confirm({
+      title: `Clear ${contact?.name ?? "this contact"}'s Uptiq conversation?`,
+      body: "Backs up the contact + all messages here, then deletes the conversation thread in Uptiq. The contact is NOT deleted; the next message to them starts a fresh thread.",
+      confirmLabel: "Back up & delete",
+      destructive: true,
+    }))) return;
+    setConvBusy("delete");
+    setConvResult(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await deleteContactConversation(convContactId, false);
+      setConvResult(res);
+      setNotice(`Backed up ${res.total_messages} message(s); deleted ${res.deleted ?? 0}/${res.total_conversations} conversation(s).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Conversation delete failed");
+    } finally {
+      setConvBusy(null);
     }
   }
 
@@ -412,22 +520,54 @@ export default function AdminSettings() {
               </section>
             )}
 
+            {canManage && form.debug_mode && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Run crons</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Check the jobs to fire now (ignoring their configured send times), then <strong>Run selected</strong>.
+                    Each send-cron is forced and the queue is <strong>drained once</strong> so messages go out on the press.
+                    <strong> Sends real SMS/email</strong> via Uptiq &mdash; for testing.
+                  </p>
+                  <div className="grid gap-1.5">
+                    {CRON_TARGETS.map((t) => (
+                      <label key={t.key} className="flex items-start gap-2 text-xs">
+                        <input type="checkbox" className="mt-0.5" checked={cronSelected.includes(t.key)} disabled={cronBusy} onChange={() => toggleCron(t.key)} />
+                        <span><span className="font-medium">{t.label}</span> <span className="text-muted-foreground">&mdash; {t.note}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={handleRunCrons} disabled={cronBusy || !cronSelected.length} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50">
+                      {cronBusy ? "Running..." : `Run selected (${cronSelected.length})`}
+                    </button>
+                    <button type="button" onClick={() => { setCronResult(null); setCronSelected(cronSelected.length === CRON_TARGETS.length ? [] : CRON_TARGETS.map((t) => t.key)); }} disabled={cronBusy} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:opacity-50">
+                      {cronSelected.length === CRON_TARGETS.length ? "Clear all" : "Select all"}
+                    </button>
+                  </div>
+                  <p className="text-2xs text-muted-foreground">Weekly report won&rsquo;t resend twice in one period; one drain sends up to 100 queued messages.</p>
+                  {cronResult && <CronRunSummary result={cronResult} />}
+                </div>
+              </section>
+            )}
+
             {canSyncContacts && form.debug_mode && (
               <section className="border-b border-border">
-                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq Contacts</div>
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq contacts</div>
                 <div className="space-y-5 px-4 py-4">
                   <div className="space-y-3">
-                    <p className="text-xs font-medium">Pull crew from Uptiq <span className="text-muted-foreground">(tag: crew)</span></p>
+                    <p className="text-xs font-medium">Pull contacts from Uptiq <span className="text-muted-foreground">(by tag)</span></p>
                     <p className="text-xs text-muted-foreground">
-                      Imports every Uptiq contact tagged <strong>crew</strong> as a crew contact in Daily Burn
-                      (created or updated, matched by Uptiq id). <strong>Read-only in Uptiq</strong> &mdash; only adds/updates
-                      crew here; never removes anyone.
+                      Imports every tagged Uptiq contact into <strong>Contacts</strong> by role
+                      (crew / customer / owner / office / supply house), and links supply houses into the
+                      <strong> Supply Houses</strong> list too. <strong>Read-only in Uptiq</strong>, additive; untagged or
+                      unrecognized contacts are skipped. Preview first to confirm the tag&rarr;role mapping.
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      <CronButton label="Preview (dry run)" busy={crewBusy === "preview"} disabled={crewBusy !== null} onClick={() => handlePullCrew(true)} />
-                      <CronButton label="Pull crew from Uptiq" busy={crewBusy === "pull"} disabled={crewBusy !== null} onClick={() => handlePullCrew(false)} />
+                      <CronButton label="Preview (dry run)" busy={pullBusy === "preview"} disabled={pullBusy !== null} onClick={() => handlePull(true)} />
+                      <CronButton label="Import from Uptiq" busy={pullBusy === "pull"} disabled={pullBusy !== null} onClick={() => handlePull(false)} />
                     </div>
-                    {crewResult && <CrewPullSummary result={crewResult} />}
+                    {pullResult && <ContactsPullSummary result={pullResult} />}
                   </div>
 
                   <div className="space-y-3 border-t border-border pt-4">
@@ -448,24 +588,80 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canManage && form.debug_mode && (
+            {canSyncContacts && form.debug_mode && (
               <section className="border-b border-border">
-                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Testing Tools</div>
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Send a test message</div>
                 <div className="space-y-3 px-4 py-4">
                   <p className="text-xs text-muted-foreground">
-                    Fire a scheduled job now, ignoring its configured send time. <strong>Sends real SMS/email</strong> via
-                    Uptiq to the configured contacts &mdash; for testing. Send check-ins / Inspection reminders / Weekly report
-                    now <strong>queue and drain in one press</strong>, so messages go out immediately. <strong>Drain queue</strong>
-                    re-sends anything still pending (also runs on its own every ~15 min).
+                    Send one SMS or email to a Uptiq-linked contact <strong>right now</strong> (bypasses the queue) to
+                    verify delivery. Returns the raw provider status.
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    <CronButton label="Send check-ins" busy={cronBusy === "check-ins"} disabled={cronBusy !== null} onClick={() => handleRunCron("check-ins", "Send check-ins")} />
-                    <CronButton label="Inspection reminders" busy={cronBusy === "inspection-reminders"} disabled={cronBusy !== null} onClick={() => handleRunCron("inspection-reminders", "Inspection reminders")} />
-                    <CronButton label="Weekly report" busy={cronBusy === "weekly-report"} disabled={cronBusy !== null} onClick={() => handleRunCron("weekly-report", "Weekly report")} />
-                    <CronButton label="Drain queue" busy={cronBusy === "drain"} disabled={cronBusy !== null} onClick={() => handleRunCron("drain", "Drain queue")} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <InlineSelect
+                      value={testContactId}
+                      onChange={(value) => { setTestContactId(value); setTestResult(null); }}
+                      disabled={testBusy}
+                      className="h-8 w-64"
+                      placeholder={contacts.length ? "Select a contact…" : "No Uptiq-linked contacts"}
+                      options={contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}` }))}
+                    />
+                    <InlineSelect
+                      value={testChannel}
+                      onChange={(value) => setTestChannel(value === "email" ? "email" : "sms")}
+                      disabled={testBusy}
+                      className="h-8 w-28"
+                      options={[{ value: "sms", label: "SMS" }, { value: "email", label: "Email" }]}
+                    />
                   </div>
-                  {cronResult && (
-                    <div className="break-all rounded-sm border border-border bg-muted/40 px-3 py-2 font-mono text-2xs text-muted-foreground">{cronResult}</div>
+                  <input
+                    value={testMessage}
+                    onChange={(event) => setTestMessage(event.target.value)}
+                    disabled={testBusy}
+                    maxLength={300}
+                    placeholder={testChannel === "email" ? "Subject (optional)" : "Message (optional)"}
+                    className="h-8 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65"
+                  />
+                  <CronButton label="Send test" busy={testBusy} disabled={!testContactId || testBusy} onClick={handleSendTest} />
+                  {testResult && (
+                    <div className="break-all rounded-sm border border-border bg-muted/40 px-3 py-2 font-mono text-2xs text-muted-foreground">
+                      {testResult.channel} · {testResult.provider_ok ? "OK" : `error ${testResult.provider_status}`}{testResult.provider_error ? ` · ${testResult.provider_error}` : ""}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {canSyncContacts && form.debug_mode && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Conversations (debug)</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Clear a contact&rsquo;s Uptiq text/email thread so the next message starts fresh &mdash; for testing.
+                    Backs up the contact + all messages to <code className="font-mono">conversation_backups</code> first, then
+                    deletes the <strong>conversation</strong> in Uptiq. The <strong>contact is not deleted</strong>.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <InlineSelect
+                      value={convContactId}
+                      onChange={(value) => { setConvContactId(value); setConvResult(null); }}
+                      disabled={convBusy !== null}
+                      className="h-8 w-72"
+                      placeholder={contacts.length ? "Select a contact…" : "No Uptiq-linked contacts"}
+                      options={contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}` }))}
+                    />
+                    <CronButton label="Preview" busy={convBusy === "preview"} disabled={!convContactId || convBusy !== null} onClick={handleConvPreview} />
+                    <CronButton label="Back up & delete" busy={convBusy === "delete"} disabled={!convContactId || convBusy !== null} onClick={handleConvDelete} />
+                  </div>
+                  {convResult && (
+                    <div className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+                      <div className="font-medium text-foreground">
+                        {convResult.dry_run ? "Preview" : "Done"}: {convResult.contact.name ?? "(unnamed)"} &mdash; {convResult.total_conversations} conversation(s), {convResult.total_messages} message(s){convResult.capped && " (backup capped at 2000/conv)"}{!convResult.dry_run && ` · deleted ${convResult.deleted ?? 0}`}
+                      </div>
+                      {convResult.backup_id && <div>Backup id: <span className="font-mono">{convResult.backup_id}</span></div>}
+                      {(convResult.results ?? []).filter((r) => !r.deleted).map((r, index) => (
+                        <div key={index} className="text-destructive">conversation {r.id.slice(0, 8)}: {r.error}{r.status ? ` (${r.status})` : ""}</div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </section>
@@ -511,16 +707,25 @@ function CronButton({ label, busy, disabled, onClick }: { label: string; busy: b
   );
 }
 
-function CrewPullSummary({ result }: { result: CrewPullResult }) {
+function ContactsPullSummary({ result }: { result: ContactsPullResult }) {
+  const byRole = Object.entries(result.by_role ?? {}).sort((a, b) => b[1] - a[1]);
+  const supply = (result.supply_imported ?? 0) + (result.supply_updated ?? 0) + (result.supply_linked ?? 0);
   const summary = result.dry_run
-    ? `Found ${result.found} Uptiq contact${result.found === 1 ? "" : "s"} tagged "${result.tag}" (scanned ${result.scanned ?? 0}${result.capped ? ", page cap hit" : ""}).`
-    : `Imported ${result.imported ?? 0} · Updated ${result.updated ?? 0} · Skipped ${result.skipped ?? 0} (of ${result.found} tagged "${result.tag}").`;
+    ? `Preview — scanned ${result.scanned ?? 0}${result.capped ? " (page cap hit)" : ""}; ${result.would_import ?? 0} would import by tag.`
+    : `Imported ${result.contacts_imported ?? 0} · Updated ${result.contacts_updated ?? 0} contacts · Supply houses +${supply} · Skipped ${result.skipped ?? 0}.`;
   const rows = result.dry_run
-    ? (result.contacts ?? []).map((c) => ({ label: c.name || "(unnamed)", note: c.email || c.phone || c.id }))
-    : (result.results ?? []).map((r) => ({ label: r.name || "(unnamed)", note: r.action + (r.error ? `: ${r.error}` : "") }));
+    ? (result.preview ?? []).map((c) => ({ label: `${c.name || "(unnamed)"} → ${c.role}`, note: (c.tags ?? []).join(", ") }))
+    : (result.errors ?? []).map((e) => ({ label: e.where ?? "error", note: `${e.id ?? ""} ${e.error ?? ""}`.trim() }));
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium">{summary}</div>
+      {byRole.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {byRole.map(([role, n]) => (
+            <span key={role} className={`pill ${role === "unrecognized" ? "bg-warning/20 text-warning" : "bg-muted text-muted-foreground"}`}>{role}: {n}</span>
+          ))}
+        </div>
+      )}
       {rows.length > 0 && (
         <div className="max-h-56 overflow-auto rounded-sm border border-border">
           <table className="w-full text-2xs">
@@ -535,6 +740,24 @@ function CrewPullSummary({ result }: { result: CrewPullResult }) {
           </table>
         </div>
       )}
+      {result.dry_run && (result.unrecognized ?? []).length > 0 && (
+        <div className="text-2xs text-muted-foreground">
+          Skipped (no recognized tag): {(result.unrecognized ?? []).map((u) => u.name || u.email || "(unnamed)").slice(0, 10).join(", ")}{(result.unrecognized ?? []).length > 10 ? "…" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CronRunSummary({ result }: { result: RunCronsResult }) {
+  const sent = result.drain?.result ? JSON.stringify(result.drain.result) : null;
+  return (
+    <div className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+      {result.crons.map((c) => (
+        <div key={c.cron}><span className="font-medium text-foreground">{CRON_LABEL_BY_FN[c.cron] ?? c.cron}</span>: {c.ok ? "queued" : `error ${c.status}`}</div>
+      ))}
+      {result.drain && <div><span className="font-medium text-foreground">Drain queue</span>: {result.drain.ok ? "sent" : `error ${result.drain.status}`}{sent ? ` · ${sent}` : ""}</div>}
+      {!result.crons.length && !result.drain && <div>Nothing selected.</div>}
     </div>
   );
 }

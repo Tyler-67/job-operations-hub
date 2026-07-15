@@ -110,6 +110,19 @@ export function runCron(cron: CronKey) {
   return callEdge("settings", { method: "POST", body: { action: "run_cron", cron } }) as Promise<RunCronResult>;
 }
 
+export interface RunCronsResult {
+  ok: boolean;
+  crons: Array<{ cron: string; ok: boolean; status: number; result: Record<string, unknown> }>;
+  // A single drain runs after the selected send-crons so their queued messages go out end-to-end.
+  drain?: { ok: boolean; status: number; result: Record<string, unknown> } | null;
+}
+
+// Testing tool: fire several crons in one press — each selected send-cron is forced past its
+// schedule gate, then ONE drain sends everything they queued. The CRON_SECRET stays server-side.
+export function runCrons(crons: CronKey[]) {
+  return callEdge("settings", { method: "POST", body: { action: "run_crons", crons } }) as Promise<RunCronsResult>;
+}
+
 export interface ContactsSyncResult {
   location: string;
   mode: string;
@@ -148,6 +161,34 @@ export interface CrewPullResult {
 // Uptiq -> app PULL (read-only): import Uptiq contacts tagged `crew` as Daily Burn crew contacts.
 export function pullCrew(opts: { dryRun?: boolean } = {}) {
   return callEdge("contacts-sync", { method: "POST", body: { mode: "pull_crew", tag: "crew", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<CrewPullResult>;
+}
+
+export interface ContactsPullResult {
+  location?: string;
+  mode: string;
+  dry_run: boolean;
+  scanned?: number;
+  capped?: boolean;
+  // Tag-derived role breakdown (includes an "unrecognized" bucket for skipped contacts).
+  by_role?: Record<string, number>;
+  would_import?: number;
+  preview?: Array<{ id: string; name: string | null; role: string; tags: string[] }>;
+  unrecognized?: Array<{ name: string | null; email: string | null; tags: string[] }>;
+  contacts_imported?: number;
+  contacts_updated?: number;
+  supply_imported?: number;
+  supply_updated?: number;
+  supply_linked?: number;
+  skipped?: number;
+  errors?: Array<{ id?: string; where?: string; error?: string }>;
+}
+
+// Uptiq -> app PULL (read-only, full mirror): import every tagged Uptiq contact into the app
+// contacts table by role (crew/customer/owner/office/supply_house), and additionally link
+// supply-house-tagged contacts into the Supply Houses ordering table. dry_run previews the
+// tag->role breakdown (so the mapping can be confirmed) without any write.
+export function pullContacts(opts: { dryRun?: boolean } = {}) {
+  return callEdge("contacts-sync", { method: "POST", body: { mode: "pull_contacts", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<ContactsPullResult>;
 }
 
 export function timeForInput(value: string | null | undefined) {

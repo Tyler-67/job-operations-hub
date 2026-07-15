@@ -277,6 +277,37 @@ async function fireCron(fn: string) {
   return { ok: primary.ok, cron: fn, status: primary.status, result: primary.result, drain };
 }
 
+// Batch runner behind the debug kit's "Run selected": force each selected send-cron past its
+// schedule gate, then run a SINGLE drain to send everything they queued (one drain, not one per
+// cron). Selecting the drain alone just drains. One drain claims <=100 due rows, so a very large
+// queue may need another drain tick — the UI notes this. Same server-side secret as fireCron.
+async function fireCrons(keys: string[]) {
+  const base = (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
+  const secret = (Deno.env.get("CRON_SECRET") ?? "").trim();
+  if (!base || !secret) throw new Error("cron_runner_misconfigured");
+  const invoke = async (target: string, query = "") => {
+    const res = await fetch(`${base}/functions/v1/${target}${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-cron-secret": secret },
+      body: "{}",
+    });
+    return { ok: res.ok, status: res.status, result: await res.json().catch(() => ({})) };
+  };
+
+  const fns = [...new Set(keys.map((k) => CRON_FUNCTIONS[k]).filter(Boolean))];
+  const queueing = fns.filter((fn) => fn !== "cron-drain-notifications");
+  const drainSelected = fns.includes("cron-drain-notifications");
+
+  const crons: Array<{ cron: string; ok: boolean; status: number; result: unknown }> = [];
+  for (const fn of queueing) {
+    const r = await invoke(fn, "?force=1");
+    crons.push({ cron: fn, ok: r.ok, status: r.status, result: r.result });
+  }
+  let drain: { ok: boolean; status: number; result: unknown } | null = null;
+  if (queueing.length > 0 || drainSelected) drain = await invoke("cron-drain-notifications");
+  return { ok: crons.every((c) => c.ok), crons, drain };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -301,10 +332,17 @@ Deno.serve(async (req) => {
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      if (String(body.action ?? "").trim() !== "run_cron") return json({ error: "unknown_action" }, 400);
-      const fn = CRON_FUNCTIONS[String(body.cron ?? "").trim()];
-      if (!fn) return json({ error: "invalid_cron" }, 400);
-      return json(await fireCron(fn));
+      const action = String(body.action ?? "").trim();
+      if (action === "run_cron") {
+        const fn = CRON_FUNCTIONS[String(body.cron ?? "").trim()];
+        if (!fn) return json({ error: "invalid_cron" }, 400);
+        return json(await fireCron(fn));
+      }
+      if (action === "run_crons") {
+        const keys = Array.isArray(body.crons) ? body.crons.map((k: unknown) => String(k ?? "").trim()).filter(Boolean) : [];
+        return json(await fireCrons(keys));
+      }
+      return json({ error: "unknown_action" }, 400);
     }
 
     return json({ error: "method_not_allowed" }, 405);

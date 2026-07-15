@@ -7,16 +7,18 @@ import {
   currency,
   fetchJob,
   fetchJobs,
+  fireJobDecision,
   markJobPaid,
   shortDate,
   updateJob,
+  type JobDecisionAction,
   type JobDetailResponse,
   type JobState,
 } from "@/lib/jobs";
 import { fetchContacts, type ContactRow } from "@/lib/contacts";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
-import { usePrompt } from "@/components/dialogs";
+import { useConfirm, usePrompt } from "@/components/dialogs";
 
 interface FormState {
   address: string;
@@ -113,6 +115,15 @@ function paymentSourceLabel(source: string | null | undefined) {
   return "-";
 }
 
+type DecisionTone = "pass" | "fail" | "neutral";
+
+function decisionButtonClass(tone: DecisionTone) {
+  const base = "inline-flex h-8 w-full items-center justify-center rounded-sm border px-3 text-xs font-medium disabled:opacity-60";
+  if (tone === "pass") return `${base} border-success/40 text-success hover:bg-success/10`;
+  if (tone === "fail") return `${base} border-destructive/40 text-destructive hover:bg-destructive/10`;
+  return `${base} border-border hover:bg-muted`;
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const isNew = id === "new";
@@ -120,6 +131,7 @@ export default function JobDetail() {
   const { user } = useSession();
   const canManage = canManageJobs(user?.role);
   const promptText = usePrompt();
+  const confirm = useConfirm();
 
   const [detail, setDetail] = useState<JobDetailResponse | null>(null);
   const [states, setStates] = useState<JobState[]>([]);
@@ -314,12 +326,82 @@ export default function JobDetail() {
     }
   }
 
+  // Fire an inspection/walkthrough result from the office exactly as the owner/crew would
+  // over SMS: the backend runs the same decision spine (advance + notify + audit). Distinct
+  // from the "Current state" dropdown, which slams the state with no notifications.
+  async function handleDecision(action: JobDecisionAction, label: string) {
+    if (!canManage || isNew || !id) return;
+    const ok = await confirm({
+      title: label,
+      body: "Fires this result now — advances the job (when the step allows) and sends the same texts/emails the owner's or crew's link would.",
+      confirmLabel: label,
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fireJobDecision(id, action);
+      setDetail(res);
+      setStates(res.states);
+      setForm((current) => ({
+        ...current,
+        current_state_id: res.job.current_state_id ?? "",
+        state_progress_pct: String(res.job.state_progress_pct),
+        job_completion_pct: String(res.job.job_completion_pct),
+        inspection_date: dateInput(res.job.inspection_date),
+        active: res.job.active,
+      }));
+      const d = res.decision;
+      const queued = d.enqueued > 0
+        ? ` ${d.enqueued} notification${d.enqueued === 1 ? "" : "s"} queued — they send on the next drain.`
+        : "";
+      setNotice(
+        d.changed
+          ? `Done — advanced to ${res.job.current_state?.label ?? "the next state"}.${queued}`
+          : `Recorded${d.reason === "no_matching_transition" ? " (no state change for this step)" : ""}.${queued}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not apply the result");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div className="p-6 text-xs text-muted-foreground">Loading job...</div>;
 
   const readOnly = !canManage;
   const job = detail?.job;
   const isPaid = currentState?.slug === "paid" || Boolean(job?.paid_at);
   const canMarkPaid = !readOnly && !isNew && job && !isPaid && currentState?.slug === "complete";
+
+  // Which result buttons to offer, keyed off the current state's kind. Inspection states
+  // take pass/fail; the final walkthrough takes approve/punch-list/reschedule/still-issues;
+  // finish work takes the "customer approved" advance into the walkthrough.
+  const decisionButtons: { action: JobDecisionAction; label: string; tone: DecisionTone }[] =
+    readOnly || isNew || !job || isPaid || !currentState
+      ? []
+      : currentState.is_inspection
+        ? [
+            { action: "inspection_pass", label: "Mark inspection passed", tone: "pass" },
+            { action: "inspection_fail", label: "Mark inspection failed", tone: "fail" },
+          ]
+        : currentState.is_walkthrough
+          ? [
+              { action: "walkthrough_approve", label: "Approve walkthrough", tone: "pass" },
+              { action: "walkthrough_punch_list", label: "Send punch list", tone: "neutral" },
+              { action: "walkthrough_reschedule", label: "Request reschedule", tone: "neutral" },
+              { action: "walkthrough_still_issues", label: "Still has issues", tone: "fail" },
+            ]
+          : currentState.slug === "finish_work"
+            ? [{ action: "finish_walkthrough_yes", label: "Customer approved → walkthrough", tone: "pass" }]
+            : [];
+  const decisionHeading = currentState?.is_inspection
+    ? "Inspection result"
+    : currentState?.is_walkthrough
+      ? "Walkthrough result"
+      : "Finish work";
 
   return (
     <form onSubmit={save} className="flex h-full flex-col">
@@ -476,6 +558,27 @@ export default function JobDetail() {
         </div>
 
         <aside className="overflow-auto border-l border-border bg-card">
+          {decisionButtons.length > 0 && (
+            <div className="border-b border-border p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{decisionHeading}</h2>
+              <p className="mt-1 text-2xs text-muted-foreground">
+                Push the job through as if the owner tapped the link — sends the same texts/emails.
+              </p>
+              <div className="mt-3 grid gap-2">
+                {decisionButtons.map((btn) => (
+                  <button
+                    key={btn.action}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleDecision(btn.action, btn.label)}
+                    className={decisionButtonClass(btn.tone)}
+                  >
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {job?.paid_at && (
             <div className="border-b border-border p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment</h2>

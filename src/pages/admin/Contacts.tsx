@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Ban, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { canManageContacts, deleteContact, fetchContacts, setContactActive, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
-import { pullCrew } from "@/lib/settings";
+import { pullContacts } from "@/lib/settings";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
@@ -57,22 +57,40 @@ export default function AdminContacts() {
 
   const roles = useMemo(() => Object.keys(data?.role_counts ?? {}).sort(), [data?.role_counts]);
 
-  async function handlePullCrew() {
+  // "5 crew, 12 customer, 3 supply house, 2 unrecognized" — the tag->role preview for the confirm.
+  function roleBreakdown(byRole: Record<string, number> | undefined) {
+    if (!byRole) return "";
+    return Object.entries(byRole)
+      .sort((a, b) => b[1] - a[1])
+      .map(([role, n]) => `${n} ${role === "unrecognized" ? "unrecognized" : roleLabel(role).toLowerCase()}`)
+      .join(", ");
+  }
+
+  async function handlePull() {
     if (!canManage) return;
-    if (!(await confirm({
-      title: "Pull crew from Uptiq now?",
-      body: "Imports every Uptiq contact tagged “crew” as a crew contact here (created or updated, matched by Uptiq id). Read-only in Uptiq.",
-      confirmLabel: "Pull crew",
-    }))) return;
     setPulling(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await pullCrew({ dryRun: false });
-      setNotice(`Crew pull: imported ${res.imported ?? 0}, updated ${res.updated ?? 0}, skipped ${res.skipped ?? 0} (of ${res.found} tagged "${res.tag}").`);
+      // Preview first (read-only) so the confirm shows the tag->role breakdown before writing.
+      const preview = await pullContacts({ dryRun: true });
+      const breakdown = roleBreakdown(preview.by_role);
+      const ok = await confirm({
+        title: "Pull contacts from Uptiq?",
+        body: `Found ${preview.scanned ?? 0} Uptiq contacts — will import ${preview.would_import ?? 0} by tag${breakdown ? `:\n${breakdown}` : ""}.\n\nRead-only in Uptiq; untagged/unrecognized contacts are skipped. Supply houses are also linked into the Supply Houses list.`,
+        confirmLabel: "Import",
+      });
+      if (!ok) return;
+      const res = await pullContacts({ dryRun: false });
+      const sh = (res.supply_imported ?? 0) + (res.supply_updated ?? 0) + (res.supply_linked ?? 0);
+      setNotice(
+        `Imported ${res.contacts_imported ?? 0}, updated ${res.contacts_updated ?? 0} contacts` +
+        `${sh ? `; ${sh} supply house${sh === 1 ? "" : "s"} linked` : ""}` +
+        `${res.skipped ? `; ${res.skipped} skipped` : ""}.`,
+      );
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Crew pull failed");
+      setError(err instanceof Error ? err.message : "Contact pull failed");
     } finally {
       setPulling(false);
     }
@@ -124,7 +142,7 @@ export default function AdminContacts() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
         <div>
           <h1 className="text-sm font-semibold">Contacts</h1>
-          <p className="text-xs text-muted-foreground">People this company messages: customers, crew, owner, office, supply houses. Crew are pulled from the Uptiq &ldquo;crew&rdquo; tag.</p>
+          <p className="text-xs text-muted-foreground">People this company messages: customers, crew, owner, office, supply houses. Pulled from Uptiq by tag; supply houses also link into the Supply Houses list.</p>
         </div>
         <div className="flex-1" />
         <input
@@ -140,9 +158,9 @@ export default function AdminContacts() {
           options={[{ value: "all", label: "All roles" }, ...roles.map((r) => ({ value: r, label: `${roleLabel(r)} (${data?.role_counts[r]})` }))]}
         />
         {canManage && (
-          <button type="button" onClick={handlePullCrew} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+          <button type="button" onClick={handlePull} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <RefreshCw className={`h-3.5 w-3.5 ${pulling ? "animate-spin" : ""}`} />
-            {pulling ? "Pulling..." : "Pull crew from Uptiq"}
+            {pulling ? "Pulling..." : "Pull from Uptiq"}
           </button>
         )}
       </div>

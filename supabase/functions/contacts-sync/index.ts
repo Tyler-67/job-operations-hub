@@ -25,6 +25,70 @@ interface Target {
   save: (sb: any, contactId: string) => Promise<void>;
 }
 
+interface PulledContact { id: string; name: string | null; email: string | null; phone: string | null; tags: string[] }
+
+// Recognized tag WORD -> app contact role. Matched on whole words (a Uptiq tag is split on
+// non-alphanumerics), NOT loose substrings — so "homeowner" doesn't read as owner and "screws"
+// doesn't read as crew. Common plurals are listed explicitly; "supply house" splits to
+// ["supply","house"] and matches on "supply". Anything unrecognized is skipped (surfaced in the
+// dry-run preview) so the import stays intentional, not a dump of every contact.
+const ROLE_BY_WORD: Record<string, string> = {
+  crew: "crew", crews: "crew",
+  supply: "supply_house", supplier: "supply_house", suppliers: "supply_house",
+  vendor: "supply_house", vendors: "supply_house", warehouse: "supply_house", distributor: "supply_house",
+  owner: "owner", owners: "owner",
+  office: "office",
+  customer: "customer", customers: "customer", client: "customer", clients: "customer",
+};
+// Tie-break order when a contact carries tags for more than one role (rare).
+const ROLE_PRIORITY = ["crew", "supply_house", "owner", "office", "customer"];
+
+function roleForTags(tags: string[]): string | null {
+  const words = tags.flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const hits = new Set(words.map((w) => ROLE_BY_WORD[w]).filter(Boolean));
+  for (const role of ROLE_PRIORITY) if (hits.has(role)) return role;
+  return null;
+}
+
+// Mirror-choice "link supply houses": a supply_house-tagged Uptiq contact is also upserted into
+// the supply_house_contacts ordering table (which POs/expenses key off). Dedupe by uptiq id, else
+// attach the id to a same-named row (links a hand-entered supply house), else insert a new one.
+// Only name/phone/email/uptiq id are known from the pull — address/account_number stay blank.
+async function upsertSupplyHouseFromContact(
+  sb: any, locId: string, c: PulledContact,
+): Promise<{ action: "updated" | "linked" | "imported" | "error"; error?: string }> {
+  const { data: byId, error: idErr } = await sb
+    .from("supply_house_contacts").select("id").eq("location_id", locId).eq("uptiq_contact_id", c.id).limit(1);
+  if (idErr) return { action: "error", error: idErr.message };
+  // Updates only overwrite a field when Uptiq actually has a value, so a re-sync never nulls out
+  // an email/phone we already hold (a Uptiq contact often carries only one of the two).
+  if (byId?.[0]) {
+    const patch: Record<string, unknown> = { active: true };
+    if (c.name) patch.name = c.name;
+    if (c.email) patch.email = c.email;
+    if (c.phone) patch.phone = c.phone;
+    const { error } = await sb.from("supply_house_contacts").update(patch).eq("id", byId[0].id);
+    return error ? { action: "error", error: error.message } : { action: "updated" };
+  }
+  const nm = (c.name ?? "").trim();
+  if (nm) {
+    const { data: byName, error: nameErr } = await sb
+      .from("supply_house_contacts").select("id").eq("location_id", locId).ilike("name", nm).limit(1);
+    if (nameErr) return { action: "error", error: nameErr.message };
+    if (byName?.[0]) {
+      const patch: Record<string, unknown> = { uptiq_contact_id: c.id, active: true };
+      if (c.email) patch.email = c.email;
+      if (c.phone) patch.phone = c.phone;
+      const { error } = await sb.from("supply_house_contacts").update(patch).eq("id", byName[0].id);
+      return error ? { action: "error", error: error.message } : { action: "linked" };
+    }
+  }
+  const { error } = await sb.from("supply_house_contacts").insert({
+    location_id: locId, name: c.name ?? c.email ?? "(unnamed supply house)", phone: c.phone, email: c.email, uptiq_contact_id: c.id, active: true,
+  });
+  return error ? { action: "error", error: error.message } : { action: "imported" };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -109,6 +173,98 @@ Deno.serve(async (req) => {
   if (!loc?.uptiq_location_id) return json({ error: "no_uptiq_location" }, 400);
   const uptiqLoc = String(loc.uptiq_location_id);
 
+  // DEBUG: back up a contact's Uptiq conversation (contact snapshot + messages) then delete the
+  // conversation THREAD in Uptiq — the contact is never deleted. dry_run previews (search + counts)
+  // without backing up or deleting. Clears a chat so the next message starts a fresh thread.
+  if (body.mode === "delete_conversation") {
+    const contactId = typeof body.contact_id === "string" ? body.contact_id : "";
+    if (!contactId) return json({ error: "contact_id_required" }, 400);
+    const { data: contact, error: cErr } = await sb
+      .from("contacts").select("id, name, role, email, phone, uptiq_contact_id, active, created_at")
+      .eq("id", contactId).eq("location_id", locId).maybeSingle();
+    if (cErr) return json({ error: cErr.message }, 500);
+    if (!contact) return json({ error: "not_found" }, 404);
+    const uptiqContactId = contact.uptiq_contact_id ? String(contact.uptiq_contact_id) : "";
+    if (!uptiqContactId) return json({ error: "contact_not_linked", message: "This contact has no Uptiq contact id, so it has no Uptiq conversation to clear." }, 400);
+
+    const search = await uptiq.searchConversations({ locationId: uptiqLoc, contactId: uptiqContactId });
+    if (!search.ok) return json({ error: "search_failed", status: search.status, detail: search.data }, 502);
+    const searchData = search.data as Record<string, unknown>;
+    const conversations = Array.isArray(searchData?.conversations) ? searchData.conversations as Record<string, unknown>[] : [];
+    const convIds = conversations.map((c) => String(c?.id ?? "")).filter(Boolean);
+
+    // Pull ALL of each conversation's messages (paginated) for a complete backup. Safety-capped
+    // at 20 pages (~2000 msgs); `capped` flags it so a truncated backup is never silent.
+    const convDetails: Array<{ id: string; message_count: number; messages: unknown[]; capped: boolean }> = [];
+    let fetchFailed = false;
+    for (const id of convIds) {
+      const all: unknown[] = [];
+      let lastMessageId: string | undefined;
+      let pages = 0;
+      let capped = false;
+      while (true) {
+        const msgRes = await uptiq.getConversationMessages(id, { limit: 100, lastMessageId });
+        if (!msgRes.ok) { fetchFailed = true; break; }
+        const box = ((msgRes.data as Record<string, any>)?.messages ?? {}) as Record<string, any>;
+        const arr: unknown[] = Array.isArray(box?.messages) ? box.messages : [];
+        all.push(...arr);
+        pages++;
+        lastMessageId = box?.lastMessageId ? String(box.lastMessageId) : undefined;
+        if (box?.nextPage !== true || !lastMessageId || arr.length === 0) break;
+        if (pages >= 20) { capped = true; break; }
+      }
+      convDetails.push({ id, message_count: all.length, messages: all, capped });
+    }
+    const totalMessages = convDetails.reduce((n, c) => n + c.message_count, 0);
+    const anyCapped = convDetails.some((c) => c.capped);
+    const contactOut = { id: contact.id, name: contact.name, uptiq_contact_id: uptiqContactId };
+
+    if (body.dry_run === true) {
+      return json({
+        mode: "delete_conversation", dry_run: true, contact: contactOut, capped: anyCapped, fetch_failed: fetchFailed,
+        conversations: convDetails.map((c) => ({ id: c.id, message_count: c.message_count })),
+        total_conversations: convIds.length, total_messages: totalMessages,
+      });
+    }
+
+    // Backup-before-delete is the whole safety guarantee: if a message fetch failed the backup
+    // would be incomplete/empty, so refuse to delete and let the operator retry.
+    if (fetchFailed) {
+      return json({ error: "message_fetch_failed", message: "Couldn't read all messages from Uptiq, so the backup would be incomplete. Delete aborted — please try again." }, 502);
+    }
+
+    // Back up BEFORE deleting so nothing is lost even if a delete fails (e.g. missing scope).
+    const { data: backup, error: bErr } = await sb.from("conversation_backups").insert({
+      location_id: locId,
+      contact_id: contact.id,
+      uptiq_contact_id: uptiqContactId,
+      uptiq_conversation_id: convIds.join(",") || null,
+      contact_snapshot: contact,
+      messages_snapshot: convDetails,
+      message_count: totalMessages,
+      created_by: claims.email ?? null,
+    }).select("id").maybeSingle();
+    if (bErr) return json({ error: "backup_failed", detail: bErr.message }, 500);
+
+    const results: Array<{ id: string; deleted: boolean; status?: number; error?: string }> = [];
+    let deleted = 0;
+    for (const id of convIds) {
+      const del = await uptiq.deleteConversation(id);
+      if (del.ok) { deleted++; results.push({ id, deleted: true }); }
+      else { results.push({ id, deleted: false, status: del.status, error: del.error ?? "delete_failed" }); }
+    }
+    const allOk = convIds.length > 0 && deleted === convIds.length;
+    if (backup?.id) await sb.from("conversation_backups").update({ deleted_ok: allOk }).eq("id", backup.id);
+    await logEvent({
+      source: "admin", kind: "conversation_delete", location_id: locId,
+      payload: { contact_id: contact.id, uptiq_contact_id: uptiqContactId, conversations: convIds.length, deleted, backup_id: backup?.id, by: claims.email },
+    });
+    return json({
+      mode: "delete_conversation", dry_run: false, contact: contactOut, backup_id: backup?.id,
+      total_conversations: convIds.length, total_messages: totalMessages, deleted, results, capped: anyCapped,
+    });
+  }
+
   // Uptiq -> app PULL: import every Uptiq contact carrying a tag (default "crew") as an app crew
   // contact. READ-ONLY to Uptiq. Deduped by uptiq_contact_id and additive (never deletes/deactivates
   // existing app contacts). dry_run previews the matched contacts without touching the app.
@@ -161,6 +317,78 @@ Deno.serve(async (req) => {
       location: loc.company_name, mode: "pull_crew", tag, dry_run: false,
       scanned: res.scanned, capped: res.capped, found: res.matched.length,
       imported, updated, skipped, results,
+    });
+  }
+
+  // Uptiq -> app PULL (full mirror): import EVERY tagged Uptiq contact into the app `contacts`
+  // table under a role derived from its tags (crew/customer/owner/office/supply_house), and ALSO
+  // link supply_house-tagged contacts into supply_house_contacts. READ-ONLY to Uptiq, additive
+  // (never deletes/deactivates). dry_run previews the tag->role breakdown so the operator can
+  // confirm the mapping matches their GHL tags before any write. Contacts with no recognized tag
+  // are skipped (surfaced under `unrecognized`).
+  if (body.mode === "pull_contacts") {
+    const res = await uptiq.listContacts({ locationId: uptiqLoc });
+    if (!res.ok) return json({ mode: "pull_contacts", error: res.error ?? "list_failed", status: res.status, detail: res.data }, 502);
+
+    const categorized = res.contacts.map((c) => ({ c, role: roleForTags(c.tags) }));
+    const byRole: Record<string, number> = {};
+    for (const x of categorized) { const k = x.role ?? "unrecognized"; byRole[k] = (byRole[k] ?? 0) + 1; }
+    const importable = categorized.filter((x): x is { c: PulledContact; role: string } => Boolean(x.role && x.c.id));
+
+    if (dryRun) {
+      return json({
+        location: loc.company_name, mode: "pull_contacts", dry_run: true,
+        scanned: res.scanned, capped: res.capped, by_role: byRole, would_import: importable.length,
+        preview: importable.slice(0, 50).map((x) => ({ id: x.c.id, name: x.c.name, role: x.role, tags: x.c.tags })),
+        unrecognized: categorized.filter((x) => !x.role).slice(0, 25).map((x) => ({ name: x.c.name, email: x.c.email, tags: x.c.tags })),
+      });
+    }
+
+    const counts = { contacts_imported: 0, contacts_updated: 0, supply_imported: 0, supply_updated: 0, supply_linked: 0, skipped: 0 };
+    const errors: any[] = [];
+    const applied = limit ? importable.slice(0, limit) : importable;
+    for (const { c, role } of applied) {
+      // 1) contacts mirror row — dedupe by uptiq_contact_id within the target role (limit(1): a
+      // Uptiq id can be shared across roles, so scope the match to the role we're writing).
+      const { data: existingRows, error: exErr } = await sb
+        .from("contacts").select("id").eq("location_id", locId).eq("role", role).eq("uptiq_contact_id", c.id).limit(1);
+      if (exErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: exErr.message }); continue; }
+      const existing = existingRows?.[0] ?? null;
+      // Update only overwrites email/phone when Uptiq has a value (don't null out data we hold).
+      const patch: Record<string, unknown> = { role, active: true };
+      if (c.name) patch.name = c.name;
+      if (c.email) patch.email = c.email;
+      if (c.phone) patch.phone = c.phone;
+      if (existing) {
+        const { error } = await sb.from("contacts").update(patch).eq("id", existing.id);
+        if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
+        counts.contacts_updated++;
+      } else {
+        const { error } = await sb.from("contacts").insert({
+          location_id: locId, uptiq_contact_id: c.id,
+          name: c.name ?? c.email ?? `(unnamed ${role})`, email: c.email, phone: c.phone, role, active: true,
+        });
+        if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
+        counts.contacts_imported++;
+      }
+
+      // 2) supply houses also link into the ordering table (Mirror + link supply houses).
+      if (role === "supply_house") {
+        const r = await upsertSupplyHouseFromContact(sb, locId, c);
+        if (r.action === "error") errors.push({ id: c.id, where: "supply_house", error: r.error });
+        else if (r.action === "updated") counts.supply_updated++;
+        else if (r.action === "linked") counts.supply_linked++;
+        else counts.supply_imported++;
+      }
+    }
+
+    await logEvent({
+      source: "admin", kind: "contacts_pull_contacts", location_id: locId,
+      payload: { ...counts, scanned: res.scanned, by_role: byRole, by: claims.email },
+    });
+    return json({
+      location: loc.company_name, mode: "pull_contacts", dry_run: false,
+      scanned: res.scanned, capped: res.capped, by_role: byRole, ...counts, errors: errors.slice(0, 20),
     });
   }
 

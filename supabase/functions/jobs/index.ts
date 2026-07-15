@@ -3,6 +3,8 @@ import { json, preflight, serviceClient, verifySession } from "../_shared/util.t
 import { markJobPaid } from "../_shared/job-payments.ts";
 import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
+import { resolveDecision } from "../_shared/decisions.ts";
+import { applyDecision } from "../_shared/apply-decision.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 
@@ -24,6 +26,22 @@ function nullableNumber(value: unknown) {
 
 function canWrite(role: unknown) {
   return ADMIN_ROLES.has(String(role ?? ""));
+}
+
+// A fired decision must match the job's current state kind — mirrors the JobDetail button
+// gating, enforced server-side so a crafted request can't fire e.g. a walkthrough punch-list
+// SMS against a dirt-work job. State-advancing decisions are also implicitly guarded by
+// applyTransition (no matching transition = no-op), but the acknowledge-only walkthrough
+// decisions (trigger: null) enqueue regardless of state, so this is the real guard for those.
+function decisionAllowedForState(
+  action: string,
+  state: { is_inspection?: boolean; is_walkthrough?: boolean; slug?: string } | null,
+): boolean {
+  if (!state) return false;
+  if (action === "inspection_pass" || action === "inspection_fail") return state.is_inspection === true;
+  if (action.startsWith("walkthrough_")) return state.is_walkthrough === true;
+  if (action === "finish_walkthrough_yes" || action === "finish_walkthrough_no") return state.slug === "finish_work";
+  return false;
 }
 
 function errorStatus(message: string) {
@@ -403,6 +421,58 @@ Deno.serve(async (req) => {
           eventSource: "admin",
         });
         return json(await getJobDetail(sb, locationId, updatedJob.id));
+      }
+
+      // Office "push through a result" — fire an inspection/walkthrough decision from the
+      // app exactly as if the owner had tapped the SMS link. Runs the shared decision spine
+      // (state advance + follow-on texts/emails + walkthrough ask + completion report +
+      // review tag + audit); the signed-in manager is the actor. This is the notify-and-
+      // advance counterpart to the raw current_state_id dropdown, which only slams the state.
+      if (cleanText(body.action) === "fire_decision") {
+        const jobId = cleanText(body.id);
+        if (!jobId) return json({ error: "id_required" }, 400);
+        const decisionAction = cleanText(body.decision_action);
+        const decision = decisionAction ? resolveDecision(decisionAction) : null;
+        if (!decision) return json({ error: "unknown_decision", decision_action: decisionAction }, 422);
+
+        const { data: job, error: jErr } = await sb
+          .from("jobs")
+          .select("id, location_id, address, state_set_id, current_state_id")
+          .eq("location_id", locationId)
+          .eq("id", jobId)
+          .maybeSingle();
+        if (jErr) throw jErr;
+        if (!job) return json({ error: "not_found" }, 404);
+
+        // Gate the decision to the job's current state kind (defense in depth beyond the UI).
+        const { data: state } = await sb
+          .from("job_states").select("is_inspection, is_walkthrough, slug").eq("id", job.current_state_id).maybeSingle();
+        if (!decisionAllowedForState(decision.action, state)) {
+          return json({ error: "decision_not_allowed_for_state", decision_action: decision.action }, 409);
+        }
+
+        const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+        const result = await applyDecision(sb, decision, job, {
+          actorAppUserId: cleanText(claims.sub),
+          appBaseUrl,
+          cycleKey: crypto.randomUUID(),
+          source: "app",
+        });
+
+        const detail = await getJobDetail(sb, locationId, jobId);
+        if (!detail) return json({ error: "not_found" }, 404);
+        return json({
+          ...detail,
+          decision: {
+            changed: result.changed,
+            to_state_id: result.toStateId,
+            reason: result.reason,
+            enqueued: result.enqueued,
+            walkthrough_asked: result.walkthroughAsked,
+            completion_report_built: result.completionReportBuilt,
+            review_request_queued: result.reviewRequestQueued,
+          },
+        });
       }
 
       const updated = await updateExistingJob(sb, locationId, body);

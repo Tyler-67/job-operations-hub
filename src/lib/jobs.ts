@@ -138,6 +138,39 @@ export async function markJobPaid(id: string, payload: MarkJobPaidPayload = {}) 
   }) as Promise<JobDetailResponse>;
 }
 
+// The inspection/walkthrough decisions an office manager can "push through" from the
+// job page — the same actions the owner/crew fire by tapping an SMS link. The backend
+// (jobs fire_decision -> shared applyDecision) runs the identical spine either way.
+export type JobDecisionAction =
+  | "inspection_pass"
+  | "inspection_fail"
+  | "finish_walkthrough_yes"
+  | "walkthrough_approve"
+  | "walkthrough_punch_list"
+  | "walkthrough_reschedule"
+  | "walkthrough_still_issues";
+
+export interface FireDecisionResponse extends JobDetailResponse {
+  decision: {
+    changed: boolean;
+    to_state_id: string | null;
+    // Why the state didn't move, when changed is false (e.g. no_matching_transition for an
+    // acknowledge-only decision, or if fired against a state that doesn't accept it).
+    reason: string | null;
+    enqueued: number;
+    walkthrough_asked: boolean;
+    completion_report_built: boolean;
+    review_request_queued: boolean;
+  };
+}
+
+export async function fireJobDecision(id: string, decisionAction: JobDecisionAction) {
+  return callEdge("jobs", {
+    body: { action: "fire_decision", id, decision_action: decisionAction },
+    method: "PATCH",
+  }) as Promise<FireDecisionResponse>;
+}
+
 export function canManageJobs(role?: string | null) {
   return role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }

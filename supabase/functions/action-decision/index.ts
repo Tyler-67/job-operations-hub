@@ -5,14 +5,10 @@
 // backs every owner/crew tap decision — PASS/FAIL, finish-work YES, walkthrough
 // approve — so each step layers its specifics onto this same flow rather than
 // re-implementing consume + transition + notify.
-import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
+import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
-import { applyTransition } from "../_shared/state-machine.ts";
 import { resolveDecision } from "../_shared/decisions.ts";
-import { enqueueFollowups } from "../_shared/decision-followups.ts";
-import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
-import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
-import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
+import { applyDecision } from "../_shared/apply-decision.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -46,55 +42,27 @@ Deno.serve(async (req) => {
   if (jErr) return json({ error: jErr.message }, 500);
   if (!job) return json({ error: "job_not_found" }, 404);
 
-  let changed = false;
-  let toStateId: string | null = null;
-  let reason: string | null = null;
-  if (decision.trigger) {
-    const result = await applyTransition(sb, {
-      locationId: job.location_id,
-      jobId: job.id,
-      trigger: decision.trigger,
-      actorContactId: tok.contact_id ?? null,
-      dedupeKey: `decision:${tok.action}:${job.id}`,
-    });
-    changed = result.changed;
-    toStateId = result.toStateId;
-    reason = result.reason ?? null;
-  }
-
-  // Notify only when the job actually moved (or a no-trigger ack, or an explicit
-  // opt-in). A replayed tap that changed nothing stays silent.
-  const shouldEnqueue = changed || !decision.trigger || decision.followupsOnNoChange === true;
+  // Everything past the token consume is the shared decision spine (state advance +
+  // follow-ups + walkthrough ask + completion report + review tag + audit). The office
+  // "fire a result" button runs the exact same helper via the jobs function. Here the
+  // actor is the tapping contact and the follow-up cycle key is the consumed token id.
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
-  // Pass the consumed (single-use) token id as the follow-up cycle key, so a looping
-  // decision (walkthrough_still_issues / _reschedule, re-minted each cycle) enqueues a
-  // fresh follow-up every iteration instead of colliding on a static dedupe key.
-  const enqueued = shouldEnqueue ? await enqueueFollowups(sb, decision, job, { appBaseUrl, cycleKey: tok.id as string }) : 0;
-
-  // If this decision advanced the job into the final walkthrough state, hand the owner
-  // the APPROVE / PUNCH-LIST links. Gated inside on the new state offering a
-  // walkthrough_approved transition, so it only fires on a genuine walkthrough entry.
-  let walkthroughAsked = false;
-  let completionReportBuilt = false;
-  let reviewRequestQueued = false;
-  if (changed && toStateId) {
-    walkthroughAsked = await enqueueWalkthroughResultAsk(
-      sb,
-      { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: toStateId, address: job.address },
-      { appBaseUrl },
-    );
-    // Entering a billing state (walkthrough approved → complete) snapshots the closed job
-    // and schedules the delayed customer review-request tag.
-    completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
-    reviewRequestQueued = await maybeEnqueueReviewRequest(sb, job.id, toStateId);
-  }
-
-  await logEvent({
+  const result = await applyDecision(sb, decision, job, {
+    actorContactId: tok.contact_id ?? null,
+    appBaseUrl,
+    cycleKey: tok.id as string,
     source: "action",
-    kind: `decision.${tok.action}`,
-    location_id: job.location_id,
-    payload: { job_id: job.id, trigger: decision.trigger, changed, to_state_id: toStateId, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt, review_request_queued: reviewRequestQueued },
   });
 
-  return json({ ok: true, action: tok.action, changed, to_state_id: toStateId, reason, enqueued, walkthrough_asked: walkthroughAsked, completion_report_built: completionReportBuilt, review_request_queued: reviewRequestQueued });
+  return json({
+    ok: true,
+    action: tok.action,
+    changed: result.changed,
+    to_state_id: result.toStateId,
+    reason: result.reason,
+    enqueued: result.enqueued,
+    walkthrough_asked: result.walkthroughAsked,
+    completion_report_built: result.completionReportBuilt,
+    review_request_queued: result.reviewRequestQueued,
+  });
 });

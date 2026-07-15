@@ -95,15 +95,14 @@ export const uptiq = {
       version: "2021-07-28",
     });
   },
-  // READ-ONLY pull: page the location's contacts and return those whose tags include `tag`
-  // (case-insensitive). Uses the same /contacts/ read endpoint as findContacts (Contacts read
-  // scope only — no writes to Uptiq). Filters tags client-side so it doesn't depend on the
-  // search-filter schema. Caps pages to avoid runaway; reports `capped` if the cap was hit.
-  async listContactsByTag(params: { locationId: string; tag: string; pageLimit?: number; maxPages?: number }) {
-    const target = params.tag.trim().toLowerCase();
+  // READ-ONLY: page the location's contacts and return them all with their (lowercased) tags.
+  // Uses the same /contacts/ read endpoint as findContacts (Contacts read scope only — no writes
+  // to Uptiq). Caps pages to avoid runaway; reports `capped` if the cap was hit. This is the
+  // primitive behind both the crew-tag pull and the full mirror (categorize by tag app-side).
+  async listContacts(params: { locationId: string; pageLimit?: number; maxPages?: number }) {
     const pageLimit = Math.min(100, Math.max(1, params.pageLimit ?? 100));
     const maxPages = Math.max(1, params.maxPages ?? 10);
-    const matched: Array<{ id: string; name: string | null; email: string | null; phone: string | null; tags: string[] }> = [];
+    const contacts: Array<{ id: string; name: string | null; email: string | null; phone: string | null; tags: string[] }> = [];
     let startAfter: string | null = null;
     let startAfterId: string | null = null;
     let pages = 0;
@@ -113,25 +112,32 @@ export const uptiq = {
       if (startAfter) q.set("startAfter", startAfter);
       if (startAfterId) q.set("startAfterId", startAfterId);
       const res = await callUptiq(`/contacts/?${q.toString()}`, { method: "GET", version: "2021-07-28" });
-      if (!res.ok) return { ok: false, status: res.status, error: res.error, data: res.data, matched, scanned, pages };
+      if (!res.ok) return { ok: false as const, status: res.status, error: res.error, data: res.data, contacts, scanned, pages, capped: false };
       const d = res.data as any;
-      const contacts: any[] = Array.isArray(d?.contacts) ? d.contacts : [];
-      scanned += contacts.length;
-      for (const c of contacts) {
+      const page: any[] = Array.isArray(d?.contacts) ? d.contacts : [];
+      scanned += page.length;
+      for (const c of page) {
         const tags = Array.isArray(c?.tags) ? c.tags.map((t: any) => String(t).toLowerCase()) : [];
-        if (tags.includes(target)) {
-          const name = (c?.contactName || [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.name || "").trim();
-          matched.push({ id: String(c?.id ?? ""), name: name || null, email: c?.email ?? null, phone: c?.phone ?? null, tags });
-        }
+        const name = (c?.contactName || [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.name || "").trim();
+        contacts.push({ id: String(c?.id ?? ""), name: name || null, email: c?.email ?? null, phone: c?.phone ?? null, tags });
       }
       pages++;
-      if (contacts.length < pageLimit) break; // last page
+      if (page.length < pageLimit) break; // last page
       const meta = (d?.meta ?? {}) as any;
       startAfter = meta.startAfter ? String(meta.startAfter) : null;
       startAfterId = meta.startAfterId ? String(meta.startAfterId) : null;
       if (!startAfter && !startAfterId) break; // no cursor to page further
     }
-    return { ok: true, status: 200, matched, scanned, pages, capped: pages >= maxPages };
+    return { ok: true as const, status: 200, contacts, scanned, pages, capped: pages >= maxPages };
+  },
+  // READ-ONLY pull: the location's contacts whose tags include `tag` (case-insensitive).
+  // Thin filter over listContacts, kept as its own method for the crew-tag pull's contract.
+  async listContactsByTag(params: { locationId: string; tag: string; pageLimit?: number; maxPages?: number }) {
+    const target = params.tag.trim().toLowerCase();
+    const res = await uptiq.listContacts(params);
+    if (!res.ok) return { ok: false, status: res.status, error: res.error, data: res.data, matched: [], scanned: res.scanned, pages: res.pages };
+    const matched = res.contacts.filter((c) => c.tags.includes(target));
+    return { ok: true, status: 200, matched, scanned: res.scanned, pages: res.pages, capped: res.capped };
   },
   async sendSms(contactId: string, message: string) {
     return callUptiq(`/conversations/messages`, {
@@ -167,5 +173,23 @@ export const uptiq = {
       version: "2021-07-28",
       body: JSON.stringify({ tags: [tag] }),
     });
+  },
+  // Conversations (debug/admin). Find a contact's conversation(s), read their messages (for
+  // backup), and delete a conversation by id. Delete removes the THREAD only — never the contact.
+  async searchConversations(params: { locationId: string; contactId: string; limit?: number }) {
+    const query = new URLSearchParams({
+      locationId: params.locationId,
+      contactId: params.contactId,
+      limit: String(params.limit ?? 20),
+    });
+    return callUptiq(`/conversations/search?${query.toString()}`, { method: "GET", version: "2021-07-28" });
+  },
+  async getConversationMessages(conversationId: string, params: { limit?: number; lastMessageId?: string } = {}) {
+    const query = new URLSearchParams({ limit: String(params.limit ?? 100) });
+    if (params.lastMessageId) query.set("lastMessageId", params.lastMessageId);
+    return callUptiq(`/conversations/${conversationId}/messages?${query.toString()}`, { method: "GET", version: "2021-07-28" });
+  },
+  async deleteConversation(conversationId: string) {
+    return callUptiq(`/conversations/${conversationId}`, { method: "DELETE", version: "2021-07-28" });
   },
 };

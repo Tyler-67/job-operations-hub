@@ -35,6 +35,44 @@ export function setContactActive(id: string, active: boolean) {
   return callEdge("contacts-sync", { body: { mode: "set_active", contact_id: id, active } }) as unknown as Promise<{ ok: boolean; contact_id: string; active: boolean }>;
 }
 
+export interface ConversationDeleteResult {
+  mode: string;
+  dry_run: boolean;
+  contact: { id: string; name: string | null; uptiq_contact_id: string | null };
+  conversations?: Array<{ id: string; message_count: number }>;
+  results?: Array<{ id: string; deleted: boolean; status?: number; error?: string }>;
+  total_conversations: number;
+  total_messages: number;
+  deleted?: number;
+  backup_id?: string;
+  capped?: boolean;
+}
+
+// DEBUG: back up + delete a contact's Uptiq conversation (thread only, not the contact).
+// dryRun=true previews (search + message counts) without backing up or deleting.
+// owner_admin / support_admin (contacts-sync POST gate).
+export function deleteContactConversation(contactId: string, dryRun: boolean) {
+  return callEdge("contacts-sync", { body: { mode: "delete_conversation", contact_id: contactId, dry_run: dryRun } }) as unknown as Promise<ConversationDeleteResult>;
+}
+
+export interface SendTestResult {
+  channel: string;
+  contact_id: string;
+  provider_ok: boolean;
+  provider_status: number;
+  provider_error: string | null;
+  provider_response: unknown;
+}
+
+// DEBUG: send ONE SMS/email immediately to a Uptiq contact id (bypasses the scheduled queue),
+// returning the raw provider response. `uptiqContactId` is the Uptiq contact id (data on the
+// contact row's uptiq_contact_id) — NOT the app contact row id. owner_admin / support_admin.
+export function sendTest(params: { uptiqContactId: string; channel: "sms" | "email"; message?: string; subject?: string }) {
+  return callEdge("send-test", {
+    body: { contact_id: params.uptiqContactId, channel: params.channel, message: params.message, subject: params.subject },
+  }) as unknown as Promise<SendTestResult>;
+}
+
 export function canViewContacts(role?: string | null) {
   return role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
