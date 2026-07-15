@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
-import { fetchContacts, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
+import { Ban, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { canManageContacts, deleteContact, fetchContacts, setContactActive, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
 import { pullCrew } from "@/lib/settings";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
@@ -22,8 +22,8 @@ function roleLabel(role: string | null | undefined) {
 
 export default function AdminContacts() {
   const { user } = useSession();
-  // Crew pull writes app records, so it's owner_admin/support_admin (matches contacts-sync POST).
-  const canPull = user?.role === "owner_admin" || user?.role === "support_admin";
+  // Managing contacts (crew pull, delete, deactivate) writes app records → owner_admin/support_admin.
+  const canManage = canManageContacts(user?.role);
   const confirm = useConfirm();
 
   const [data, setData] = useState<ContactsListResponse | null>(null);
@@ -33,6 +33,7 @@ export default function AdminContacts() {
   const [pulling, setPulling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -57,7 +58,7 @@ export default function AdminContacts() {
   const roles = useMemo(() => Object.keys(data?.role_counts ?? {}).sort(), [data?.role_counts]);
 
   async function handlePullCrew() {
-    if (!canPull) return;
+    if (!canManage) return;
     if (!(await confirm({
       title: "Pull crew from Uptiq now?",
       body: "Imports every Uptiq contact tagged “crew” as a crew contact here (created or updated, matched by Uptiq id). Read-only in Uptiq.",
@@ -74,6 +75,47 @@ export default function AdminContacts() {
       setError(err instanceof Error ? err.message : "Crew pull failed");
     } finally {
       setPulling(false);
+    }
+  }
+
+  async function handleToggleActive(c: ContactRow) {
+    if (!canManage) return;
+    setBusyId(c.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await setContactActive(c.id, !c.active);
+      setNotice(`${c.active ? "Deactivated" : "Reactivated"} ${c.name ?? "contact"}.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update contact");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(c: ContactRow) {
+    if (!canManage) return;
+    if (!(await confirm({
+      title: `Delete ${c.name ?? "this contact"}?`,
+      body: "Permanently removes this contact. If it has check-in, expense, or message history it can't be deleted — deactivate it instead.",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    setBusyId(c.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteContact(c.id);
+      setNotice(`Deleted ${c.name ?? "contact"}.`);
+      load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message === "has_history"
+        ? `${c.name ?? "This contact"} has activity history (check-ins, expenses, or messages) and can't be deleted — use Deactivate instead.`
+        : (message || "Could not delete contact"));
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -97,7 +139,7 @@ export default function AdminContacts() {
           className="h-8 w-44"
           options={[{ value: "all", label: "All roles" }, ...roles.map((r) => ({ value: r, label: `${roleLabel(r)} (${data?.role_counts[r]})` }))]}
         />
-        {canPull && (
+        {canManage && (
           <button type="button" onClick={handlePullCrew} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <RefreshCw className={`h-3.5 w-3.5 ${pulling ? "animate-spin" : ""}`} />
             {pulling ? "Pulling..." : "Pull crew from Uptiq"}
@@ -120,11 +162,12 @@ export default function AdminContacts() {
                 <th className="border-b border-border px-3 py-2 text-left font-medium">Email</th>
                 <th className="w-[22%] border-b border-border px-3 py-2 text-left font-medium">Uptiq contact ID</th>
                 <th className="w-20 border-b border-border px-3 py-2 text-left font-medium">Status</th>
+                {canManage && <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No contacts{query || roleFilter !== "all" ? " match" : " yet"}.</td></tr>
+                <tr><td colSpan={canManage ? 7 : 6} className="p-8 text-center text-muted-foreground">No contacts{query || roleFilter !== "all" ? " match" : " yet"}.</td></tr>
               )}
               {filtered.map((c: ContactRow) => (
                 <tr key={c.id} className="ops-row">
@@ -138,6 +181,18 @@ export default function AdminContacts() {
                       {c.active ? "active" : "inactive"}
                     </span>
                   </td>
+                  {canManage && (
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end gap-1">
+                        <button type="button" title={c.active ? "Deactivate" : "Reactivate"} disabled={busyId === c.id} onClick={() => handleToggleActive(c)} className="icon-btn">
+                          {c.active ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                        </button>
+                        <button type="button" title="Delete" disabled={busyId === c.id} onClick={() => handleDelete(c)} className="icon-btn">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

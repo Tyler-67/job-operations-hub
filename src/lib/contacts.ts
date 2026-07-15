@@ -24,6 +24,22 @@ export function fetchContacts() {
   return callEdge("contacts-sync") as unknown as Promise<ContactsListResponse>;
 }
 
+// Hard-delete a contact. Rejects with Error("has_history") if the contact is referenced by
+// check-ins/expenses/messages (deactivate it instead). owner_admin / support_admin.
+export function deleteContact(id: string) {
+  return callEdge("contacts-sync", { body: { mode: "delete", contact_id: id } }) as unknown as Promise<{ ok: boolean; deleted: string }>;
+}
+
+// Toggle a contact active/inactive (soft remove). owner_admin / support_admin.
+export function setContactActive(id: string, active: boolean) {
+  return callEdge("contacts-sync", { body: { mode: "set_active", contact_id: id, active } }) as unknown as Promise<{ ok: boolean; contact_id: string; active: boolean }>;
+}
+
 export function canViewContacts(role?: string | null) {
   return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+}
+
+// Delete/deactivate contacts (writes app records) — same gate as the crew pull / contacts-sync POST.
+export function canManageContacts(role?: string | null) {
+  return role === "owner_admin" || role === "support_admin";
 }

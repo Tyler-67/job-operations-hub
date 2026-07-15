@@ -61,6 +61,44 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body.dry_run === true;
   const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.trunc(Number(body.limit))) : null;
+
+  // Manage an app contact directly (no Uptiq round-trip): hard delete, or toggle active.
+  // Tenant-scoped by location_id so a caller can never touch another tenant's row.
+  if (body.mode === "delete" || body.mode === "set_active") {
+    const contactId = typeof body.contact_id === "string" ? body.contact_id : "";
+    if (!contactId) return json({ error: "contact_id_required" }, 400);
+    const { data: existing, error: findErr } = await sb
+      .from("contacts").select("id, name, role").eq("id", contactId).eq("location_id", locId).maybeSingle();
+    if (findErr) return json({ error: findErr.message }, 500);
+    if (!existing) return json({ error: "not_found" }, 404);
+
+    if (body.mode === "set_active") {
+      const active = body.active !== false;
+      const { error } = await sb.from("contacts").update({ active }).eq("id", contactId).eq("location_id", locId);
+      if (error) return json({ error: error.message }, 500);
+      await logEvent({
+        source: "admin", kind: "contact_set_active", location_id: locId,
+        payload: { contact_id: contactId, name: existing.name, active, by: claims.email },
+      });
+      return json({ ok: true, contact_id: contactId, active });
+    }
+
+    // Hard delete. FK RESTRICT/NO ACTION (daily_logs, event_log, job_expenses, purchase_orders)
+    // blocks a contact that has activity history — surface that as a clean 409, not a 500.
+    const { error } = await sb.from("contacts").delete().eq("id", contactId).eq("location_id", locId);
+    if (error) {
+      return json({
+        error: "has_history",
+        message: "This contact has activity history (check-ins, expenses, or messages) and can't be deleted. Deactivate it instead.",
+        detail: error.message,
+      }, 409);
+    }
+    await logEvent({
+      source: "admin", kind: "contact_deleted", location_id: locId,
+      payload: { contact_id: contactId, name: existing.name, role: existing.role, by: claims.email },
+    });
+    return json({ ok: true, deleted: contactId });
+  }
   // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
   // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
   const mode = body.mode === "upsert" ? "upsert" : "link";
