@@ -29,7 +29,7 @@ import { useSession } from "@/lib/session";
 import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
 import { InlineMultiSelect } from "@/components/InlineMultiSelect";
 import { useConfirm } from "@/components/dialogs";
-import { fetchContacts, deleteContactConversation, sendTest, type ContactRow, type ConversationDeleteResult, type SendTestResult } from "@/lib/contacts";
+import { fetchContacts, deleteContactConversation, listUptiqThreads, sendTest, type ContactRow, type ConversationDeleteResult, type SendTestResult, type UptiqThread } from "@/lib/contacts";
 import { fetchJobs, deleteJob, type JobSummary, type JobDeleteResult } from "@/lib/jobs";
 
 // Result of clearing ONE selected contact's conversation — the backend targets one contact
@@ -187,6 +187,8 @@ export default function AdminSettings() {
   const [convBusy, setConvBusy] = useState<"preview" | "delete" | null>(null);
   // One entry per selected contact (the backend clears one conversation at a time).
   const [convRuns, setConvRuns] = useState<ConvRun[] | null>(null);
+  const [uptiqThreads, setUptiqThreads] = useState<UptiqThread[] | null>(null);
+  const [threadsBusy, setThreadsBusy] = useState(false);
   const [clearableJobs, setClearableJobs] = useState<JobSummary[]>([]);
   const [jobClearIds, setJobClearIds] = useState<string[]>([]);
   const [jobClearBusy, setJobClearBusy] = useState<"preview" | "delete" | null>(null);
@@ -390,17 +392,41 @@ export default function AdminSettings() {
   // labels carry the Uptiq id tail so two app contacts sharing one Uptiq thread is visible.
   const convOptions = useMemo(() => {
     const idTail = (raw: string | null) => (raw ? ` · …${raw.slice(-4)}` : "");
+    // Threads loaded straight from Uptiq reach conversations the app's contact mapping can't —
+    // e.g. a PREVIOUS owner/office messaging contact after Settings switched to a different one.
+    // Skip threads whose Uptiq id an app contact or company target already covers.
+    const known = new Set<string>([form.owner_contact_id, form.office_contact_id, ...contacts.map((c) => c.uptiq_contact_id ?? "")].filter(Boolean));
+    const threadOptions = (uptiqThreads ?? [])
+      .filter((t) => !known.has(t.uptiq_contact_id))
+      .map((t) => ({ value: `uptiq:${t.uptiq_contact_id}`, label: `${t.name ?? "(unnamed)"} · Uptiq thread${idTail(t.uptiq_contact_id)}` }));
     return [
       { value: "owner", label: `Company owner contact (gets owner texts)${idTail(form.owner_contact_id || null)}` },
       { value: "office", label: `Company office contact (gets office texts)${idTail(form.office_contact_id || null)}` },
       ...contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}${idTail(c.uptiq_contact_id)}` })),
+      ...threadOptions,
     ];
-  }, [contacts, form.owner_contact_id, form.office_contact_id]);
+  }, [contacts, uptiqThreads, form.owner_contact_id, form.office_contact_id]);
+
+  async function handleLoadThreads() {
+    setThreadsBusy(true);
+    setError(null);
+    try {
+      const res = await listUptiqThreads();
+      setUptiqThreads(res.threads);
+      setNotice(`Loaded ${res.total} Uptiq thread${res.total === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load Uptiq threads");
+    } finally {
+      setThreadsBusy(false);
+    }
+  }
 
   const convContactName = (id: string) =>
     id === "owner" ? "Company owner contact"
       : id === "office" ? "Company office contact"
-        : contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
+        : id.startsWith("uptiq:")
+          ? (uptiqThreads?.find((t) => t.uptiq_contact_id === id.slice(6))?.name ?? `Uptiq contact …${id.slice(-4)}`)
+          : contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
 
   // Owner/Office pickers: choose the company messaging contact from role-tagged contacts (the
   // Uptiq tag pull assigns roles), storing the contact's Uptiq id — same field the senders read.
@@ -434,7 +460,7 @@ export default function AdminSettings() {
     return Promise.all(convContactIds.map(async (id): Promise<ConvRun> => {
       const name = convContactName(id);
       try {
-        return { contactId: id, name, result: await deleteContactConversation(id, dryRun), error: null };
+        return { contactId: id, name, result: await deleteContactConversation(id, dryRun, name), error: null };
       } catch (err) {
         return { contactId: id, name, result: null, error: err instanceof Error ? err.message : "failed" };
       }
@@ -824,7 +850,12 @@ export default function AdminSettings() {
                     />
                     <CronButton label="Preview" busy={convBusy === "preview"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvPreview} />
                     <CronButton label="Back up & delete" busy={convBusy === "delete"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvDelete} />
+                    <CronButton label="Load Uptiq threads" busy={threadsBusy} disabled={threadsBusy || convBusy !== null} onClick={handleLoadThreads} />
                   </div>
+                  <p className="text-2xs text-muted-foreground">
+                    Load Uptiq threads adds every conversation Uptiq has for this location to the picker &mdash;
+                    including threads for contacts the app doesn&rsquo;t know (e.g. a previous owner/office contact).
+                  </p>
                   {convRuns && convRuns.map((run) => (
                     <div key={run.contactId} className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
                       {run.error ? (

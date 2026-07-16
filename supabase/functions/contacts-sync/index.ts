@@ -180,14 +180,37 @@ Deno.serve(async (req) => {
   // messaging contact from Settings. The company ids are where the app actually sends the
   // owner/office texts and often have NO app-contact row (or app contacts map to a different
   // Uptiq id entirely), so without the target option those threads were uncleatable.
+  // DEBUG: list the location's recent Uptiq conversations (threads), straight from Uptiq. This is
+  // how the clear tool reaches threads whose Uptiq contact the app doesn't know about — e.g. a
+  // previous owner/office messaging contact after Settings switched to a different one.
+  if (body.mode === "list_conversations") {
+    const search = await uptiq.searchConversations({ locationId: uptiqLoc, limit: 100 });
+    if (!search.ok) return json({ error: "search_failed", status: search.status, detail: search.data }, 502);
+    const conversations = Array.isArray((search.data as Record<string, unknown>)?.conversations)
+      ? (search.data as Record<string, any>).conversations as Record<string, any>[]
+      : [];
+    const threads = conversations.map((c) => ({
+      conversation_id: String(c?.id ?? ""),
+      uptiq_contact_id: String(c?.contactId ?? c?.contact_id ?? ""),
+      name: (c?.fullName ?? c?.contactName ?? c?.name ?? null) as string | null,
+      last_message: typeof c?.lastMessageBody === "string" ? c.lastMessageBody.slice(0, 80) : null,
+    })).filter((t) => t.conversation_id && t.uptiq_contact_id);
+    return json({ threads, total: threads.length });
+  }
+
   if (body.mode === "delete_conversation") {
     const target = body.target === "owner" || body.target === "office" ? body.target as string : null;
+    const rawUptiqId = typeof body.uptiq_contact_id === "string" ? body.uptiq_contact_id.trim() : "";
     const contactId = typeof body.contact_id === "string" ? body.contact_id : "";
-    if (!target && !contactId) return json({ error: "contact_id_required" }, 400);
+    if (!target && !contactId && !rawUptiqId) return json({ error: "contact_id_required" }, 400);
 
     let contact: Record<string, unknown> | null = null;
     let uptiqContactId = "";
-    if (target) {
+    if (rawUptiqId) {
+      // Raw Uptiq contact id (from the thread list above). Safe cross-tenant: the conversation
+      // search below runs scoped to THIS session's Uptiq location, so a foreign id finds nothing.
+      uptiqContactId = rawUptiqId;
+    } else if (target) {
       const { data: cs, error: sErr } = await sb
         .from("company_settings").select("owner_contact_id, office_contact_id")
         .eq("location_id", locId).maybeSingle();
@@ -208,7 +231,9 @@ Deno.serve(async (req) => {
     }
     const displayName = contact
       ? (contact.name as string | null)
-      : target === "owner" ? "Company owner contact" : "Company office contact";
+      : rawUptiqId
+        ? ((typeof body.label === "string" && body.label.trim()) || `Uptiq contact …${rawUptiqId.slice(-4)}`)
+        : target === "owner" ? "Company owner contact" : "Company office contact";
 
     const search = await uptiq.searchConversations({ locationId: uptiqLoc, contactId: uptiqContactId });
     if (!search.ok) return json({ error: "search_failed", status: search.status, detail: search.data }, 502);

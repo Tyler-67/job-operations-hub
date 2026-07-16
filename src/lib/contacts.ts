@@ -53,14 +53,31 @@ export interface ConversationDeleteResult {
 // (or an app contact maps to a different Uptiq id entirely).
 export const CONVERSATION_TARGETS = ["owner", "office"] as const;
 
+// A thread discovered straight from Uptiq's conversation list — reaches threads whose contact
+// the app doesn't know (e.g. a previous owner/office messaging contact after Settings changed).
+export interface UptiqThread {
+  conversation_id: string;
+  uptiq_contact_id: string;
+  name: string | null;
+  last_message: string | null;
+}
+
+// DEBUG: list the location's recent Uptiq conversations. owner_admin / support_admin.
+export function listUptiqThreads() {
+  return callEdge("contacts-sync", { body: { mode: "list_conversations" } }) as unknown as Promise<{ threads: UptiqThread[]; total: number }>;
+}
+
 // DEBUG: back up + delete an Uptiq conversation (thread only, never the contact). Selector is an
-// app contact id, or "owner"/"office" for the company messaging contact from Settings.
+// app contact id, "owner"/"office" for the company messaging contact from Settings, or
+// "uptiq:<contactId>" for a thread discovered via listUptiqThreads.
 // dryRun=true previews (search + message counts) without backing up or deleting.
 // owner_admin / support_admin (contacts-sync POST gate).
-export function deleteContactConversation(selector: string, dryRun: boolean) {
-  const body = (CONVERSATION_TARGETS as readonly string[]).includes(selector)
-    ? { mode: "delete_conversation", target: selector, dry_run: dryRun }
-    : { mode: "delete_conversation", contact_id: selector, dry_run: dryRun };
+export function deleteContactConversation(selector: string, dryRun: boolean, label?: string) {
+  const body = selector.startsWith("uptiq:")
+    ? { mode: "delete_conversation", uptiq_contact_id: selector.slice(6), label, dry_run: dryRun }
+    : (CONVERSATION_TARGETS as readonly string[]).includes(selector)
+      ? { mode: "delete_conversation", target: selector, dry_run: dryRun }
+      : { mode: "delete_conversation", contact_id: selector, dry_run: dryRun };
   return callEdge("contacts-sync", { body }) as unknown as Promise<ConversationDeleteResult>;
 }
 

@@ -192,12 +192,14 @@ export const uptiq = {
   },
   // Conversations (debug/admin). Find a contact's conversation(s), read their messages (for
   // backup), and delete a conversation by id. Delete removes the THREAD only — never the contact.
-  async searchConversations(params: { locationId: string; contactId: string; limit?: number }) {
+  // contactId narrows to one contact's thread(s); without it, returns the location's recent
+  // conversations (how the debug tool discovers threads whose contact the app doesn't know).
+  async searchConversations(params: { locationId: string; contactId?: string; limit?: number }) {
     const query = new URLSearchParams({
       locationId: params.locationId,
-      contactId: params.contactId,
       limit: String(params.limit ?? 20),
     });
+    if (params.contactId) query.set("contactId", params.contactId);
     return callUptiq(`/conversations/search?${query.toString()}`, { method: "GET", version: "2021-07-28" });
   },
   async getConversationMessages(conversationId: string, params: { limit?: number; lastMessageId?: string } = {}) {
