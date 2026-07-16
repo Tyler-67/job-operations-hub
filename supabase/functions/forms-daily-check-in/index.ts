@@ -15,6 +15,7 @@ import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInIn
 import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
 
@@ -507,6 +508,14 @@ Deno.serve(async (req) => {
       status: "ok",
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
+
+    // When this check-in advanced the job into an inspection phase, flush the queued owner
+    // date-picker link + office heads-up NOW instead of waiting up to ~15 min for the drain
+    // cron — the owner needs the actionable date link the moment the job becomes an inspection.
+    // Best-effort (the drain cron is still the backstop), and gated on the real state advance so
+    // routine daily check-ins keep deferring their summary email to the cron. Mirrors the
+    // decision spine's immediate drain (apply-decision.ts).
+    if (transition?.changed) await triggerDrain();
 
     return json({
       ok: true,
