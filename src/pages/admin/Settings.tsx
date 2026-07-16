@@ -13,6 +13,10 @@ import {
   saveSettings,
   syncContacts,
   timeForInput,
+  clearData,
+  CLEAR_DATA_CATEGORIES,
+  type ClearDataCategory,
+  type ClearDataResult,
   type ContactsSyncResult,
   type ContactsPullResult,
   type CronKey,
@@ -188,6 +192,9 @@ export default function AdminSettings() {
   const [jobClearBusy, setJobClearBusy] = useState<"preview" | "delete" | null>(null);
   // One entry per selected job (the backend deletes one job at a time).
   const [jobClearRuns, setJobClearRuns] = useState<JobClearRun[] | null>(null);
+  const [resetCategories, setResetCategories] = useState<ClearDataCategory[]>([]);
+  const [resetBusy, setResetBusy] = useState<"preview" | "clear" | null>(null);
+  const [resetResult, setResetResult] = useState<ClearDataResult | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -536,6 +543,51 @@ export default function AdminSettings() {
     }
   }
 
+  const resetLabel = (key: ClearDataCategory) =>
+    CLEAR_DATA_CATEGORIES.find((c) => c.key === key)?.label ?? key;
+
+  async function handleResetPreview() {
+    if (!resetCategories.length) return;
+    setResetBusy("preview");
+    setResetResult(null);
+    setError(null);
+    try {
+      setResetResult(await clearData(resetCategories, true));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Preview failed");
+    } finally {
+      setResetBusy(null);
+    }
+  }
+
+  async function handleResetClear() {
+    if (!resetCategories.length) return;
+    if (!(await confirm({
+      title: `Clear ${resetCategories.length} data categor${resetCategories.length > 1 ? "ies" : "y"}?`,
+      body: `Permanently deletes all ${resetCategories.map(resetLabel).join(", ")} for this company. Rows protected by job history are skipped. This cannot be undone.`,
+      confirmLabel: "Clear permanently",
+      destructive: true,
+    }))) return;
+    setResetBusy("clear");
+    setResetResult(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await clearData(resetCategories, false);
+      setResetResult(res);
+      const total = res.results.reduce((n, r) => n + (r.deleted ?? 0), 0);
+      const blocked = res.results.reduce((n, r) => n + (r.blocked ?? 0), 0);
+      setNotice(`Cleared ${total} row${total === 1 ? "" : "s"}${blocked ? ` · ${blocked} skipped (still referenced)` : ""}.`);
+      // Contacts / supply houses may have changed — refresh the pickers that feed off them.
+      fetchContacts().then((r) => setContacts(r.contacts.filter((c) => c.uptiq_contact_id))).catch(() => { /* stale list is fine */ });
+      fetchSettings().then((next) => setData(next)).catch(() => { /* stale payload is fine */ });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Clear failed");
+    } finally {
+      setResetBusy(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
@@ -828,6 +880,43 @@ export default function AdminSettings() {
                       )}
                     </div>
                   ))}
+                </div>
+              </section>
+            )}
+
+            {canSyncContacts && form.debug_mode && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Data reset (debug)</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Clear accumulated test data for a fresh run &mdash; notification history, diagnostics, report
+                    snapshots, imported contacts and supply houses. Rows still referenced by job history are skipped,
+                    never errored. <strong>Cannot be undone.</strong> Jobs and Uptiq text threads have their own tools above.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <InlineMultiSelect
+                      values={resetCategories}
+                      onChange={(values) => { setResetCategories(values as ClearDataCategory[]); setResetResult(null); }}
+                      disabled={resetBusy !== null}
+                      className="h-8 w-80"
+                      placeholder="Select data to clear…"
+                      options={CLEAR_DATA_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))}
+                    />
+                    <CronButton label="Preview" busy={resetBusy === "preview"} disabled={!resetCategories.length || resetBusy !== null} onClick={handleResetPreview} />
+                    <CronButton label="Clear selected" busy={resetBusy === "clear"} disabled={!resetCategories.length || resetBusy !== null} onClick={handleResetClear} />
+                  </div>
+                  {resetResult && (
+                    <div className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+                      {resetResult.results.map((r) => (
+                        <div key={r.category}>
+                          <span className="font-medium text-foreground">{resetLabel(r.category)}</span>:{" "}
+                          {resetResult.dry_run
+                            ? `${r.count ?? 0} row(s) would be cleared`
+                            : `cleared ${r.deleted ?? 0}${r.blocked ? ` · ${r.blocked} skipped (still referenced)` : ""}`}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
             )}

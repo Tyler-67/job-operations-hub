@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
@@ -308,6 +308,94 @@ async function fireCrons(keys: string[]) {
   return { ok: crons.every((c) => c.ok), crons, drain };
 }
 
+// ---- Debug data reset ------------------------------------------------------------------------
+// Wipes categories of accumulated TEST data for this company so a fresh test run starts clean.
+// Jobs and Uptiq conversation threads deliberately are NOT categories — the Jobs (debug) and
+// Conversations (debug) tools own those. Categories run in dependency order: event_log rows hold
+// actor FKs that block contact deletes, so it clears before contacts; contacts/supply houses are
+// deleted per row so FK-protected ones (job history, POs) are skipped and reported, never errors.
+const CLEAR_ORDER = [
+  "notifications", "event_log", "action_tokens", "weekly_reports",
+  "conversation_backups", "contacts", "supply_houses",
+] as const;
+type ClearCategory = (typeof CLEAR_ORDER)[number];
+
+// The tenant's job + contact ids — action_tokens has no location column, so tokens are scoped
+// through what they're bound to.
+async function tenantIds(sb: any, locationId: string) {
+  const [{ data: jobs }, { data: contacts }] = await Promise.all([
+    sb.from("jobs").select("id").eq("location_id", locationId),
+    sb.from("contacts").select("id").eq("location_id", locationId),
+  ]);
+  return {
+    jobIds: (jobs ?? []).map((j: any) => j.id as string),
+    contactIds: (contacts ?? []).map((c: any) => c.id as string),
+  };
+}
+
+async function countRows(sb: any, table: string, locationId: string): Promise<number> {
+  const { count } = await sb.from(table).select("*", { count: "exact", head: true }).eq("location_id", locationId);
+  return count ?? 0;
+}
+
+async function clearCategoryCount(sb: any, locationId: string, cat: ClearCategory): Promise<number> {
+  if (cat === "notifications") return countRows(sb, "scheduled_notifications", locationId);
+  if (cat === "event_log") return countRows(sb, "event_log", locationId);
+  if (cat === "weekly_reports") return countRows(sb, "weekly_reports", locationId);
+  if (cat === "conversation_backups") return countRows(sb, "conversation_backups", locationId);
+  if (cat === "contacts") return countRows(sb, "contacts", locationId);
+  if (cat === "supply_houses") return countRows(sb, "supply_house_contacts", locationId);
+  // action_tokens: bound to a tenant job or contact
+  const { jobIds, contactIds } = await tenantIds(sb, locationId);
+  const seen = new Set<string>();
+  for (const [col, ids] of [["job_id", jobIds], ["contact_id", contactIds]] as const) {
+    if (!ids.length) continue;
+    const { data } = await sb.from("action_tokens").select("id").in(col, ids);
+    for (const row of data ?? []) seen.add(row.id as string);
+  }
+  return seen.size;
+}
+
+// Per-row delete that treats FK-protected rows as "blocked" instead of failing the whole run.
+async function deleteRowsIndividually(sb: any, table: string, locationId: string): Promise<{ deleted: number; blocked: number }> {
+  const { data: rows } = await sb.from(table).select("id").eq("location_id", locationId);
+  let deleted = 0, blocked = 0;
+  for (const row of rows ?? []) {
+    const { error } = await sb.from(table).delete().eq("id", row.id).eq("location_id", locationId);
+    if (error) blocked++;
+    else deleted++;
+  }
+  return { deleted, blocked };
+}
+
+async function clearCategory(sb: any, locationId: string, cat: ClearCategory): Promise<{ deleted: number; blocked: number }> {
+  if (cat === "contacts") return deleteRowsIndividually(sb, "contacts", locationId);
+  if (cat === "supply_houses") return deleteRowsIndividually(sb, "supply_house_contacts", locationId);
+  if (cat === "action_tokens") {
+    const { jobIds, contactIds } = await tenantIds(sb, locationId);
+    const seen = new Set<string>();
+    for (const [col, ids] of [["job_id", jobIds], ["contact_id", contactIds]] as const) {
+      if (!ids.length) continue;
+      const { data } = await sb.from("action_tokens").select("id").in(col, ids);
+      for (const row of data ?? []) seen.add(row.id as string);
+    }
+    const tokenIds = [...seen];
+    for (let i = 0; i < tokenIds.length; i += 200) {
+      const { error } = await sb.from("action_tokens").delete().in("id", tokenIds.slice(i, i + 200));
+      if (error) throw error;
+    }
+    return { deleted: tokenIds.length, blocked: 0 };
+  }
+  const table = cat === "notifications" ? "scheduled_notifications"
+    : cat === "weekly_reports" ? "weekly_reports"
+      : cat === "conversation_backups" ? "conversation_backups"
+        : "event_log";
+  const before = await countRows(sb, table, locationId);
+  const { error } = await sb.from(table).delete().eq("location_id", locationId);
+  if (error) throw error;
+  return { deleted: before, blocked: 0 };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -341,6 +429,36 @@ Deno.serve(async (req) => {
       if (action === "run_crons") {
         const keys = Array.isArray(body.crons) ? body.crons.map((k: unknown) => String(k ?? "").trim()).filter(Boolean) : [];
         return json(await fireCrons(keys));
+      }
+      if (action === "clear_data") {
+        // Debug reset — owner_admin/support_admin only (matches the other debug tools), and only
+        // while debug_mode is on (defense in depth beyond the debug-gated UI).
+        if (!["owner_admin", "support_admin"].includes(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+        const { data: cs } = await sb
+          .from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+
+        const requested = Array.isArray(body.categories) ? body.categories.map((c: unknown) => String(c ?? "")) : [];
+        const categories = CLEAR_ORDER.filter((c) => requested.includes(c));
+        if (!categories.length) return json({ error: "no_categories" }, 400);
+        const dryRun = body.dry_run === true;
+
+        const results: Array<{ category: ClearCategory; count?: number; deleted?: number; blocked?: number }> = [];
+        for (const cat of categories) {
+          if (dryRun) {
+            results.push({ category: cat, count: await clearCategoryCount(sb, locationId, cat) });
+          } else {
+            const outcome = await clearCategory(sb, locationId, cat);
+            results.push({ category: cat, ...outcome });
+          }
+        }
+        if (!dryRun) {
+          await logEvent({
+            source: "admin", kind: "data.debug_clear", location_id: locationId,
+            payload: { categories, results, by: claims.email },
+          });
+        }
+        return json({ ok: true, dry_run: dryRun, results });
       }
       return json({ error: "unknown_action" }, 400);
     }

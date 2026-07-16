@@ -123,6 +123,34 @@ export function runCrons(crons: CronKey[]) {
   return callEdge("settings", { method: "POST", body: { action: "run_crons", crons } }) as Promise<RunCronsResult>;
 }
 
+// Debug data reset: the clearable categories of accumulated test data. Jobs + Uptiq conversation
+// threads have their own debug tools. Order here is display order; the backend enforces its own
+// dependency order.
+export const CLEAR_DATA_CATEGORIES = [
+  { key: "notifications", label: "Notification queue + history" },
+  { key: "event_log", label: "Event log (diagnostics)" },
+  { key: "action_tokens", label: "SMS action tokens (unclaimed links)" },
+  { key: "weekly_reports", label: "Weekly report snapshots (lets this period re-send)" },
+  { key: "conversation_backups", label: "Conversation backups" },
+  { key: "contacts", label: "Contacts (skips any with job history)" },
+  { key: "supply_houses", label: "Supply houses (skips any referenced by POs)" },
+] as const;
+export type ClearDataCategory = (typeof CLEAR_DATA_CATEGORIES)[number]["key"];
+
+export interface ClearDataResult {
+  ok: boolean;
+  dry_run: boolean;
+  results: Array<{ category: ClearDataCategory; count?: number; deleted?: number; blocked?: number }>;
+}
+
+// owner_admin / support_admin + debug_mode only (enforced server-side too).
+export function clearData(categories: ClearDataCategory[], dryRun: boolean) {
+  return callEdge("settings", {
+    method: "POST",
+    body: { action: "clear_data", categories, dry_run: dryRun },
+  }) as Promise<ClearDataResult>;
+}
+
 export interface ContactsSyncResult {
   location: string;
   mode: string;
