@@ -17,23 +17,6 @@ function isDuplicate(error: unknown): boolean {
   return String((error as { message?: unknown })?.message ?? error).toLowerCase().includes("duplicate");
 }
 
-// Did this job already get the given ask today (company-local)? Immediate action sends (a crew
-// re-request, a date set to today) insert with NO dedupe key — a user action always texts — so
-// the cron can't rely on key collisions to avoid echoing them. Instead the cron itself skips a
-// job whose ask already went out today: the cron is the reminder backstop, it never repeats what
-// today already produced. Checked per template on the latest row's company-local calendar date.
-async function alreadySentToday(sb: any, jobId: string, templateKey: string, tz: string, localToday: string): Promise<boolean> {
-  const { data } = await sb
-    .from("scheduled_notifications")
-    .select("created_at")
-    .eq("job_id", jobId)
-    .eq("template_key", templateKey)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!data?.created_at) return false;
-  return localContext(tz, new Date(data.created_at as string)).date === localToday;
-}
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -92,9 +75,7 @@ Deno.serve(async (req) => {
       const inspectionDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
 
       if (!inspectionDate) {
-        // Branch A: the owner still needs to pick a date. Skip when an immediate action send
-        // (a crew request) already asked today — the daily nudge must not echo it.
-        if (!force && await alreadySentToday(sb, job.id, "inspection_date_link", tz, date)) { skipped++; continue; }
+        // Branch A: the owner still needs to pick a date (shared with the check-in immediate send).
         const sent = await queueInspectionDateAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
           ownerContactId, appBaseUrl, localDate: date, force,
@@ -112,9 +93,8 @@ Deno.serve(async (req) => {
           if (oErr && !isDuplicate(oErr)) throw oErr;
         }
       } else if (inspectionDate === date) {
-        // Branch B: inspection day → ask the owner for the result. Skip when a date-set action
-        // already fired the ask today (those rows are keyless, so check by local calendar day).
-        if (!force && await alreadySentToday(sb, job.id, "inspection_result_ask", tz, date)) { skipped++; continue; }
+        // Branch B: inspection day → ask the owner for the result (shared with the date-set
+        // immediate send; same per-job+date dedupe, so both paths collapse to one ask).
         const sent = await queueInspectionResultAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
           inspectionDate, ownerContactId, officeContactId, appBaseUrl, force,
