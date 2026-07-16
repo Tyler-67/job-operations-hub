@@ -68,7 +68,7 @@ describe("shouldAskFinishWalkthrough", () => {
 });
 
 describe("enqueueFinishWalkthroughAsk", () => {
-  const opts = { appBaseUrl: "https://app.example.com", logDate: "2026-06-09" };
+  const opts = { appBaseUrl: "https://app.example.com", cycleKey: "tok-submission-1" };
 
   it("mints YES/NO tokens and enqueues the owner ask when fully gated", async () => {
     const { sb, inserts, mintedTokens } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
@@ -79,7 +79,7 @@ describe("enqueueFinishWalkthroughAsk", () => {
     const row = inserts[0];
     expect(row.recipient).toBe("demo-owner-cj");
     expect(row.template_key).toBe("finish_walkthrough_ask");
-    expect(row.dedupe_key).toBe("notif:finish_wt:job-1:2026-06-09");
+    expect(row.dedupe_key).toBe("notif:finish_wt:job-1:tok-submission-1");
     expect(String((row.payload as any).yes_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).no_link)).toContain("https://app.example.com/action/decision?token=");
   });
@@ -93,7 +93,7 @@ describe("enqueueFinishWalkthroughAsk", () => {
 
   it("no-ops without an appBaseUrl (no link to build)", async () => {
     const { sb, inserts } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
-    expect(await enqueueFinishWalkthroughAsk(sb, JOB, 100, { logDate: "2026-06-09" })).toBe(false);
+    expect(await enqueueFinishWalkthroughAsk(sb, JOB, 100, { cycleKey: "tok-submission-1" })).toBe(false);
     expect(inserts).toHaveLength(0);
   });
 

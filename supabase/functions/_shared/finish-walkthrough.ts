@@ -23,8 +23,10 @@ export interface FinishWalkthroughJob {
 export interface FinishWalkthroughAskOptions {
   // Required to build the YES/NO links; without it the ask is skipped.
   appBaseUrl?: string;
-  // The check-in's log date, so one ask is enqueued per job per day.
-  logDate: string;
+  // Per-submission discriminator (the consumed check-in token id): every check-in that
+  // reports 100% asks the owner — a direct crew action always notifies. The single-use
+  // token blocks true replays; the transition gate keeps asks to states that can advance.
+  cycleKey: string;
 }
 
 // Pure gate: the owner is asked only when the crew reports the state fully complete AND
@@ -61,7 +63,7 @@ async function ownerContactId(sb: any, locationId: string): Promise<string | nul
 // Mints YES/NO decision tokens and enqueues the owner's "ready for the walkthrough?" SMS.
 // Returns true only when an ask was enqueued; no-ops (returns false) when progress isn't
 // 100, no appBaseUrl is configured, the state offers no finish transition, or no owner
-// contact is set. A duplicate dedupe_key (replayed check-in) is swallowed silently.
+// contact is set.
 export async function enqueueFinishWalkthroughAsk(
   sb: any,
   job: FinishWalkthroughJob,
@@ -92,7 +94,7 @@ export async function enqueueFinishWalkthroughAsk(
       no_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, no.token),
     },
     scheduled_for: new Date().toISOString(),
-    dedupe_key: `notif:finish_wt:${job.id}:${opts.logDate}`,
+    dedupe_key: `notif:finish_wt:${job.id}:${opts.cycleKey}`,
   });
   if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
   return true;

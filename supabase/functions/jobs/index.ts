@@ -6,6 +6,9 @@ import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
 import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
 import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
+import { queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
+import { localContext } from "../_shared/check-in-schedule.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
 // Hard-delete (debug) is scoped like the other debug tools — no office_manager.
@@ -281,7 +284,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id, active, inspection_date, inspection_appointment_id")
+    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, current_state_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -332,6 +335,34 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
     const oldDate = existing.inspection_date ? String(existing.inspection_date).slice(0, 10) : null;
     if (newDate && (newDate !== oldDate || !existing.inspection_appointment_id)) {
       calendar = await syncInspectionAppointment(sb, { jobId });
+    }
+
+    // Setting the date to TODAY makes the day-of PASS/FAIL ask due NOW — the reminder cron's
+    // today-check may already be past for the day. Same helper + change-gate as the owner's SMS
+    // date form (no-op re-saves stay quiet; a genuine (re)schedule always texts), and gated to
+    // jobs actually in an inspection phase (cron Branch-B parity).
+    if (newDate && newDate !== oldDate) {
+      const effectiveStateId = (patch.current_state_id as string | undefined) ?? existing.current_state_id ?? null;
+      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
+      const [{ data: state }, { data: jobRow }, { data: loc }, { data: cs }] = await Promise.all([
+        effectiveStateId
+          ? sb.from("job_states").select("is_inspection").eq("id", effectiveStateId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        sb.from("jobs").select("address").eq("id", jobId).maybeSingle(),
+        sb.from("locations").select("timezone").eq("id", locationId).maybeSingle(),
+        sb.from("company_settings").select("owner_contact_id, office_contact_id").eq("location_id", locationId).maybeSingle(),
+      ]);
+      const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
+      const { date: localToday } = localContext(tz, new Date());
+      const ownerContactId = (cs?.owner_contact_id ?? "").trim();
+      if (state?.is_inspection === true && newDate === localToday && ownerContactId && appBaseUrl) {
+        const asked = await queueInspectionResultAsk(sb, {
+          locationId, jobId, address: jobRow?.address ?? null,
+          inspectionDate: newDate, ownerContactId,
+          officeContactId: cs?.office_contact_id ?? null, appBaseUrl, force: true,
+        });
+        if (asked) await triggerDrain();
+      }
     }
   }
 

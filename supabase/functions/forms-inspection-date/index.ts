@@ -12,6 +12,9 @@ import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { normalizeInspectionDateInput } from "../_shared/inspection.ts";
 import { syncInspectionAppointment } from "../_shared/inspection-calendar.ts";
+import { queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
+import { localContext } from "../_shared/check-in-schedule.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 
 const INSPECTION_DATE_ACTION = "inspection_date";
 
@@ -58,11 +61,12 @@ Deno.serve(async (req) => {
 
     const { data: job, error: jobErr } = await sb
       .from("jobs")
-      .select("id, location_id, address")
+      .select("id, location_id, address, inspection_date, current_state_id")
       .eq("id", jobId)
       .maybeSingle();
     if (jobErr) throw jobErr;
     if (!job) return json({ error: "job_not_found" }, 404);
+    const oldDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
 
     // 1. Authoritative write: record the chosen calendar date on the job.
     const { error: updErr } = await sb.from("jobs").update({ inspection_date: input.inspectionDate }).eq("id", jobId);
@@ -72,6 +76,32 @@ Deno.serve(async (req) => {
     //    also used by the office job form). Any Uptiq error is returned, not thrown, so the
     //    recorded date stands regardless of calendar/scope state.
     const cal = await syncInspectionAppointment(sb, { jobId, slot: input.slot });
+
+    // 2b. Picking TODAY makes the day-of PASS/FAIL ask due NOW — the reminder cron's today-check
+    //     may already be past for the day, so waiting on it would mean the ask never sends. Only
+    //     on a real date change (a re-save of the same date leaves the earlier ask's links live),
+    //     and only while the job actually sits in an inspection phase (cron Branch-B parity —
+    //     PASS/FAIL links are no-ops anywhere else).
+    let resultAsked = false;
+    if (input.inspectionDate !== oldDate && job.current_state_id) {
+      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
+      const [{ data: state }, { data: loc }, { data: cs }] = await Promise.all([
+        sb.from("job_states").select("is_inspection").eq("id", job.current_state_id).maybeSingle(),
+        sb.from("locations").select("timezone").eq("id", job.location_id).maybeSingle(),
+        sb.from("company_settings").select("owner_contact_id, office_contact_id").eq("location_id", job.location_id).maybeSingle(),
+      ]);
+      const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
+      const { date: localToday } = localContext(tz, new Date());
+      const ownerContactId = (cs?.owner_contact_id ?? "").trim();
+      if (state?.is_inspection === true && input.inspectionDate === localToday && ownerContactId && appBaseUrl) {
+        resultAsked = await queueInspectionResultAsk(sb, {
+          locationId: job.location_id, jobId, address: job.address ?? null,
+          inspectionDate: input.inspectionDate, ownerContactId,
+          officeContactId: cs?.office_contact_id ?? null, appBaseUrl, force: true,
+        });
+      }
+    }
+    if (resultAsked) await triggerDrain();
 
     // 3. Idempotent audit entry (date is the natural per-job dedupe key). Records the REAL
     //    calendar outcome (status + error) so a failed sync is diagnosable, not silent.
@@ -90,7 +120,7 @@ Deno.serve(async (req) => {
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
 
-    return json({ ok: true, job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot, appointment: cal.action, calendar: cal });
+    return json({ ok: true, job_id: jobId, inspection_date: input.inspectionDate, slot: input.slot, appointment: cal.action, calendar: cal, result_asked: resultAsked });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return json({ error: message }, 500);

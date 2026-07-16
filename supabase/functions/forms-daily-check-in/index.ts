@@ -36,7 +36,7 @@ async function consumeToken(sb: any, token: string) {
     .eq("action", CHECK_IN_ACTION)
     .is("used_at", null)
     .gt("expires_at", now)
-    .select("job_id, contact_id, payload")
+    .select("id, job_id, contact_id, payload")
     .maybeSingle();
   if (error) throw error;
   return data ?? null;
@@ -63,12 +63,14 @@ async function recomputeExpenseTotals(sb: any, jobId: string) {
 
 // v1 Test 12: when a check-in records a field-purchase expense, text BOTH owner and
 // office the purchase with its receipt + parts photo links. Recipients are Uptiq contact
-// IDs (owner_contact_id/office_contact_id) so the drain cron can deliver them; a per-recipient
-// dedupe key keeps a replayed submit from double-sending (dedupe_key is UNIQUE).
+// IDs (owner_contact_id/office_contact_id). Keyed per SUBMISSION (the consumed single-use
+// token), so a corrected same-day re-submit texts the updated purchase — the token consume
+// is what blocks true replays.
 async function queueFieldPurchaseNotice(sb: any, opts: {
   locationId: string;
   jobId: string;
   dailyLogId: string;
+  submissionId: string;
   address: string;
   crewName: string | null;
   receiptUrl: string | null;
@@ -101,7 +103,7 @@ async function queueFieldPurchaseNotice(sb: any, opts: {
       template_key: "field_purchase_notice",
       payload,
       scheduled_for: now,
-      dedupe_key: `notif:field_purchase:${opts.dailyLogId}:${contactId}`,
+      dedupe_key: `notif:field_purchase:${opts.submissionId}:${contactId}`,
     });
     if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
   }
@@ -109,13 +111,14 @@ async function queueFieldPurchaseNotice(sb: any, opts: {
 
 // Immediate owner + office SMS the moment a crew check-in advances a job into an inspection
 // phase. Without this, nobody heard about the request until the next daily inspection-reminder
-// cron (up to ~1 day later). The reminder cron still owns date scheduling; this only removes
-// the silence. phaseLabel names the inspection state the job just entered (e.g. "Rough-In
-// Inspection"). Per-recipient/day dedupe key keeps a same-day re-submit from double-sending.
+// cron (up to ~1 day later). Keyed per SUBMISSION (the consumed token) and the date-ask is
+// forced, so EVERY genuine request texts — including a fix-and-re-request later the same day.
+// The transition gate (applyTransition only advances once per entry) is the real dedupe.
 async function queueInspectionRequestedNotice(sb: any, opts: {
   locationId: string;
   jobId: string;
   logDate: string;
+  submissionId: string;
   address: string;
   toStateId: string | null;
 }) {
@@ -152,14 +155,14 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
         phase_label: typeof phaseRes.data?.label === "string" ? phaseRes.data.label : null,
       },
       scheduled_for: new Date().toISOString(),
-      dedupe_key: `notif:insp_requested:${opts.jobId}:${opts.logDate}:${officeContactId}`,
+      dedupe_key: `notif:insp_requested:${opts.submissionId}:${officeContactId}`,
     });
     if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
   }
 
   // OWNER: the actual date-picker link, immediately — not a third-person "the owner will be asked"
-  // teaser. Same helper + dedupe key as the reminder cron (keyed on the company-local date), so a
-  // same-day cron run collapses to one message; the cron still follows up on later days if unset.
+  // teaser. FORCED: a user requesting an inspection texts the owner no matter what — the per-day
+  // dedupe only belongs to the reminder cron's own daily cadence, never to a direct action.
   if (ownerContactId && appBaseUrl) {
     const tz = (typeof locRow?.timezone === "string" && locRow.timezone.trim()) || "America/Chicago";
     const { date: localDate } = localContext(tz, new Date());
@@ -170,6 +173,7 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
       ownerContactId,
       appBaseUrl,
       localDate,
+      force: true,
     });
   }
 }
@@ -178,6 +182,7 @@ async function queueOwnerOfficeNotices(sb: any, opts: {
   locationId: string;
   jobId: string;
   dailyLogId: string;
+  submissionId: string;
   logDate: string;
   address: string;
 }) {
@@ -202,7 +207,9 @@ async function queueOwnerOfficeNotices(sb: any, opts: {
       template_key: "daily_check_in_summary",
       payload,
       scheduled_for: now,
-      dedupe_key: `notif:check_in:${opts.dailyLogId}:${contactId}`,
+      // Per SUBMISSION (the consumed token): each check-in a crew sends notifies, even a
+      // corrected same-day re-submit. The single-use token blocks true replays.
+      dedupe_key: `notif:check_in:${opts.submissionId}:${contactId}`,
     });
     if (insErr && !isDuplicateKeyError(insErr)) throw insErr;
   }
@@ -301,6 +308,9 @@ Deno.serve(async (req) => {
 
     const jobId = claim.job_id as string;
     const crewContactId = claim.contact_id as string;
+    // The consumed token id = this submission's identity; notification dedupe keys use it so
+    // every distinct submission notifies (replays already 410 at the consume above).
+    const submissionId = claim.id as string;
 
     const { data: job, error: jobErr } = await sb
       .from("jobs")
@@ -376,6 +386,7 @@ Deno.serve(async (req) => {
         locationId: job.location_id,
         jobId,
         dailyLogId,
+        submissionId,
         address: job.address,
         crewName: typeof crew?.name === "string" ? crew.name.trim() : null,
         receiptUrl: parts.expense.receipt_url,
@@ -453,6 +464,7 @@ Deno.serve(async (req) => {
           locationId: job.location_id,
           jobId,
           logDate: input.logDate,
+          submissionId,
           address: job.address,
           toStateId: transition.toStateId,
         });
@@ -476,7 +488,7 @@ Deno.serve(async (req) => {
           address: job.address,
         },
         input.stateProgressPct,
-        { appBaseUrl, logDate: input.logDate },
+        { appBaseUrl, cycleKey: submissionId },
       );
     }
 
@@ -486,6 +498,7 @@ Deno.serve(async (req) => {
       locationId: job.location_id,
       jobId,
       dailyLogId,
+      submissionId,
       logDate: input.logDate,
       address: job.address,
     });
@@ -521,13 +534,11 @@ Deno.serve(async (req) => {
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
 
-    // When this check-in advanced the job into an inspection phase, flush the queued owner
-    // date-picker link + office heads-up NOW instead of waiting up to ~15 min for the drain
-    // cron — the owner needs the actionable date link the moment the job becomes an inspection.
-    // Best-effort (the drain cron is still the backstop), and gated on the real state advance so
-    // routine daily check-ins keep deferring their summary email to the cron. Mirrors the
-    // decision spine's immediate drain (apply-decision.ts).
-    if (transition?.changed) await triggerDrain();
+    // A submitted check-in is a direct user action, so EVERYTHING it queued goes out now — the
+    // summary email, a field purchase, a supply-house order, the inspection notices, the
+    // walkthrough ask. Crons only own scheduled sends (the daily link, reminders); the drain
+    // cron remains the retry backstop. Best-effort.
+    await triggerDrain();
 
     return json({
       ok: true,

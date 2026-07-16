@@ -4,6 +4,7 @@
 // bound to the texting crew member; other keywords are still logged as stubs for now.
 import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
 import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 import { parseInboundSms, isQuickLogKeyword, quickLogLinkDedupeKey } from "../_shared/quick-log.ts";
 
 const QUICK_LOG_ACTION = "quick_log";
@@ -74,6 +75,9 @@ async function enqueueReply(sb: any, opts: {
     dedupe_key: opts.dedupeKey,
   });
   if (error && !isDuplicateKeyError(error)) throw error;
+  // A crew's inbound text is a direct action — send the reply now, not on the drain cron's
+  // next tick. Best-effort; the cron remains the retry backstop.
+  await triggerDrain();
 }
 
 async function handleQuickLog(sb: any, parsed: ReturnType<typeof parseInboundSms>) {

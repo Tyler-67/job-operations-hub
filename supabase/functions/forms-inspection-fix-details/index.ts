@@ -28,7 +28,7 @@ async function consumeToken(sb: any, token: string) {
     .eq("action", FIX_DETAILS_ACTION)
     .is("used_at", null)
     .gt("expires_at", now)
-    .select("job_id, contact_id, payload")
+    .select("id, job_id, contact_id, payload")
     .maybeSingle();
   if (error) throw error;
   return data ?? null;
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
         template_key: "inspection_fix_details_notice",
         payload: { address: job.address ?? null, details },
         scheduled_for: new Date().toISOString(),
-        dedupe_key: `notif:fix_details:${jobId}:${today}`,
+        dedupe_key: `notif:fix_details:${jobId}:${claim.id}`,
       });
       if (notifErr && !isDuplicateKeyError(notifErr)) throw notifErr;
       notified = true;

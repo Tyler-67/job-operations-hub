@@ -10,11 +10,8 @@
 // phases are found via the job_states.is_inspection flag (data-driven, no hardcoded ids).
 // Server time is UTC, so the local hour/date come from locations.timezone via Intl.
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
-import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
-import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
-
-const DECISION_PATH = "/action/decision";
+import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
 
 function isDuplicate(error: unknown): boolean {
   return String((error as { message?: unknown })?.message ?? error).toLowerCase().includes("duplicate");
@@ -95,32 +92,14 @@ Deno.serve(async (req) => {
           if (oErr && !isDuplicate(oErr)) throw oErr;
         }
       } else if (inspectionDate === date) {
-        // Branch B: inspection day → ask the owner for the result. One ask per inspection date.
-        const pass = await mintActionToken(sb, { action: "inspection_pass", jobId: job.id, contactId: null, payload: { address: job.address ?? null } });
-        const fail = await mintActionToken(sb, { action: "inspection_fail", jobId: job.id, contactId: null, payload: { address: job.address ?? null } });
-        const { error } = await sb.from("scheduled_notifications").insert({
-          location_id: loc, job_id: job.id, channel: "sms", recipient: ownerContactId,
-          template_key: "inspection_result_ask",
-          payload: {
-            address: job.address ?? null,
-            pass_link: buildActionLink(appBaseUrl, DECISION_PATH, pass.token),
-            fail_link: buildActionLink(appBaseUrl, DECISION_PATH, fail.token),
-          },
-          scheduled_for: new Date().toISOString(),
-          dedupe_key: force ? null : `notif:insp_result:${job.id}:${inspectionDate}`,
+        // Branch B: inspection day → ask the owner for the result (shared with the date-set
+        // immediate send; same per-job+date dedupe, so both paths collapse to one ask).
+        const sent = await queueInspectionResultAsk(sb, {
+          locationId: loc, jobId: job.id, address: job.address ?? null,
+          inspectionDate, ownerContactId, officeContactId, appBaseUrl, force,
         });
-        if (error) { if (isDuplicate(error)) { skipped++; continue; } throw error; }
+        if (!sent) { skipped++; continue; }
         resultAsks++;
-        if (officeContactId) {
-          const { error: oErr } = await sb.from("scheduled_notifications").insert({
-            location_id: loc, job_id: job.id, channel: "sms", recipient: officeContactId,
-            template_key: "inspection_reminder_office_notice",
-            payload: { phase: "result", address: job.address ?? null },
-            scheduled_for: new Date().toISOString(),
-            dedupe_key: force ? null : `notif:insp_result_office:${job.id}:${inspectionDate}`,
-          });
-          if (oErr && !isDuplicate(oErr)) throw oErr;
-        }
       }
     }
   }
