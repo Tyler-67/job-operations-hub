@@ -26,10 +26,15 @@ import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
 import { InlineMultiSelect } from "@/components/InlineMultiSelect";
 import { useConfirm } from "@/components/dialogs";
 import { fetchContacts, deleteContactConversation, sendTest, type ContactRow, type ConversationDeleteResult, type SendTestResult } from "@/lib/contacts";
+import { fetchJobs, deleteJob, type JobSummary, type JobDeleteResult } from "@/lib/jobs";
 
 // Result of clearing ONE selected contact's conversation — the backend targets one contact
 // per call, so a multi-select run produces one of these per contact (with the error, if any).
 type ConvRun = { contactId: string; name: string; result: ConversationDeleteResult | null; error: string | null };
+
+// Result of clearing ONE selected job — the backend deletes one job per call, so a multi-select
+// run produces one of these per job (with the error, if any).
+type JobClearRun = { jobId: string; address: string; result: JobDeleteResult | null; error: string | null };
 
 // The crons the debug kit can fire, in display order. Drain runs last (it's the sender).
 const CRON_TARGETS: { key: CronKey; label: string; note: string }[] = [
@@ -193,6 +198,11 @@ export default function AdminSettings() {
   const [convBusy, setConvBusy] = useState<"preview" | "delete" | null>(null);
   // One entry per selected contact (the backend clears one conversation at a time).
   const [convRuns, setConvRuns] = useState<ConvRun[] | null>(null);
+  const [clearableJobs, setClearableJobs] = useState<JobSummary[]>([]);
+  const [jobClearIds, setJobClearIds] = useState<string[]>([]);
+  const [jobClearBusy, setJobClearBusy] = useState<"preview" | "delete" | null>(null);
+  // One entry per selected job (the backend deletes one job at a time).
+  const [jobClearRuns, setJobClearRuns] = useState<JobClearRun[] | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -215,6 +225,14 @@ export default function AdminSettings() {
     if (!canSyncContacts) return;
     fetchContacts()
       .then((res) => setContacts(res.contacts.filter((c) => c.uptiq_contact_id)))
+      .catch(() => { /* leave the picker empty on failure */ });
+  }, [canSyncContacts]);
+
+  // All jobs (incl. archived) for the Jobs debug tool's picker.
+  useEffect(() => {
+    if (!canSyncContacts) return;
+    fetchJobs(true)
+      .then((res) => setClearableJobs(res.jobs))
       .catch(() => { /* leave the picker empty on failure */ });
   }, [canSyncContacts]);
 
@@ -432,6 +450,66 @@ export default function AdminSettings() {
       setError(err instanceof Error ? err.message : "Conversation delete failed");
     } finally {
       setConvBusy(null);
+    }
+  }
+
+  const jobLabel = (job: JobSummary) =>
+    `${job.address}${job.current_state?.label ? ` · ${job.current_state.label}` : ""}${job.active ? "" : " (archived)"}`;
+  const jobAddress = (id: string) => clearableJobs.find((j) => j.id === id)?.address ?? "(job)";
+
+  // Delete each selected job independently (one backend call per job) so one failure never
+  // blocks the rest — each job's outcome is captured in its own JobClearRun.
+  async function runJobClear(dryRun: boolean): Promise<JobClearRun[]> {
+    return Promise.all(jobClearIds.map(async (id): Promise<JobClearRun> => {
+      const address = jobAddress(id);
+      try {
+        return { jobId: id, address, result: await deleteJob(id, dryRun), error: null };
+      } catch (err) {
+        return { jobId: id, address, result: null, error: err instanceof Error ? err.message : "failed" };
+      }
+    }));
+  }
+
+  async function handleJobClearPreview() {
+    if (!jobClearIds.length) return;
+    setJobClearBusy("preview");
+    setJobClearRuns(null);
+    setError(null);
+    try {
+      setJobClearRuns(await runJobClear(true));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Job preview failed");
+    } finally {
+      setJobClearBusy(null);
+    }
+  }
+
+  async function handleJobClearDelete() {
+    if (!jobClearIds.length) return;
+    const addresses = jobClearIds.map(jobAddress);
+    if (!(await confirm({
+      title: `Delete ${jobClearIds.length} job${jobClearIds.length > 1 ? "s" : ""}?`,
+      body: `Permanently deletes ${addresses.join(", ")} and ALL of their data — daily logs, expenses, purchase orders, and queued notifications. This cannot be undone.`,
+      confirmLabel: "Delete permanently",
+      destructive: true,
+    }))) return;
+    setJobClearBusy("delete");
+    setJobClearRuns(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const runs = await runJobClear(false);
+      setJobClearRuns(runs);
+      const ok = runs.filter((r) => r.result?.deleted);
+      const failed = runs.length - ok.length;
+      setNotice(`Deleted ${ok.length} job${ok.length === 1 ? "" : "s"}${failed ? ` · ${failed} failed` : ""}.`);
+      // Drop the deleted jobs from the picker + selection so the list reflects reality.
+      setJobClearIds([]);
+      fetchJobs(true).then((res) => setClearableJobs(res.jobs)).catch(() => { /* keep the stale list on refresh failure */ });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Job delete failed");
+    } finally {
+      setJobClearBusy(null);
     }
   }
 
@@ -691,6 +769,44 @@ export default function AdminSettings() {
                             <div key={index} className="text-destructive">conversation {r.id.slice(0, 8)}: {r.error}{r.status ? ` (${r.status})` : ""}</div>
                           ))}
                         </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {canSyncContacts && form.debug_mode && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Jobs (debug)</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Permanently delete test jobs and everything under them &mdash; daily logs, expenses, purchase orders, and
+                    queued notifications. Use this to reset test data; it <strong>cannot be undone</strong>. To take a real job
+                    out of the daily loop without deleting it, use <strong>Archive</strong> on the job instead.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <InlineMultiSelect
+                      values={jobClearIds}
+                      onChange={(values) => { setJobClearIds(values); setJobClearRuns(null); }}
+                      disabled={jobClearBusy !== null}
+                      className="h-8 w-72"
+                      placeholder={clearableJobs.length ? "Select jobs…" : "No jobs"}
+                      options={clearableJobs.map((j) => ({ value: j.id, label: jobLabel(j) }))}
+                    />
+                    <CronButton label="Preview" busy={jobClearBusy === "preview"} disabled={!jobClearIds.length || jobClearBusy !== null} onClick={handleJobClearPreview} />
+                    <CronButton label="Delete jobs" busy={jobClearBusy === "delete"} disabled={!jobClearIds.length || jobClearBusy !== null} onClick={handleJobClearDelete} />
+                  </div>
+                  {jobClearRuns && jobClearRuns.map((run) => (
+                    <div key={run.jobId} className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+                      {run.error ? (
+                        <div className="text-destructive"><span className="font-medium">{run.address}</span>: {run.error}</div>
+                      ) : run.result && (
+                        <div className="font-medium text-foreground">
+                          {run.result.dry_run ? "Preview" : "Deleted"}: {run.result.job.address ?? run.address} &mdash;{" "}
+                          {run.result.counts.daily_logs} log(s), {run.result.counts.expenses} expense(s),{" "}
+                          {run.result.counts.purchase_orders} PO(s), {run.result.counts.notifications} notification(s)
+                        </div>
                       )}
                     </div>
                   ))}

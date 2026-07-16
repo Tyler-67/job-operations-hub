@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { markJobPaid } from "../_shared/job-payments.ts";
 import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
@@ -501,6 +501,52 @@ Deno.serve(async (req) => {
             review_request_queued: result.reviewRequestQueued,
           },
         });
+      }
+
+      // DEBUG: hard-delete a job and everything under it. Every job_id child (daily_logs,
+      // job_expenses, purchase_orders, job_crew, job_customers, action_tokens,
+      // scheduled_notifications) is ON DELETE CASCADE, so deleting the job row clears them;
+      // event_log links the job via its JSON payload (no FK), so it's swept explicitly. Only
+      // works while this company's debug_mode is on (defense in depth beyond the debug-gated UI)
+      // — this is a testing reset, not the normal "remove a job" path (that's Archive). dry_run
+      // returns the child counts without deleting so the UI can preview.
+      if (cleanText(body.action) === "delete_job") {
+        const jobId = cleanText(body.id);
+        if (!jobId) return json({ error: "id_required" }, 400);
+        const dryRun = body.dry_run === true;
+
+        const { data: cs } = await sb
+          .from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+
+        const { data: job } = await sb
+          .from("jobs").select("id, address").eq("location_id", locationId).eq("id", jobId).maybeSingle();
+        if (!job) return json({ error: "not_found" }, 404);
+
+        const countOf = async (table: string) => {
+          const { count } = await sb.from(table).select("*", { count: "exact", head: true }).eq("job_id", jobId);
+          return count ?? 0;
+        };
+        const counts = {
+          daily_logs: await countOf("daily_logs"),
+          expenses: await countOf("job_expenses"),
+          purchase_orders: await countOf("purchase_orders"),
+          notifications: await countOf("scheduled_notifications"),
+        };
+
+        if (dryRun) {
+          return json({ ok: true, dry_run: true, job: { id: job.id, address: job.address }, counts });
+        }
+
+        await sb.from("event_log").delete().eq("location_id", locationId).eq("payload->>job_id", jobId);
+        const { error: delErr } = await sb.from("jobs").delete().eq("location_id", locationId).eq("id", jobId);
+        if (delErr) throw delErr;
+
+        await logEvent({
+          source: "admin", kind: "job.debug_delete", location_id: locationId,
+          payload: { job_id: jobId, address: job.address, counts, by: claims.email },
+        });
+        return json({ ok: true, dry_run: false, deleted: true, job: { id: job.id, address: job.address }, counts });
       }
 
       const updated = await updateExistingJob(sb, locationId, body);

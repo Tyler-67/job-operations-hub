@@ -183,6 +183,24 @@ export async function fireJobDecision(id: string, decisionAction: JobDecisionAct
   }) as Promise<FireDecisionResponse>;
 }
 
+export interface JobDeleteResult {
+  ok: boolean;
+  dry_run: boolean;
+  deleted?: boolean;
+  job: { id: string; address: string | null };
+  counts: { daily_logs: number; expenses: number; purchase_orders: number; notifications: number };
+}
+
+// DEBUG: hard-delete a job and everything under it (logs, expenses, POs, notifications, tokens,
+// crew/customer links, and its event-log entries). dryRun previews the child counts without
+// deleting. Only works while the company's debug_mode is on — a testing reset, not Archive.
+export function deleteJob(id: string, dryRun: boolean) {
+  return callEdge("jobs", {
+    body: { action: "delete_job", id, dry_run: dryRun },
+    method: "PATCH",
+  }) as Promise<JobDeleteResult>;
+}
+
 export function canManageJobs(role?: string | null) {
   return role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
