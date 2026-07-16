@@ -178,10 +178,8 @@ export default function AdminSettings() {
   const [cronSelected, setCronSelected] = useState<CronKey[]>(["check-ins", "inspection-reminders", "weekly-report"]);
   const [cronBusy, setCronBusy] = useState(false);
   const [cronResult, setCronResult] = useState<RunCronsResult | null>(null);
-  const [contactsBusy, setContactsBusy] = useState<"preview" | "sync" | null>(null);
-  const [contactsResult, setContactsResult] = useState<ContactsSyncResult | null>(null);
-  const [pullBusy, setPullBusy] = useState<"preview" | "pull" | null>(null);
-  const [pullResult, setPullResult] = useState<ContactsPullResult | null>(null);
+  const [uptiqSyncBusy, setUptiqSyncBusy] = useState<"preview" | "sync" | null>(null);
+  const [uptiqSyncResult, setUptiqSyncResult] = useState<{ pull: ContactsPullResult; link: ContactsSyncResult } | null>(null);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [testContactId, setTestContactId] = useState("");
   const [testChannel, setTestChannel] = useState<"sms" | "email">("sms");
@@ -328,39 +326,29 @@ export default function AdminSettings() {
     }
   }
 
-  async function handleSyncContacts(dryRun: boolean) {
+  // ONE command, two steps in a fixed chain: (1) the tag pull imports/repairs everything Uptiq
+  // says (it is the id authority), then (2) the link pass fills Uptiq ids for whatever app-side
+  // parties remain unlinked (job customers, hand-entered supply houses). Link runs second and
+  // never overwrites, so the chain can't undo step 1.
+  async function handleUptiqSync(dryRun: boolean) {
     if (!dryRun && !(await confirm({
-      title: "Sync contacts from Uptiq now?",
-      body: "Reads Uptiq contacts and stores the matching Uptiq contact id on each app party (customers, crew, supply houses, owner, office). Read-only — it does NOT create or change anything in Uptiq.",
+      title: "Sync contacts with Uptiq now?",
+      body: "Step 1 imports every tagged Uptiq contact by role (repairing stale links; supply houses land in the Supply Houses list too). Step 2 finds any remaining unlinked app parties in Uptiq by name/email/phone and stores their ids. Read-only in Uptiq; additive — never removes anyone.",
       confirmLabel: "Sync",
     }))) return;
-    setContactsBusy(dryRun ? "preview" : "sync");
-    setContactsResult(null);
+    setUptiqSyncBusy(dryRun ? "preview" : "sync");
+    setUptiqSyncResult(null);
     setError(null);
     try {
-      setContactsResult(await syncContacts({ dryRun }));
+      const pull = await pullContacts({ dryRun });
+      const link = await syncContacts({ dryRun });
+      setUptiqSyncResult({ pull, link });
+      // The pull may have imported/repaired contacts — refresh the pickers that feed off them.
+      if (!dryRun) fetchContacts().then((r) => setContacts(r.contacts.filter((c) => c.uptiq_contact_id))).catch(() => { /* stale list is fine */ });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Contacts sync failed");
+      setError(err instanceof Error ? err.message : "Uptiq contact sync failed");
     } finally {
-      setContactsBusy(null);
-    }
-  }
-
-  async function handlePull(dryRun: boolean) {
-    if (!dryRun && !(await confirm({
-      title: "Pull contacts from Uptiq now?",
-      body: "Imports every tagged Uptiq contact into this Contacts list by role (crew/customer/owner/office/supply house), and links supply houses into the Supply Houses list too. Read-only in Uptiq; additive (never removes anyone); untagged/unrecognized contacts are skipped.",
-      confirmLabel: "Import",
-    }))) return;
-    setPullBusy(dryRun ? "preview" : "pull");
-    setPullResult(null);
-    setError(null);
-    try {
-      setPullResult(await pullContacts({ dryRun }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Contact pull failed");
-    } finally {
-      setPullBusy(null);
+      setUptiqSyncBusy(null);
     }
   }
 
@@ -759,36 +747,27 @@ export default function AdminSettings() {
             {hasDebugTool("contacts_sync") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq contacts</div>
-                <div className="space-y-5 px-4 py-4">
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium">Pull contacts from Uptiq <span className="text-muted-foreground">(by tag)</span></p>
-                    <p className="text-xs text-muted-foreground">
-                      Imports every tagged Uptiq contact into <strong>Contacts</strong> by role
-                      (crew / customer / owner / office / supply house), and links supply houses into the
-                      <strong> Supply Houses</strong> list too. <strong>Read-only in Uptiq</strong>, additive; untagged or
-                      unrecognized contacts are skipped. Preview first to confirm the tag&rarr;role mapping.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <CronButton label="Preview (dry run)" busy={pullBusy === "preview"} disabled={pullBusy !== null} onClick={() => handlePull(true)} />
-                      <CronButton label="Import from Uptiq" busy={pullBusy === "pull"} disabled={pullBusy !== null} onClick={() => handlePull(false)} />
-                    </div>
-                    {pullResult && <ContactsPullSummary result={pullResult} />}
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    One sync, two steps. <strong>Step 1 &mdash; tag import:</strong> every tagged Uptiq contact lands in
+                    <strong> Contacts</strong> by role (crew / customer / owner / office / supply house), repairing stale
+                    links; supply houses also join the <strong>Supply Houses</strong> list. <strong>Step 2 &mdash; link
+                    the rest:</strong> any app party still missing a Uptiq id (job customers, hand-entered supply houses,
+                    owner/office) is found in Uptiq by name/email/phone and linked. <strong>Read-only in Uptiq</strong>,
+                    additive; already-linked records are never overwritten.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <CronButton label="Preview (dry run)" busy={uptiqSyncBusy === "preview"} disabled={uptiqSyncBusy !== null} onClick={() => handleUptiqSync(true)} />
+                    <CronButton label="Sync with Uptiq" busy={uptiqSyncBusy === "sync"} disabled={uptiqSyncBusy !== null} onClick={() => handleUptiqSync(false)} />
                   </div>
-
-                  <div className="space-y-3 border-t border-border pt-4">
-                    <p className="text-xs font-medium">Link app parties to Uptiq</p>
-                    <p className="text-xs text-muted-foreground">
-                      Finds each app party (customers, crew, supply houses, owner, office) in Uptiq by email/phone and
-                      stores the matching Uptiq contact id so messaging can reach them. <strong>Read-only</strong> &mdash;
-                      nothing is created or changed in Uptiq. On staging, most parties are test data not in Uptiq, so
-                      expect &ldquo;not in Uptiq&rdquo; for those.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <CronButton label="Preview (dry run)" busy={contactsBusy === "preview"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(true)} />
-                      <CronButton label="Sync from Uptiq" busy={contactsBusy === "sync"} disabled={contactsBusy !== null} onClick={() => handleSyncContacts(false)} />
+                  {uptiqSyncResult && (
+                    <div className="space-y-2">
+                      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Step 1 &mdash; tag import</p>
+                      <ContactsPullSummary result={uptiqSyncResult.pull} />
+                      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Step 2 &mdash; link the rest</p>
+                      <ContactsSyncSummary result={uptiqSyncResult.link} />
                     </div>
-                    {contactsResult && <ContactsSyncSummary result={contactsResult} />}
-                  </div>
+                  )}
                 </div>
               </section>
             )}
