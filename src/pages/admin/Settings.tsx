@@ -23,8 +23,13 @@ import {
 } from "@/lib/settings";
 import { useSession } from "@/lib/session";
 import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
+import { InlineMultiSelect } from "@/components/InlineMultiSelect";
 import { useConfirm } from "@/components/dialogs";
 import { fetchContacts, deleteContactConversation, sendTest, type ContactRow, type ConversationDeleteResult, type SendTestResult } from "@/lib/contacts";
+
+// Result of clearing ONE selected contact's conversation — the backend targets one contact
+// per call, so a multi-select run produces one of these per contact (with the error, if any).
+type ConvRun = { contactId: string; name: string; result: ConversationDeleteResult | null; error: string | null };
 
 // The crons the debug kit can fire, in display order. Drain runs last (it's the sender).
 const CRON_TARGETS: { key: CronKey; label: string; note: string }[] = [
@@ -184,9 +189,10 @@ export default function AdminSettings() {
   const [testMessage, setTestMessage] = useState("");
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<SendTestResult | null>(null);
-  const [convContactId, setConvContactId] = useState("");
+  const [convContactIds, setConvContactIds] = useState<string[]>([]);
   const [convBusy, setConvBusy] = useState<"preview" | "delete" | null>(null);
-  const [convResult, setConvResult] = useState<ConversationDeleteResult | null>(null);
+  // One entry per selected contact (the backend clears one conversation at a time).
+  const [convRuns, setConvRuns] = useState<ConvRun[] | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -372,13 +378,28 @@ export default function AdminSettings() {
     }
   }
 
+  const convContactName = (id: string) => contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
+
+  // Clear each selected contact's conversation independently (one backend call per contact) so
+  // one failure never blocks the rest — each contact's outcome is captured in its own ConvRun.
+  async function runConvClear(dryRun: boolean): Promise<ConvRun[]> {
+    return Promise.all(convContactIds.map(async (id): Promise<ConvRun> => {
+      const name = convContactName(id);
+      try {
+        return { contactId: id, name, result: await deleteContactConversation(id, dryRun), error: null };
+      } catch (err) {
+        return { contactId: id, name, result: null, error: err instanceof Error ? err.message : "failed" };
+      }
+    }));
+  }
+
   async function handleConvPreview() {
-    if (!convContactId) return;
+    if (!convContactIds.length) return;
     setConvBusy("preview");
-    setConvResult(null);
+    setConvRuns(null);
     setError(null);
     try {
-      setConvResult(await deleteContactConversation(convContactId, true));
+      setConvRuns(await runConvClear(true));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Conversation preview failed");
     } finally {
@@ -387,22 +408,26 @@ export default function AdminSettings() {
   }
 
   async function handleConvDelete() {
-    if (!convContactId) return;
-    const contact = contacts.find((c) => c.id === convContactId);
+    if (!convContactIds.length) return;
+    const names = convContactIds.map(convContactName);
     if (!(await confirm({
-      title: `Clear ${contact?.name ?? "this contact"}'s Uptiq conversation?`,
-      body: "Backs up the contact + all messages here, then deletes the conversation thread in Uptiq. The contact is NOT deleted; the next message to them starts a fresh thread.",
+      title: `Clear ${convContactIds.length} Uptiq conversation${convContactIds.length > 1 ? "s" : ""}?`,
+      body: `Backs up each contact + all messages here, then deletes the conversation thread in Uptiq for: ${names.join(", ")}. The contacts are NOT deleted; the next message to each starts a fresh thread.`,
       confirmLabel: "Back up & delete",
       destructive: true,
     }))) return;
     setConvBusy("delete");
-    setConvResult(null);
+    setConvRuns(null);
     setError(null);
     setNotice(null);
     try {
-      const res = await deleteContactConversation(convContactId, false);
-      setConvResult(res);
-      setNotice(`Backed up ${res.total_messages} message(s); deleted ${res.deleted ?? 0}/${res.total_conversations} conversation(s).`);
+      const runs = await runConvClear(false);
+      setConvRuns(runs);
+      const ok = runs.filter((r) => r.result);
+      const totalMessages = ok.reduce((sum, r) => sum + (r.result?.total_messages ?? 0), 0);
+      const totalDeleted = ok.reduce((sum, r) => sum + (r.result?.deleted ?? 0), 0);
+      const failed = runs.length - ok.length;
+      setNotice(`Backed up ${totalMessages} message(s); deleted ${totalDeleted} conversation(s) across ${ok.length} contact(s)${failed ? ` · ${failed} failed` : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Conversation delete failed");
     } finally {
@@ -641,28 +666,34 @@ export default function AdminSettings() {
                     deletes the <strong>conversation</strong> in Uptiq. The <strong>contact is not deleted</strong>.
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <InlineSelect
-                      value={convContactId}
-                      onChange={(value) => { setConvContactId(value); setConvResult(null); }}
+                    <InlineMultiSelect
+                      values={convContactIds}
+                      onChange={(values) => { setConvContactIds(values); setConvRuns(null); }}
                       disabled={convBusy !== null}
                       className="h-8 w-72"
-                      placeholder={contacts.length ? "Select a contact…" : "No Uptiq-linked contacts"}
+                      placeholder={contacts.length ? "Select contacts…" : "No Uptiq-linked contacts"}
                       options={contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}` }))}
                     />
-                    <CronButton label="Preview" busy={convBusy === "preview"} disabled={!convContactId || convBusy !== null} onClick={handleConvPreview} />
-                    <CronButton label="Back up & delete" busy={convBusy === "delete"} disabled={!convContactId || convBusy !== null} onClick={handleConvDelete} />
+                    <CronButton label="Preview" busy={convBusy === "preview"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvPreview} />
+                    <CronButton label="Back up & delete" busy={convBusy === "delete"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvDelete} />
                   </div>
-                  {convResult && (
-                    <div className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
-                      <div className="font-medium text-foreground">
-                        {convResult.dry_run ? "Preview" : "Done"}: {convResult.contact.name ?? "(unnamed)"} &mdash; {convResult.total_conversations} conversation(s), {convResult.total_messages} message(s){convResult.capped && " (backup capped at 2000/conv)"}{!convResult.dry_run && ` · deleted ${convResult.deleted ?? 0}`}
-                      </div>
-                      {convResult.backup_id && <div>Backup id: <span className="font-mono">{convResult.backup_id}</span></div>}
-                      {(convResult.results ?? []).filter((r) => !r.deleted).map((r, index) => (
-                        <div key={index} className="text-destructive">conversation {r.id.slice(0, 8)}: {r.error}{r.status ? ` (${r.status})` : ""}</div>
-                      ))}
+                  {convRuns && convRuns.map((run) => (
+                    <div key={run.contactId} className="space-y-1 rounded-sm border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+                      {run.error ? (
+                        <div className="text-destructive"><span className="font-medium">{run.name}</span>: {run.error}</div>
+                      ) : run.result && (
+                        <>
+                          <div className="font-medium text-foreground">
+                            {run.result.dry_run ? "Preview" : "Done"}: {run.result.contact.name ?? run.name} &mdash; {run.result.total_conversations} conversation(s), {run.result.total_messages} message(s){run.result.capped && " (backup capped at 2000/conv)"}{!run.result.dry_run && ` · deleted ${run.result.deleted ?? 0}`}
+                          </div>
+                          {run.result.backup_id && <div>Backup id: <span className="font-mono">{run.result.backup_id}</span></div>}
+                          {(run.result.results ?? []).filter((r) => !r.deleted).map((r, index) => (
+                            <div key={index} className="text-destructive">conversation {r.id.slice(0, 8)}: {r.error}{r.status ? ` (${r.status})` : ""}</div>
+                          ))}
+                        </>
+                      )}
                     </div>
-                  )}
+                  ))}
                 </div>
               </section>
             )}
