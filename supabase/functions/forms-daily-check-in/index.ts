@@ -348,8 +348,13 @@ Deno.serve(async (req) => {
     // 2. Parts → field-purchase expense or pending-value purchase order.
     const parts = classifyParts(input);
 
-    await sb.from("job_expenses").delete().eq("daily_log_id", dailyLogId).eq("kind", "field_purchase");
     if (parts.expense) {
+      // Replace only when THIS check-in actually reports a field purchase: clear the day's prior
+      // one (so a corrected same-day re-submit can't duplicate it) and insert the new one. A
+      // check-in that reports NO field purchase — e.g. the later "ready for inspection" submit that
+      // advances the state — must leave any existing field purchase untouched; deleting it here was
+      // wiping a previously-logged field purchase the moment the job changed state.
+      await sb.from("job_expenses").delete().eq("daily_log_id", dailyLogId).eq("kind", "field_purchase");
       const { error: expErr } = await sb.from("job_expenses").insert({
         job_id: jobId,
         daily_log_id: dailyLogId,
