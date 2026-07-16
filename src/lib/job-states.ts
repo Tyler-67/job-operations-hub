@@ -34,7 +34,7 @@ export interface SaveTransitionPayload {
 }
 
 export function canManageJobStates(role?: string | null) {
-  return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
 
 export function fetchJobStates(includeInactive = true) {

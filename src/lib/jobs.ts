@@ -202,7 +202,7 @@ export function deleteJob(id: string, dryRun: boolean) {
 }
 
 export function canManageJobs(role?: string | null) {
-  return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
 
 export function currency(value: number | null | undefined) {

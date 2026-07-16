@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "owner_admin" | "office_manager" | "crew" | "viewer" | "support_admin";
-export interface AppUser { id: string; email: string; name?: string | null; role: AppRole; location_id: string; }
+export type AppRole = "dev_super" | "owner_admin" | "office_manager" | "crew" | "viewer" | "support_admin";
+export interface AppUser { id: string; email: string; name?: string | null; role: AppRole; location_id: string; debug_access?: boolean; }
 export interface AppLocation { id: string; company_name: string; timezone?: string }
 
 interface SessionCtx {

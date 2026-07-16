@@ -6,10 +6,11 @@
 // { limit } (cap the number upserted — used to verify the token's Contacts write scope with a
 // single live call before syncing everything). Provider calls go through _shared/uptiq.ts.
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { canUseDebugTools } from "../_shared/debug-access.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 
-const WRITE_ROLES = new Set(["owner_admin", "support_admin"]);
-const READ_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
+const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
+const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 
 function reachable(email: unknown, phone: unknown) {
   return Boolean((typeof email === "string" && email.trim()) || (typeof phone === "string" && phone.trim()));
@@ -183,6 +184,11 @@ Deno.serve(async (req) => {
   // DEBUG: list the location's recent Uptiq conversations (threads), straight from Uptiq. This is
   // how the clear tool reaches threads whose Uptiq contact the app doesn't know about — e.g. a
   // previous owner/office messaging contact after Settings switched to a different one.
+  if (body.mode === "list_conversations" || body.mode === "delete_conversation") {
+    // Conversation tools are DEBUG features: dev_super, support_admin, or a debug-granted Owner.
+    if (!(await canUseDebugTools(sb, claims))) return json({ error: "forbidden" }, 403);
+  }
+
   if (body.mode === "list_conversations") {
     const search = await uptiq.searchConversations({ locationId: uptiqLoc, limit: 100 });
     if (!search.ok) return json({ error: "search_failed", status: search.status, detail: search.data }, 502);

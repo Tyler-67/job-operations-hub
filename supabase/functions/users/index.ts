@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 
-const READ_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
-const WRITE_ROLES = new Set(["owner_admin", "support_admin"]);
-const APP_ROLES = new Set(["owner_admin", "office_manager", "crew", "viewer", "support_admin"]);
+const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
+const APP_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "crew", "viewer", "support_admin"]);
+// Roles that count as "an owner" for the last-owner guard (don't orphan the company).
+const OWNER_ROLES = ["dev_super", "owner_admin"];
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -24,7 +26,11 @@ function canWrite(role: unknown) {
   return WRITE_ROLES.has(String(role ?? ""));
 }
 
+// Role hierarchy: dev_super > support_admin > owner_admin. Only dev_super may create/alter
+// dev_super users (or grant the debugger); support_admin may not touch dev_super rows.
 function canManageRole(actorRole: string, targetRole: string, existingRole?: string | null) {
+  if (actorRole === "dev_super") return true;
+  if (targetRole === "dev_super" || existingRole === "dev_super") return false;
   if (actorRole === "support_admin") return true;
   if (targetRole === "support_admin" || existingRole === "support_admin") return false;
   return actorRole === "owner_admin";
@@ -105,7 +111,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
     .from("app_users")
     .select("id", { count: "exact", head: true })
     .eq("location_id", locationId)
-    .eq("role", "owner_admin")
+    .in("role", OWNER_ROLES)
     .eq("active", true);
   if (exceptId) query = query.neq("id", exceptId);
 
@@ -117,7 +123,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
 async function usersPayload(sb: any, locationId: string, includePassword = false) {
   // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
   // credential managers (WRITE roles); office_manager reads the list without it.
-  const cols = "id, location_id, email, name, phone, role, active, uptiq_contact_id, last_seen_at, created_at, updated_at"
+  const cols = "id, location_id, email, name, phone, role, active, debug_access, uptiq_contact_id, last_seen_at, created_at, updated_at"
     + (includePassword ? ", login_password" : "");
   const { data, error } = await sb
     .from("app_users")
@@ -158,7 +164,7 @@ async function usersPayload(sb: any, locationId: string, includePassword = false
       total_user_count: users.length,
       active_user_count: users.filter((user: any) => user.active).length,
       inactive_user_count: users.filter((user: any) => !user.active).length,
-      owner_admin_count: users.filter((user: any) => user.active && user.role === "owner_admin").length,
+      owner_admin_count: users.filter((user: any) => user.active && OWNER_ROLES.includes(user.role)).length,
       office_manager_count: users.filter((user: any) => user.active && user.role === "office_manager").length,
       role_counts: roleCounts,
     },
@@ -223,10 +229,15 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     if (selfEdit && body.active === false) throw new Error("self_deactivate_locked");
     patch.active = body.active !== false;
   }
+  if ("debug_access" in body) {
+    // The debugger grant: only a dev_super may hand an Owner the debug tools (or revoke them).
+    if (actorRole !== "dev_super") throw new Error("debug_grant_forbidden");
+    patch.debug_access = body.debug_access === true;
+  }
 
   const nextRole = String(patch.role ?? user.role);
   const nextActive = Boolean("active" in patch ? patch.active : user.active);
-  if (user.role === "owner_admin" && user.active && (nextRole !== "owner_admin" || !nextActive)) {
+  if (OWNER_ROLES.includes(user.role) && user.active && (!OWNER_ROLES.includes(nextRole) || !nextActive)) {
     const remainingOwners = await activeOwnerCount(sb, locationId, user.id);
     if (remainingOwners < 1) throw new Error("last_owner_admin");
   }
@@ -361,6 +372,7 @@ Deno.serve(async (req) => {
       "password_required",
       "self_identity_locked",
       "self_deactivate_locked",
+      "debug_grant_forbidden",
     ].includes(message)
       ? 400
       : message === "user_not_found" || message === "email_not_found"

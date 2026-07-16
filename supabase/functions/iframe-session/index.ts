@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
 
   // app_users is the source of truth for who has access — look it up first.
   const { data: existing } = await sb.from("app_users")
-    .select("id, role, active, uptiq_user_id, last_verified_at")
+    .select("id, role, active, debug_access, uptiq_user_id, last_verified_at")
     .eq("location_id", loc.id).eq("email", lowerEmail).maybeSingle();
 
   // Verify against Uptiq as IDENTITY PROVISIONING + a best-effort refresh — NOT a hard per-login gate.
@@ -115,9 +115,9 @@ Deno.serve(async (req) => {
   const effectivePhone = stringOrNull(phone) ?? verifiedUser?.phone ?? null;
   const verifiedNow = verifiedUser ? new Date().toISOString() : null;
 
-  let appUserId: string; let role: string;
+  let appUserId: string; let role: string; let debugAccess = false;
   if (existing) {
-    appUserId = existing.id; role = desiredRole ?? existing.role;
+    appUserId = existing.id; role = desiredRole ?? existing.role; debugAccess = existing.debug_access === true;
     await sb.from("app_users").update({
       // Only refresh Uptiq-sourced fields when we actually verified this login; else keep prior values.
       name: effectiveName ?? undefined, phone: effectivePhone ?? undefined,
@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
 
   return json({
     session,
-    user: { id: appUserId, email: lowerEmail, name: effectiveName, role },
+    user: { id: appUserId, email: lowerEmail, name: effectiveName, role, debug_access: debugAccess },
     location: { id: loc.id, company_name: loc.company_name },
   });
 });

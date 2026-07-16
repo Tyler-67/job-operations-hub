@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { callEdge, useSession } from "@/lib/session";
+import { roleLabel } from "@/lib/users";
 import {
   BarChart3,
   BriefcaseBusiness,
@@ -60,7 +61,7 @@ export default function AppShell() {
     );
   }
 
-  const isAdmin = user?.role === "owner_admin" || user?.role === "office_manager" || user?.role === "support_admin";
+  const isAdmin = user?.role === "dev_super" || user?.role === "owner_admin" || user?.role === "office_manager" || user?.role === "support_admin";
 
   function openPwModal() {
     setPw(""); setPw2(""); setPwMsg(null); setPwOpen(true);
@@ -92,7 +93,7 @@ export default function AppShell() {
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="hidden text-sidebar-foreground/60 md:inline">{user?.email}</span>
-          <span className="pill bg-sidebar-accent text-sidebar-accent-foreground">{user?.role}</span>
+          <span className="pill bg-sidebar-accent text-sidebar-accent-foreground">{roleLabel(user?.role ?? "")}</span>
           <button onClick={openPwModal} className="inline-flex items-center gap-1 text-sidebar-foreground/70 hover:text-sidebar-foreground">
             <KeyRound className="h-3 w-3" /> Change password
           </button>

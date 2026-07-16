@@ -100,10 +100,10 @@ export function sendTest(params: { uptiqContactId: string; channel: "sms" | "ema
 }
 
 export function canViewContacts(role?: string | null) {
-  return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
 
 // Delete/deactivate contacts (writes app records) — same gate as the crew pull / contacts-sync POST.
 export function canManageContacts(role?: string | null) {
-  return role === "owner_admin" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "support_admin";
 }

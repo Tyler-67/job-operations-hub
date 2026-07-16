@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { canUseDebugTools } from "../_shared/debug-access.ts";
 
-const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
+const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
 
 function cleanText(value: unknown) {
@@ -421,6 +422,9 @@ Deno.serve(async (req) => {
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
       const action = String(body.action ?? "").trim();
+      // The POST actions are all DEBUG tools (testing cron runner, data reset): dev_super,
+      // support_admin, or an Owner a dev_super granted debug access.
+      if (!(await canUseDebugTools(sb, claims))) return json({ error: "forbidden" }, 403);
       if (action === "run_cron") {
         const fn = CRON_FUNCTIONS[String(body.cron ?? "").trim()];
         if (!fn) return json({ error: "invalid_cron" }, 400);
@@ -431,9 +435,8 @@ Deno.serve(async (req) => {
         return json(await fireCrons(keys));
       }
       if (action === "clear_data") {
-        // Debug reset — owner_admin/support_admin only (matches the other debug tools), and only
-        // while debug_mode is on (defense in depth beyond the debug-gated UI).
-        if (!["owner_admin", "support_admin"].includes(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+        // Debug reset — capability already checked above; still only while debug_mode is on
+        // (defense in depth beyond the debug-gated UI).
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
         if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);

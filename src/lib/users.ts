@@ -2,7 +2,8 @@ import { callEdge } from "@/lib/session";
 import type { Database } from "@/integrations/supabase/types";
 
 export type AppUserRow = Database["public"]["Tables"]["app_users"]["Row"];
-export type AppRole = Database["public"]["Enums"]["app_role"];
+// NOTE: generated types.ts is stale (no dev_super yet) — declare the enum locally.
+export type AppRole = "dev_super" | "owner_admin" | "office_manager" | "crew" | "viewer" | "support_admin";
 
 export interface UserEmail {
   id: string;
@@ -12,7 +13,7 @@ export interface UserEmail {
 // app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
 // uptiq_contact_id is declared here too because the generated types.ts is stale (column added
 // in migration 20260714120000).
-export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[]; uptiq_contact_id?: string | null };
+export type AppUserWithEmails = Omit<AppUserRow, "role"> & { role: AppRole; emails?: UserEmail[]; uptiq_contact_id?: string | null; debug_access?: boolean };
 
 export interface UsersResponse {
   users: AppUserWithEmails[];
@@ -35,6 +36,8 @@ export interface SaveUserPayload {
   role: AppRole;
   active: boolean;
   password?: string | null;
+  // Debugger grant — only sent (and only accepted server-side) when the actor is dev_super.
+  debug_access?: boolean;
 }
 
 // Generate a readable, reasonably strong temporary password for admin-issued credentials.
@@ -45,22 +48,34 @@ export function generatePassword() {
   return `Burn-${hex}!`;
 }
 
-export const APP_ROLES: AppRole[] = ["owner_admin", "office_manager", "crew", "viewer", "support_admin"];
+export const APP_ROLES: AppRole[] = ["dev_super", "owner_admin", "office_manager", "crew", "viewer", "support_admin"];
+
+// Display names: owner_admin reads as plain "owner"; dev_super is the dev-side super user.
+const ROLE_LABELS: Record<string, string> = {
+  owner_admin: "owner",
+  dev_super: "dev super user",
+};
 
 export function roleLabel(role: string) {
-  return role.replace(/_/g, " ");
+  return ROLE_LABELS[role] ?? role.replace(/_/g, " ");
 }
 
 export function canViewUsers(role?: string | null) {
-  return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
 
 export function canManageUsers(role?: string | null) {
-  return role === "owner_admin" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "support_admin";
 }
 
+// Role hierarchy: dev_super > support_admin > owner_admin. You can only assign roles at or
+// below your own tier (mirrors the server's canManageRole).
 export function assignableRoles(actorRole?: string | null) {
-  return APP_ROLES.filter((role) => actorRole === "support_admin" || role !== "support_admin");
+  return APP_ROLES.filter((role) => {
+    if (role === "dev_super") return actorRole === "dev_super";
+    if (role === "support_admin") return actorRole === "dev_super" || actorRole === "support_admin";
+    return true;
+  });
 }
 
 export function fetchUsers() {

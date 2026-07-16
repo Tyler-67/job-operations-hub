@@ -22,7 +22,7 @@ export interface SaveSupplyHousePayload {
 }
 
 export function canManageSupplyHouses(role?: string | null) {
-  return role === "owner_admin" || role === "office_manager" || role === "support_admin";
+  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
 
 export function fetchSupplyHouses() {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Edit2, KeyRound, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
 import {
+  APP_ROLES,
   addUserEmail,
   assignableRoles,
   canManageUsers,
@@ -30,6 +31,7 @@ interface UserForm {
   role: AppRole;
   active: boolean;
   password: string; // initial password for a NEW user (empty for edits — use the reset control)
+  debug_access: boolean; // debugger grant — editable by dev_super only
 }
 
 function blankUserForm(role: AppRole = "viewer"): UserForm {
@@ -41,6 +43,7 @@ function blankUserForm(role: AppRole = "viewer"): UserForm {
     role,
     active: true,
     password: "",
+    debug_access: false,
   };
 }
 
@@ -54,10 +57,12 @@ function userToForm(user: AppUserWithEmails): UserForm {
     role: user.role,
     active: user.active,
     password: "",
+    debug_access: user.debug_access === true,
   };
 }
 
 function roleTone(role: string) {
+  if (role === "dev_super") return "bg-primary/10 text-primary";
   if (role === "owner_admin") return "bg-success/10 text-success";
   if (role === "office_manager") return "bg-info/10 text-info";
   if (role === "support_admin") return "bg-warning/20 text-warning";
@@ -135,8 +140,11 @@ export default function AdminUsers() {
   const editingRow = useMemo(() => usersList.find((row) => row.id === form.id), [usersList, form.id]);
   const aliasEmails = useMemo(() => editingRow?.emails ?? [], [editingRow]);
   const editingSelf = form.id === user?.id;
-  const supportLocked = form.role === "support_admin" && user?.role !== "support_admin";
-  const saveDisabled = !canManage || saving || !form.email.trim() || supportLocked;
+  // A form locked to a tier above the actor: owner can't touch support_admin/dev_super rows;
+  // support_admin can't touch dev_super rows (mirrors the server's canManageRole).
+  const tierLocked = (form.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
+    || (form.role === "dev_super" && user?.role !== "dev_super");
+  const saveDisabled = !canManage || saving || !form.email.trim() || tierLocked;
 
   function resetForm() {
     setForm(blankUserForm(roleOptions.includes("viewer") ? "viewer" : roleOptions[0] ?? "viewer"));
@@ -160,6 +168,7 @@ export default function AdminUsers() {
         role: form.role,
         active: form.active,
         password: form.password.trim() || null, // applied on create; edits use the reset control
+        ...(user?.role === "dev_super" ? { debug_access: form.debug_access } : {}),
       };
       const next = editing ? await updateUser(payload) : await createUser(payload);
       setData(next);
@@ -268,8 +277,7 @@ export default function AdminUsers() {
           className="h-8 w-40"
           options={[
             { value: "all", label: "All roles" },
-            ...roleOptions.map((role) => ({ value: role, label: roleLabel(role) })),
-            ...(user?.role !== "support_admin" ? [{ value: "support_admin", label: "support admin" }] : []),
+            ...APP_ROLES.map((role) => ({ value: role, label: roleLabel(role) })),
           ]}
         />
         <InlineSelect
@@ -294,7 +302,7 @@ export default function AdminUsers() {
         <Metric icon={Users} label="Total users" value={data?.metrics.total_user_count ?? 0} />
         <Metric icon={UserCheck} label="Active users" value={data?.metrics.active_user_count ?? 0} tone="success" />
         <Metric icon={UserX} label="Inactive users" value={data?.metrics.inactive_user_count ?? 0} tone={(data?.metrics.inactive_user_count ?? 0) ? "warning" : "default"} />
-        <Metric icon={ShieldCheck} label="Owner admins" value={data?.metrics.owner_admin_count ?? 0} />
+        <Metric icon={ShieldCheck} label="Owners" value={data?.metrics.owner_admin_count ?? 0} />
         <Metric icon={Users} label="Office managers" value={data?.metrics.office_manager_count ?? 0} />
       </div>
 
@@ -324,7 +332,8 @@ export default function AdminUsers() {
                 )}
                 {filtered.map((row) => {
                   const rowSelf = row.id === user?.id;
-                  const rowSupportLocked = row.role === "support_admin" && user?.role !== "support_admin";
+                  const rowSupportLocked = (row.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
+                    || (row.role === "dev_super" && user?.role !== "dev_super");
                   return (
                     <tr key={row.id} className={`ops-row ${row.active ? "" : "opacity-60"}`}>
                       <td className="px-3 py-2">
@@ -333,6 +342,9 @@ export default function AdminUsers() {
                       </td>
                       <td className="px-3 py-2">
                         <span className={`pill ${roleTone(row.role)}`}>{roleLabel(row.role)}</span>
+                        {row.debug_access === true && row.role !== "dev_super" && (
+                          <span className="pill ml-1 bg-warning/20 text-warning" title="Debug tools granted">debugger</span>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`pill ${row.active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
@@ -399,11 +411,11 @@ export default function AdminUsers() {
                   <InlineSelect
                     value={form.role}
                     onChange={(value) => updateForm({ role: value as AppRole })}
-                    disabled={!canManage || saving || supportLocked}
+                    disabled={!canManage || saving || tierLocked}
                     className="w-full"
                     options={[
                       ...roleOptions.map((role) => ({ value: role, label: roleLabel(role) })),
-                      ...(supportLocked ? [{ value: "support_admin", label: "support admin" }] : []),
+                      ...(tierLocked ? [{ value: form.role, label: roleLabel(form.role) }] : []),
                     ]}
                   />
                 </label>
@@ -412,7 +424,7 @@ export default function AdminUsers() {
                   <InlineSelect
                     value={form.active ? "active" : "inactive"}
                     onChange={(value) => updateForm({ active: value === "active" })}
-                    disabled={!canManage || saving || editingSelf || supportLocked}
+                    disabled={!canManage || saving || editingSelf || tierLocked}
                     className="w-full"
                     options={[
                       { value: "active", label: "Active" },
@@ -421,6 +433,22 @@ export default function AdminUsers() {
                   />
                 </label>
               </div>
+
+              {user?.role === "dev_super" && form.role !== "dev_super" && (
+                <label className="block text-xs">
+                  <span className="mb-1 block text-muted-foreground">Debug tools (dev-super grant)</span>
+                  <InlineSelect
+                    value={form.debug_access ? "granted" : "off"}
+                    onChange={(value) => updateForm({ debug_access: value === "granted" })}
+                    disabled={saving || tierLocked}
+                    className="w-full"
+                    options={[
+                      { value: "off", label: "Off (normal role)" },
+                      { value: "granted", label: "Granted — sees the debug panels" },
+                    ]}
+                  />
+                </label>
+              )}
 
               {canManage && (
                 <div className="space-y-2 border-t border-border pt-4">

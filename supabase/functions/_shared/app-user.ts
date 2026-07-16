@@ -30,6 +30,7 @@ export interface ResolvedAppUser {
   name: string | null;
   role: string;
   active: boolean;
+  debug_access: boolean;
   location: { id: string; company_name: string | null };
 }
 
@@ -64,7 +65,7 @@ export async function resolveAppUser(sb: any, rawEmail: unknown): Promise<Resolv
   if (!appUserId) return null;
 
   const { data: user, error: userErr } = await sb
-    .from("app_users").select("id, location_id, email, name, role, active")
+    .from("app_users").select("id, location_id, email, name, role, active, debug_access")
     .eq("id", appUserId).maybeSingle();
   if (userErr) throw userErr;
   if (!user) return null;
@@ -81,6 +82,7 @@ export async function resolveAppUser(sb: any, rawEmail: unknown): Promise<Resolv
     name: user.name ?? null,
     role: user.role,
     active: user.active,
+    debug_access: user.debug_access === true,
     location: {
       id: location?.id ?? user.location_id,
       company_name: location?.company_name ?? null,

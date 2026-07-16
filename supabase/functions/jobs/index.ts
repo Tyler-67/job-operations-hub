@@ -9,10 +9,9 @@ import { syncInspectionAppointment, cancelInspectionAppointment, type Inspection
 import { queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
+import { canUseDebugTools } from "../_shared/debug-access.ts";
 
-const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
-// Hard-delete (debug) is scoped like the other debug tools — no office_manager.
-const DEBUG_DELETE_ROLES = new Set(["owner_admin", "support_admin"]);
+const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -544,9 +543,8 @@ Deno.serve(async (req) => {
       // — this is a testing reset, not the normal "remove a job" path (that's Archive). dry_run
       // returns the child counts without deleting so the UI can preview.
       if (cleanText(body.action) === "delete_job") {
-        // Tighter than canWrite: hard-deleting is a debug/reset tool, so it matches the other
-        // debug tools' gate (owner_admin/support_admin) — office_manager keeps Archive only.
-        if (!DEBUG_DELETE_ROLES.has(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+        // Debug/reset tool: dev_super, support_admin, or an Owner granted debug access.
+        if (!(await canUseDebugTools(sb, claims))) return json({ error: "forbidden" }, 403);
         const jobId = cleanText(body.id);
         if (!jobId) return json({ error: "id_required" }, 400);
         const dryRun = body.dry_run === true;

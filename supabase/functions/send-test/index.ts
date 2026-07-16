@@ -2,10 +2,9 @@
 // Admin test-send: fire ONE SMS or email to a Uptiq contact id immediately (bypassing the
 // scheduled_notifications queue) and return the RAW provider response. For walkthrough demos
 // and for diagnosing whether sends actually reach Uptiq. Admin-gated.
-import { json, preflight, verifySession, logEvent } from "../_shared/util.ts";
+import { json, preflight, verifySession, logEvent, serviceClient } from "../_shared/util.ts";
 import { uptiq } from "../_shared/uptiq.ts";
-
-const WRITE_ROLES = new Set(["owner_admin", "support_admin"]);
+import { canUseDebugTools } from "../_shared/debug-access.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -14,7 +13,8 @@ Deno.serve(async (req) => {
 
   const claims = await verifySession(req.headers.get("x-app-session"));
   if (!claims) return json({ error: "unauthorized" }, 401);
-  if (!WRITE_ROLES.has(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+  // Test sends are a DEBUG tool: dev_super, support_admin, or a debug-granted Owner.
+  if (!(await canUseDebugTools(serviceClient(), claims))) return json({ error: "forbidden" }, 403);
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const contactId = typeof body.contact_id === "string" ? body.contact_id.trim() : "";

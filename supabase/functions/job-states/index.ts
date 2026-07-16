@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
 
-const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
+const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";

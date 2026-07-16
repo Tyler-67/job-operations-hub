@@ -161,8 +161,10 @@ function Metric({ icon: Icon, label, value, tone = "default" }: {
 export default function AdminSettings() {
   const { user } = useSession();
   const canManage = canManageSettings(user?.role);
-  // contacts-sync is gated to owner_admin/support_admin (narrower than settings' canManage).
-  const canSyncContacts = user?.role === "owner_admin" || user?.role === "support_admin";
+  // The DEBUG capability (testing panels, clears, syncs): dev_super and support_admin always;
+  // a plain Owner only when a dev_super granted debug_access. Server-side gates re-check fresh.
+  const canDebug = user?.role === "dev_super" || user?.role === "support_admin"
+    || (user?.role === "owner_admin" && user?.debug_access === true);
   const confirm = useConfirm();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
@@ -226,11 +228,11 @@ export default function AdminSettings() {
 
   // All jobs (incl. archived) for the Jobs debug tool's picker.
   useEffect(() => {
-    if (!canSyncContacts) return;
+    if (!canDebug) return;
     fetchJobs(true)
       .then((res) => setClearableJobs(res.jobs))
       .catch(() => { /* leave the picker empty on failure */ });
-  }, [canSyncContacts]);
+  }, [canDebug]);
 
   const supplyHouses = useMemo(() => data?.supply_houses ?? [], [data?.supply_houses]);
   const weekdayLabel = WEEKDAYS.filter((day) => form.check_in_weekdays.includes(day.value)).map((day) => day.label).join(", ");
@@ -703,7 +705,7 @@ export default function AdminSettings() {
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
 
-            {canManage && (
+            {canDebug && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Debug</div>
                 <div className="px-4 py-4">
@@ -719,7 +721,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canManage && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Run crons</div>
                 <div className="space-y-3 px-4 py-4">
@@ -750,7 +752,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canSyncContacts && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq contacts</div>
                 <div className="space-y-5 px-4 py-4">
@@ -787,7 +789,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canSyncContacts && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Send a test message</div>
                 <div className="space-y-3 px-4 py-4">
@@ -830,7 +832,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canSyncContacts && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Conversations (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -877,7 +879,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canSyncContacts && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Jobs (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -915,7 +917,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canSyncContacts && form.debug_mode && (
+            {canDebug && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Data reset (debug)</div>
                 <div className="space-y-3 px-4 py-4">
