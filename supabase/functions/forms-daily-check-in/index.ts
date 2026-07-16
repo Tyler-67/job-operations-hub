@@ -442,6 +442,13 @@ Deno.serve(async (req) => {
         dedupeKey: `check_in_inspection:${jobId}:${input.logDate}`,
       });
       if (transition.changed) {
+        // A new inspection cycle begins here — void any inspection_date left over from a prior
+        // cycle (a previous phase's pass/fail, or a failed inspection on this phase). Otherwise
+        // the job re-enters an inspection state still carrying that stale (non-today) date, and
+        // cron-inspection-reminders sends NOTHING: the date-ask only fires when the date is null
+        // and the pass/fail ask only when it equals today. Clearing it makes the reminder cron
+        // ask the owner for a fresh date, which then drives the pass/fail ask on that day.
+        await sb.from("jobs").update({ inspection_date: null }).eq("id", jobId);
         await queueInspectionRequestedNotice(sb, {
           locationId: job.location_id,
           jobId,
