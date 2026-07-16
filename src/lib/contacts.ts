@@ -38,7 +38,7 @@ export function setContactActive(id: string, active: boolean) {
 export interface ConversationDeleteResult {
   mode: string;
   dry_run: boolean;
-  contact: { id: string; name: string | null; uptiq_contact_id: string | null };
+  contact: { id: string | null; name: string | null; uptiq_contact_id: string | null };
   conversations?: Array<{ id: string; message_count: number }>;
   results?: Array<{ id: string; deleted: boolean; status?: number; error?: string }>;
   total_conversations: number;
@@ -48,11 +48,20 @@ export interface ConversationDeleteResult {
   capped?: boolean;
 }
 
-// DEBUG: back up + delete a contact's Uptiq conversation (thread only, not the contact).
+// The company messaging contacts (Settings owner/office ids) — where the app actually SENDS the
+// owner/office texts. Selectable in the clear tool because they often have no app-contact row
+// (or an app contact maps to a different Uptiq id entirely).
+export const CONVERSATION_TARGETS = ["owner", "office"] as const;
+
+// DEBUG: back up + delete an Uptiq conversation (thread only, never the contact). Selector is an
+// app contact id, or "owner"/"office" for the company messaging contact from Settings.
 // dryRun=true previews (search + message counts) without backing up or deleting.
 // owner_admin / support_admin (contacts-sync POST gate).
-export function deleteContactConversation(contactId: string, dryRun: boolean) {
-  return callEdge("contacts-sync", { body: { mode: "delete_conversation", contact_id: contactId, dry_run: dryRun } }) as unknown as Promise<ConversationDeleteResult>;
+export function deleteContactConversation(selector: string, dryRun: boolean) {
+  const body = (CONVERSATION_TARGETS as readonly string[]).includes(selector)
+    ? { mode: "delete_conversation", target: selector, dry_run: dryRun }
+    : { mode: "delete_conversation", contact_id: selector, dry_run: dryRun };
+  return callEdge("contacts-sync", { body }) as unknown as Promise<ConversationDeleteResult>;
 }
 
 export interface SendTestResult {

@@ -176,16 +176,39 @@ Deno.serve(async (req) => {
   // DEBUG: back up a contact's Uptiq conversation (contact snapshot + messages) then delete the
   // conversation THREAD in Uptiq — the contact is never deleted. dry_run previews (search + counts)
   // without backing up or deleting. Clears a chat so the next message starts a fresh thread.
+  // Targets either an app contact (contact_id) or — target: "owner"/"office" — the COMPANY
+  // messaging contact from Settings. The company ids are where the app actually sends the
+  // owner/office texts and often have NO app-contact row (or app contacts map to a different
+  // Uptiq id entirely), so without the target option those threads were uncleatable.
   if (body.mode === "delete_conversation") {
+    const target = body.target === "owner" || body.target === "office" ? body.target as string : null;
     const contactId = typeof body.contact_id === "string" ? body.contact_id : "";
-    if (!contactId) return json({ error: "contact_id_required" }, 400);
-    const { data: contact, error: cErr } = await sb
-      .from("contacts").select("id, name, role, email, phone, uptiq_contact_id, active, created_at")
-      .eq("id", contactId).eq("location_id", locId).maybeSingle();
-    if (cErr) return json({ error: cErr.message }, 500);
-    if (!contact) return json({ error: "not_found" }, 404);
-    const uptiqContactId = contact.uptiq_contact_id ? String(contact.uptiq_contact_id) : "";
-    if (!uptiqContactId) return json({ error: "contact_not_linked", message: "This contact has no Uptiq contact id, so it has no Uptiq conversation to clear." }, 400);
+    if (!target && !contactId) return json({ error: "contact_id_required" }, 400);
+
+    let contact: Record<string, unknown> | null = null;
+    let uptiqContactId = "";
+    if (target) {
+      const { data: cs, error: sErr } = await sb
+        .from("company_settings").select("owner_contact_id, office_contact_id")
+        .eq("location_id", locId).maybeSingle();
+      if (sErr) return json({ error: sErr.message }, 500);
+      uptiqContactId = String((target === "owner" ? cs?.owner_contact_id : cs?.office_contact_id) ?? "").trim();
+      if (!uptiqContactId) {
+        return json({ error: "contact_not_linked", message: `No ${target} messaging contact is configured in Settings.` }, 400);
+      }
+    } else {
+      const { data: row, error: cErr } = await sb
+        .from("contacts").select("id, name, role, email, phone, uptiq_contact_id, active, created_at")
+        .eq("id", contactId).eq("location_id", locId).maybeSingle();
+      if (cErr) return json({ error: cErr.message }, 500);
+      if (!row) return json({ error: "not_found" }, 404);
+      contact = row;
+      uptiqContactId = row.uptiq_contact_id ? String(row.uptiq_contact_id) : "";
+      if (!uptiqContactId) return json({ error: "contact_not_linked", message: "This contact has no Uptiq contact id, so it has no Uptiq conversation to clear." }, 400);
+    }
+    const displayName = contact
+      ? (contact.name as string | null)
+      : target === "owner" ? "Company owner contact" : "Company office contact";
 
     const search = await uptiq.searchConversations({ locationId: uptiqLoc, contactId: uptiqContactId });
     if (!search.ok) return json({ error: "search_failed", status: search.status, detail: search.data }, 502);
@@ -217,7 +240,7 @@ Deno.serve(async (req) => {
     }
     const totalMessages = convDetails.reduce((n, c) => n + c.message_count, 0);
     const anyCapped = convDetails.some((c) => c.capped);
-    const contactOut = { id: contact.id, name: contact.name, uptiq_contact_id: uptiqContactId };
+    const contactOut = { id: (contact?.id as string | null) ?? null, name: displayName, uptiq_contact_id: uptiqContactId };
 
     if (body.dry_run === true) {
       return json({
@@ -236,10 +259,10 @@ Deno.serve(async (req) => {
     // Back up BEFORE deleting so nothing is lost even if a delete fails (e.g. missing scope).
     const { data: backup, error: bErr } = await sb.from("conversation_backups").insert({
       location_id: locId,
-      contact_id: contact.id,
+      contact_id: (contact?.id as string | null) ?? null,
       uptiq_contact_id: uptiqContactId,
       uptiq_conversation_id: convIds.join(",") || null,
-      contact_snapshot: contact,
+      contact_snapshot: contact ?? { target, name: displayName, uptiq_contact_id: uptiqContactId },
       messages_snapshot: convDetails,
       message_count: totalMessages,
       created_by: claims.email ?? null,
@@ -253,11 +276,11 @@ Deno.serve(async (req) => {
       if (del.ok) { deleted++; results.push({ id, deleted: true }); }
       else { results.push({ id, deleted: false, status: del.status, error: del.error ?? "delete_failed" }); }
     }
-    const allOk = convIds.length > 0 && deleted === convIds.length;
+    const allOk = deleted === convIds.length; // vacuously true when there was nothing to delete
     if (backup?.id) await sb.from("conversation_backups").update({ deleted_ok: allOk }).eq("id", backup.id);
     await logEvent({
       source: "admin", kind: "conversation_delete", location_id: locId,
-      payload: { contact_id: contact.id, uptiq_contact_id: uptiqContactId, conversations: convIds.length, deleted, backup_id: backup?.id, by: claims.email },
+      payload: { contact_id: (contact?.id as string | null) ?? target, uptiq_contact_id: uptiqContactId, conversations: convIds.length, deleted, backup_id: backup?.id, by: claims.email },
     });
     return json({
       mode: "delete_conversation", dry_run: false, contact: contactOut, backup_id: backup?.id,

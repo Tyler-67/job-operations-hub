@@ -396,7 +396,22 @@ export default function AdminSettings() {
     }
   }
 
-  const convContactName = (id: string) => contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
+  // The company owner/office messaging contacts (Settings ids) receive the app's owner/office
+  // texts and usually have no app-contact row — offer them in the picker explicitly. Contact
+  // labels carry the Uptiq id tail so two app contacts sharing one Uptiq thread is visible.
+  const convOptions = useMemo(() => {
+    const idTail = (raw: string | null) => (raw ? ` · …${raw.slice(-4)}` : "");
+    return [
+      { value: "owner", label: `Company owner contact (gets owner texts)${idTail(form.owner_contact_id || null)}` },
+      { value: "office", label: `Company office contact (gets office texts)${idTail(form.office_contact_id || null)}` },
+      ...contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}${idTail(c.uptiq_contact_id)}` })),
+    ];
+  }, [contacts, form.owner_contact_id, form.office_contact_id]);
+
+  const convContactName = (id: string) =>
+    id === "owner" ? "Company owner contact"
+      : id === "office" ? "Company office contact"
+        : contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
 
   // Clear each selected contact's conversation independently (one backend call per contact) so
   // one failure never blocks the rest — each contact's outcome is captured in its own ConvRun.
@@ -749,8 +764,8 @@ export default function AdminSettings() {
                       onChange={(values) => { setConvContactIds(values); setConvRuns(null); }}
                       disabled={convBusy !== null}
                       className="h-8 w-72"
-                      placeholder={contacts.length ? "Select contacts…" : "No Uptiq-linked contacts"}
-                      options={contacts.map((c) => ({ value: c.id, label: `${c.name ?? "(unnamed)"} · ${c.role ?? "?"}` }))}
+                      placeholder="Select contacts…"
+                      options={convOptions}
                     />
                     <CronButton label="Preview" busy={convBusy === "preview"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvPreview} />
                     <CronButton label="Back up & delete" busy={convBusy === "delete"} disabled={!convContactIds.length || convBusy !== null} onClick={handleConvDelete} />
