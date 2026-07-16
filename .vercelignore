@@ -1,0 +1,15 @@
+# For vercel CLI uploads (a .vercelignore REPLACES .gitignore semantics there):
+# exclude everything a frontend build doesn't need — internal docs, backend
+# sources, env files. Git-hook builds are unaffected by this file.
+node_modules
+dist
+.git
+.vercel
+.env
+.env.*
+CLAUDE.md
+docs/
+supabase/
+scripts/
+bun.lockb
+.lovable
