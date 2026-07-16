@@ -407,9 +407,21 @@ Deno.serve(async (req) => {
       const { data: existingRows, error: exErr } = await sb
         .from("contacts").select("id").eq("location_id", locId).eq("role", role).eq("uptiq_contact_id", c.id).limit(1);
       if (exErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: exErr.message }); continue; }
-      const existing = existingRows?.[0] ?? null;
-      // Update only overwrites email/phone when Uptiq has a value (don't null out data we hold).
+      let existing = existingRows?.[0] ?? null;
+      // REPAIR path: no id match, but a same-named row of this role exists → its stored id is
+      // stale/wrong (e.g. a loose email/phone link once stamped another contact's id on it).
+      // The tag pull is the identity authority from Uptiq, so re-point the row at the real id.
       const patch: Record<string, unknown> = { role, active: true };
+      if (!existing && c.name) {
+        const { data: byName, error: nameErr } = await sb
+          .from("contacts").select("id").eq("location_id", locId).eq("role", role).ilike("name", c.name).limit(1);
+        if (nameErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: nameErr.message }); continue; }
+        if (byName?.[0]) {
+          existing = byName[0];
+          patch.uptiq_contact_id = c.id;
+        }
+      }
+      // Update only overwrites email/phone when Uptiq has a value (don't null out data we hold).
       if (c.name) patch.name = c.name;
       if (c.email) patch.email = c.email;
       if (c.phone) patch.phone = c.phone;
@@ -515,7 +527,16 @@ Deno.serve(async (req) => {
   let linked = 0, notFound = 0, created = 0, updated = 0, failed = 0;
   for (const t of planned) {
     if (mode === "link") {
-      // READ ONLY: find an existing Uptiq contact by email (preferred) or phone and attach its id.
+      // Already linked → leave it alone. Personas/test setups often share an email or phone, so
+      // a loose re-match here once stamped ONE Uptiq contact's id across several parties (owner,
+      // office, and a crew member all became "tyler testesto"). The tag pull is the authority
+      // for id repairs; link only fills in the blanks.
+      if (t.existingId) {
+        results.push({ key: t.key, ok: true, contact_id: t.existingId, action: "already_linked" });
+        continue;
+      }
+      // READ ONLY: find an existing Uptiq contact and attach its id. Prefer an exact NAME match
+      // (distinguishes persona contacts sharing an email/phone), then exact email, then first hit.
       const query = (t.email || t.phone || "").trim();
       if (!query) { failed++; results.push({ key: t.key, ok: false, error: "no_query" }); continue; }
       const res = await uptiq.findContacts({ locationId: uptiqLoc, query });
@@ -525,7 +546,11 @@ Deno.serve(async (req) => {
         continue;
       }
       const found = ((res.data as any)?.contacts ?? []) as any[];
-      const match = found.find((c) => t.email && String(c.email ?? "").toLowerCase() === String(t.email).toLowerCase()) ?? found[0] ?? null;
+      const nameOf = (c: any) => String(c?.contactName ?? c?.fullName ?? c?.name ?? "").trim().toLowerCase();
+      const wanted = String(t.name ?? "").trim().toLowerCase();
+      const match = (wanted ? found.find((c) => nameOf(c) === wanted) : null)
+        ?? found.find((c) => t.email && String(c.email ?? "").toLowerCase() === String(t.email).toLowerCase())
+        ?? found[0] ?? null;
       if (match?.id) {
         await t.save(sb, String(match.id));
         linked++;
