@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
 
   return json({
     session,
-    user: { id: resolved.id, email: resolved.email, name: resolved.name, role: resolved.role, debug_access: resolved.debug_access },
+    user: { id: resolved.id, email: resolved.email, name: resolved.name, role: resolved.role, debug_tools: resolved.debug_tools },
     location: { id: resolved.location.id, company_name: resolved.location.company_name },
   });
 });

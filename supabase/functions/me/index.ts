@@ -7,7 +7,7 @@ Deno.serve(async (req) => {
   if (!claims) return json({ error: "unauthorized" }, 401);
 
   const sb = serviceClient();
-  const { data: user } = await sb.from("app_users").select("id, email, name, role, location_id, active")
+  const { data: user } = await sb.from("app_users").select("id, email, name, role, location_id, active, debug_tools")
     .eq("id", claims.sub as string).maybeSingle();
   if (!user || !user.active) return json({ error: "inactive" }, 403);
 

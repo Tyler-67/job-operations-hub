@@ -13,7 +13,7 @@ export interface UserEmail {
 // app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
 // uptiq_contact_id is declared here too because the generated types.ts is stale (column added
 // in migration 20260714120000).
-export type AppUserWithEmails = Omit<AppUserRow, "role"> & { role: AppRole; emails?: UserEmail[]; uptiq_contact_id?: string | null; debug_access?: boolean };
+export type AppUserWithEmails = Omit<AppUserRow, "role"> & { role: AppRole; emails?: UserEmail[]; uptiq_contact_id?: string | null; debug_tools?: string[] };
 
 export interface UsersResponse {
   users: AppUserWithEmails[];
@@ -36,9 +36,21 @@ export interface SaveUserPayload {
   role: AppRole;
   active: boolean;
   password?: string | null;
-  // Debugger grant — only sent (and only accepted server-side) when the actor is dev_super.
-  debug_access?: boolean;
+  // Debugger grants (tool slugs) — only sent (and only accepted server-side) when the actor
+  // is dev_super. Slugs mirror supabase/functions/_shared/debug-access.ts DEBUG_TOOLS.
+  debug_tools?: string[];
 }
+
+// The individual debug tools a dev_super can grant, with the Settings panel each unlocks.
+export const DEBUG_TOOL_OPTIONS = [
+  { key: "run_crons", label: "Run crons (testing sender)" },
+  { key: "contacts_sync", label: "Uptiq contacts sync + pull" },
+  { key: "send_test", label: "Send a test message" },
+  { key: "conversations", label: "Conversations (backup + clear)" },
+  { key: "jobs_clear", label: "Jobs (hard delete)" },
+  { key: "data_reset", label: "Data reset (clear categories)" },
+] as const;
+export type DebugToolKey = (typeof DEBUG_TOOL_OPTIONS)[number]["key"];
 
 // Generate a readable, reasonably strong temporary password for admin-issued credentials.
 export function generatePassword() {

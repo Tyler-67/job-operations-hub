@@ -6,7 +6,7 @@
 // { limit } (cap the number upserted — used to verify the token's Contacts write scope with a
 // single live call before syncing everything). Provider calls go through _shared/uptiq.ts.
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
-import { canUseDebugTools } from "../_shared/debug-access.ts";
+import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 
 const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
@@ -185,8 +185,8 @@ Deno.serve(async (req) => {
   // how the clear tool reaches threads whose Uptiq contact the app doesn't know about — e.g. a
   // previous owner/office messaging contact after Settings switched to a different one.
   if (body.mode === "list_conversations" || body.mode === "delete_conversation") {
-    // Conversation tools are DEBUG features: dev_super, support_admin, or a debug-granted Owner.
-    if (!(await canUseDebugTools(sb, claims))) return json({ error: "forbidden" }, 403);
+    // Conversation tools are DEBUG features gated on the per-user "conversations" grant.
+    if (!(await canUseDebugTool(sb, claims, "conversations"))) return json({ error: "forbidden" }, 403);
   }
 
   if (body.mode === "list_conversations") {

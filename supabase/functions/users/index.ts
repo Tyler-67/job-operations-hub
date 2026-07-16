@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { isDebugTool } from "../_shared/debug-access.ts";
 
 const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
@@ -123,7 +124,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
 async function usersPayload(sb: any, locationId: string, includePassword = false) {
   // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
   // credential managers (WRITE roles); office_manager reads the list without it.
-  const cols = "id, location_id, email, name, phone, role, active, debug_access, uptiq_contact_id, last_seen_at, created_at, updated_at"
+  const cols = "id, location_id, email, name, phone, role, active, debug_tools, uptiq_contact_id, last_seen_at, created_at, updated_at"
     + (includePassword ? ", login_password" : "");
   const { data, error } = await sb
     .from("app_users")
@@ -229,10 +230,14 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     if (selfEdit && body.active === false) throw new Error("self_deactivate_locked");
     patch.active = body.active !== false;
   }
-  if ("debug_access" in body) {
-    // The debugger grant: only a dev_super may hand an Owner the debug tools (or revoke them).
+  if ("debug_tools" in body) {
+    // The debugger grant: only a dev_super may hand an Owner debug tools (or revoke them).
+    // The list is validated against the known tool slugs; unknown values are rejected.
     if (actorRole !== "dev_super") throw new Error("debug_grant_forbidden");
-    patch.debug_access = body.debug_access === true;
+    const raw = Array.isArray(body.debug_tools) ? body.debug_tools : [];
+    const tools = [...new Set(raw)];
+    if (!tools.every(isDebugTool)) throw new Error("invalid_debug_tool");
+    patch.debug_tools = tools;
   }
 
   const nextRole = String(patch.role ?? user.role);
@@ -373,6 +378,7 @@ Deno.serve(async (req) => {
       "self_identity_locked",
       "self_deactivate_locked",
       "debug_grant_forbidden",
+      "invalid_debug_tool",
     ].includes(message)
       ? 400
       : message === "user_not_found" || message === "email_not_found"

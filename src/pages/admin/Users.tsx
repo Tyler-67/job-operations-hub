@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, Edit2, KeyRound, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
 import {
   APP_ROLES,
+  DEBUG_TOOL_OPTIONS,
   addUserEmail,
   assignableRoles,
   canManageUsers,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/users";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
+import { InlineMultiSelect } from "@/components/InlineMultiSelect";
 
 interface UserForm {
   id?: string;
@@ -31,7 +33,7 @@ interface UserForm {
   role: AppRole;
   active: boolean;
   password: string; // initial password for a NEW user (empty for edits — use the reset control)
-  debug_access: boolean; // debugger grant — editable by dev_super only
+  debug_tools: string[]; // debugger grants (per tool) — editable by dev_super only
 }
 
 function blankUserForm(role: AppRole = "viewer"): UserForm {
@@ -43,7 +45,7 @@ function blankUserForm(role: AppRole = "viewer"): UserForm {
     role,
     active: true,
     password: "",
-    debug_access: false,
+    debug_tools: [],
   };
 }
 
@@ -57,7 +59,7 @@ function userToForm(user: AppUserWithEmails): UserForm {
     role: user.role,
     active: user.active,
     password: "",
-    debug_access: user.debug_access === true,
+    debug_tools: Array.isArray(user.debug_tools) ? user.debug_tools : [],
   };
 }
 
@@ -168,7 +170,7 @@ export default function AdminUsers() {
         role: form.role,
         active: form.active,
         password: form.password.trim() || null, // applied on create; edits use the reset control
-        ...(user?.role === "dev_super" ? { debug_access: form.debug_access } : {}),
+        ...(user?.role === "dev_super" ? { debug_tools: form.debug_tools } : {}),
       };
       const next = editing ? await updateUser(payload) : await createUser(payload);
       setData(next);
@@ -342,8 +344,10 @@ export default function AdminUsers() {
                       </td>
                       <td className="px-3 py-2">
                         <span className={`pill ${roleTone(row.role)}`}>{roleLabel(row.role)}</span>
-                        {row.debug_access === true && row.role !== "dev_super" && (
-                          <span className="pill ml-1 bg-warning/20 text-warning" title="Debug tools granted">debugger</span>
+                        {(row.debug_tools?.length ?? 0) > 0 && row.role !== "dev_super" && (
+                          <span className="pill ml-1 bg-warning/20 text-warning" title={`Debug tools granted: ${(row.debug_tools ?? []).join(", ")}`}>
+                            debugger ×{row.debug_tools?.length}
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2">
@@ -437,15 +441,13 @@ export default function AdminUsers() {
               {user?.role === "dev_super" && form.role !== "dev_super" && (
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Debug tools (dev-super grant)</span>
-                  <InlineSelect
-                    value={form.debug_access ? "granted" : "off"}
-                    onChange={(value) => updateForm({ debug_access: value === "granted" })}
+                  <InlineMultiSelect
+                    values={form.debug_tools}
+                    onChange={(values) => updateForm({ debug_tools: values })}
                     disabled={saving || tierLocked}
                     className="w-full"
-                    options={[
-                      { value: "off", label: "Off (normal role)" },
-                      { value: "granted", label: "Granted — sees the debug panels" },
-                    ]}
+                    placeholder="None — normal role"
+                    options={DEBUG_TOOL_OPTIONS.map((tool) => ({ value: tool.key, label: tool.label }))}
                   />
                 </label>
               )}

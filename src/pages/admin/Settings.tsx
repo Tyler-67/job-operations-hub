@@ -161,10 +161,13 @@ function Metric({ icon: Icon, label, value, tone = "default" }: {
 export default function AdminSettings() {
   const { user } = useSession();
   const canManage = canManageSettings(user?.role);
-  // The DEBUG capability (testing panels, clears, syncs): dev_super and support_admin always;
-  // a plain Owner only when a dev_super granted debug_access. Server-side gates re-check fresh.
-  const canDebug = user?.role === "dev_super" || user?.role === "support_admin"
-    || (user?.role === "owner_admin" && user?.debug_access === true);
+  // Per-tool DEBUG capability: dev_super and support_admin hold every tool; a plain Owner holds
+  // exactly what a dev_super granted (app_users.debug_tools). Server-side gates re-check fresh.
+  const hasDebugTool = (tool: string) =>
+    user?.role === "dev_super" || user?.role === "support_admin"
+    || (user?.role === "owner_admin" && (user?.debug_tools ?? []).includes(tool));
+  const canDebugAny = user?.role === "dev_super" || user?.role === "support_admin"
+    || (user?.role === "owner_admin" && (user?.debug_tools ?? []).length > 0);
   const confirm = useConfirm();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
@@ -228,11 +231,12 @@ export default function AdminSettings() {
 
   // All jobs (incl. archived) for the Jobs debug tool's picker.
   useEffect(() => {
-    if (!canDebug) return;
+    if (!hasDebugTool("jobs_clear")) return;
     fetchJobs(true)
       .then((res) => setClearableJobs(res.jobs))
       .catch(() => { /* leave the picker empty on failure */ });
-  }, [canDebug]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.debug_tools]);
 
   const supplyHouses = useMemo(() => data?.supply_houses ?? [], [data?.supply_houses]);
   const weekdayLabel = WEEKDAYS.filter((day) => form.check_in_weekdays.includes(day.value)).map((day) => day.label).join(", ");
@@ -705,7 +709,7 @@ export default function AdminSettings() {
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
 
-            {canDebug && (
+            {canDebugAny && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Debug</div>
                 <div className="px-4 py-4">
@@ -721,7 +725,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("run_crons") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Run crons</div>
                 <div className="space-y-3 px-4 py-4">
@@ -752,7 +756,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("contacts_sync") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq contacts</div>
                 <div className="space-y-5 px-4 py-4">
@@ -789,7 +793,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("send_test") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Send a test message</div>
                 <div className="space-y-3 px-4 py-4">
@@ -832,7 +836,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("conversations") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Conversations (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -879,7 +883,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("jobs_clear") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Jobs (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -917,7 +921,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {canDebug && form.debug_mode && (
+            {hasDebugTool("data_reset") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Data reset (debug)</div>
                 <div className="space-y-3 px-4 py-4">

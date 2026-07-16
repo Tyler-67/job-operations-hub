@@ -4,7 +4,7 @@
 // and for diagnosing whether sends actually reach Uptiq. Admin-gated.
 import { json, preflight, verifySession, logEvent, serviceClient } from "../_shared/util.ts";
 import { uptiq } from "../_shared/uptiq.ts";
-import { canUseDebugTools } from "../_shared/debug-access.ts";
+import { canUseDebugTool } from "../_shared/debug-access.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -13,8 +13,8 @@ Deno.serve(async (req) => {
 
   const claims = await verifySession(req.headers.get("x-app-session"));
   if (!claims) return json({ error: "unauthorized" }, 401);
-  // Test sends are a DEBUG tool: dev_super, support_admin, or a debug-granted Owner.
-  if (!(await canUseDebugTools(serviceClient(), claims))) return json({ error: "forbidden" }, 403);
+  // Test sends are a DEBUG tool gated on the per-user "send_test" grant.
+  if (!(await canUseDebugTool(serviceClient(), claims, "send_test"))) return json({ error: "forbidden" }, 403);
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const contactId = typeof body.contact_id === "string" ? body.contact_id.trim() : "";

@@ -9,7 +9,7 @@ import { syncInspectionAppointment, cancelInspectionAppointment, type Inspection
 import { queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
-import { canUseDebugTools } from "../_shared/debug-access.ts";
+import { canUseDebugTool } from "../_shared/debug-access.ts";
 
 const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 
@@ -543,8 +543,8 @@ Deno.serve(async (req) => {
       // — this is a testing reset, not the normal "remove a job" path (that's Archive). dry_run
       // returns the child counts without deleting so the UI can preview.
       if (cleanText(body.action) === "delete_job") {
-        // Debug/reset tool: dev_super, support_admin, or an Owner granted debug access.
-        if (!(await canUseDebugTools(sb, claims))) return json({ error: "forbidden" }, 403);
+        // Debug/reset tool: dev_super, support_admin, or an Owner granted the jobs_clear tool.
+        if (!(await canUseDebugTool(sb, claims, "jobs_clear"))) return json({ error: "forbidden" }, 403);
         const jobId = cleanText(body.id);
         if (!jobId) return json({ error: "id_required" }, 400);
         const dryRun = body.dry_run === true;
