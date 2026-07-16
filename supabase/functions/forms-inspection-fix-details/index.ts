@@ -9,6 +9,7 @@
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { appendFixDetailsNote, normalizeFixDetailsInput } from "../_shared/fix-details.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 
 const FIX_DETAILS_ACTION = "inspection_fix_details";
 
@@ -111,6 +112,11 @@ Deno.serve(async (req) => {
       status: "ok",
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
+
+    // Flush the crew's required-fix list NOW instead of leaving it to wait up to ~15 min for the
+    // drain cron — the crew needs to know what the inspector flagged right away. Best-effort; the
+    // drain cron is still the backstop. Mirrors the decision spine's immediate drain.
+    if (notified) await triggerDrain();
 
     return json({ ok: true, job_id: jobId, crew_notified: notified });
   } catch (error) {

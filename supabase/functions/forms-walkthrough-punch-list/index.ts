@@ -12,6 +12,7 @@ import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { appendPunchListNote, normalizePunchListInput } from "../_shared/punch-list.ts";
 import { enqueueWalkthroughReask } from "../_shared/walkthrough.ts";
+import { triggerDrain } from "../_shared/drain.ts";
 
 const PUNCH_LIST_ACTION = "walkthrough_punch_details";
 
@@ -124,6 +125,11 @@ Deno.serve(async (req) => {
       { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
       { appBaseUrl, cycleKey: claim.id as string },
     );
+
+    // Flush the crew punch list + the owner's APPROVE/STILL-ISSUES re-ask NOW instead of waiting up
+    // to ~15 min for the drain cron. Best-effort; the drain cron is still the backstop. Mirrors the
+    // decision spine's immediate drain.
+    if (notified || reasked) await triggerDrain();
 
     return json({ ok: true, job_id: jobId, crew_notified: notified, reasked });
   } catch (error) {
