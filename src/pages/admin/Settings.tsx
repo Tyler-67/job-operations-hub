@@ -56,13 +56,8 @@ interface SettingsForm {
   company_name: string;
   timezone: string;
   uptiq_company_id: string;
-  owner_name: string;
   owner_contact_id: string;
-  owner_phone: string;
-  owner_email: string;
   office_contact_id: string;
-  office_phone: string;
-  office_email: string;
   check_in_send_time: string;
   check_in_weekdays: number[];
   inspection_reminder_time: string;
@@ -85,13 +80,8 @@ function blankForm(): SettingsForm {
     company_name: "",
     timezone: "America/Boise",
     uptiq_company_id: "",
-    owner_name: "",
     owner_contact_id: "",
-    owner_phone: "",
-    owner_email: "",
     office_contact_id: "",
-    office_phone: "",
-    office_email: "",
     check_in_send_time: "15:00",
     check_in_weekdays: [1, 2, 3, 4, 5],
     inspection_reminder_time: "08:00",
@@ -115,13 +105,8 @@ function toForm(location: SettingsLocation, settings: CompanySettings): Settings
     company_name: location.company_name,
     timezone: location.timezone,
     uptiq_company_id: location.uptiq_company_id ?? "",
-    owner_name: settings.owner_name ?? "",
     owner_contact_id: settings.owner_contact_id ?? "",
-    owner_phone: settings.owner_phone ?? "",
-    owner_email: settings.owner_email ?? "",
     office_contact_id: settings.office_contact_id ?? "",
-    office_phone: settings.office_phone ?? "",
-    office_email: settings.office_email ?? "",
     check_in_send_time: timeForInput(settings.check_in_send_time),
     check_in_weekdays: settings.check_in_weekdays ?? [1, 2, 3, 4, 5],
     inspection_reminder_time: timeForInput(settings.inspection_reminder_time),
@@ -220,13 +205,15 @@ export default function AdminSettings() {
     return () => { active = false; };
   }, []);
 
-  // Uptiq-linked contacts for the Conversations debug tool's picker (only these have a thread).
+  // Uptiq-linked contacts: feed the Owner/Office role pickers (any settings editor) and the
+  // Conversations debug tool. Only linked contacts are useful — both consumers key off the
+  // Uptiq contact id.
   useEffect(() => {
-    if (!canSyncContacts) return;
+    if (!canManage) return;
     fetchContacts()
       .then((res) => setContacts(res.contacts.filter((c) => c.uptiq_contact_id)))
-      .catch(() => { /* leave the picker empty on failure */ });
-  }, [canSyncContacts]);
+      .catch(() => { /* leave the pickers empty on failure */ });
+  }, [canManage]);
 
   // All jobs (incl. archived) for the Jobs debug tool's picker.
   useEffect(() => {
@@ -238,8 +225,8 @@ export default function AdminSettings() {
 
   const supplyHouses = useMemo(() => data?.supply_houses ?? [], [data?.supply_houses]);
   const weekdayLabel = WEEKDAYS.filter((day) => form.check_in_weekdays.includes(day.value)).map((day) => day.label).join(", ");
-  const officeReady = Boolean(form.office_email.trim() || form.office_phone.trim());
-  const ownerReady = Boolean(form.owner_email.trim() || form.owner_phone.trim());
+  const officeReady = Boolean(form.office_contact_id.trim());
+  const ownerReady = Boolean(form.owner_contact_id.trim());
   const supplyReady = Boolean(form.default_supply_house_contact_id || supplyHouses.length);
   const companyIdReady = Boolean(form.uptiq_company_id.trim());
 
@@ -272,13 +259,8 @@ export default function AdminSettings() {
           uptiq_company_id: nullable(form.uptiq_company_id),
         },
         settings: {
-          owner_name: nullable(form.owner_name),
           owner_contact_id: nullable(form.owner_contact_id),
-          owner_phone: nullable(form.owner_phone),
-          owner_email: nullable(form.owner_email),
           office_contact_id: nullable(form.office_contact_id),
-          office_phone: nullable(form.office_phone),
-          office_email: nullable(form.office_email),
           check_in_send_time: form.check_in_send_time,
           check_in_weekdays: form.check_in_weekdays,
           inspection_reminder_time: form.inspection_reminder_time,
@@ -412,6 +394,32 @@ export default function AdminSettings() {
     id === "owner" ? "Company owner contact"
       : id === "office" ? "Company office contact"
         : contacts.find((c) => c.id === id)?.name ?? "(unnamed)";
+
+  // Owner/Office pickers: choose the company messaging contact from role-tagged contacts (the
+  // Uptiq tag pull assigns roles), storing the contact's Uptiq id — same field the senders read.
+  // Deduped by Uptiq id (persona contacts can share one); if the stored id doesn't belong to any
+  // contact of that role it stays selectable as "Current" so an existing setup is never blanked
+  // or hidden. "None" clears it (that audience simply stops receiving texts).
+  const roleContactOptions = (role: "owner" | "office", currentId: string): SelectOption[] => {
+    const seen = new Set<string>();
+    const options: SelectOption[] = [{ value: "", label: "None" }];
+    for (const c of contacts) {
+      if (c.role !== role || !c.active || !c.uptiq_contact_id || seen.has(c.uptiq_contact_id)) continue;
+      seen.add(c.uptiq_contact_id);
+      options.push({ value: c.uptiq_contact_id, label: `${c.name ?? "(unnamed)"} · …${c.uptiq_contact_id.slice(-4)}` });
+    }
+    const current = currentId.trim();
+    if (current && !seen.has(current)) {
+      options.push({ value: current, label: `Current: …${current.slice(-4)} (no ${role}-tagged contact)` });
+    }
+    return options;
+  };
+  const ownerContactOptions = useMemo(() => roleContactOptions("owner", form.owner_contact_id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contacts, form.owner_contact_id]);
+  const officeContactOptions = useMemo(() => roleContactOptions("office", form.office_contact_id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contacts, form.office_contact_id]);
 
   // Clear each selected contact's conversation independently (one backend call per contact) so
   // one failure never blocks the rest — each contact's outcome is captured in its own ConvRun.
@@ -589,13 +597,8 @@ export default function AdminSettings() {
             </SettingsSection>
 
             <SettingsSection title="Owner & Office">
-              <TextField label="Owner name" value={form.owner_name} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_name: value })} />
-              <TextField label="Owner phone" value={form.owner_phone} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_phone: value })} />
-              <TextField label="Owner email" type="email" value={form.owner_email} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_email: value })} />
-              <TextField label="Owner contact ID" value={form.owner_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_contact_id: value })} />
-              <TextField label="Office phone" value={form.office_phone} disabled={!canManage || saving} onChange={(value) => updateForm({ office_phone: value })} />
-              <TextField label="Office email" type="email" value={form.office_email} disabled={!canManage || saving} onChange={(value) => updateForm({ office_email: value })} />
-              <TextField label="Office contact ID" value={form.office_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ office_contact_id: value })} />
+              <SelectField label="Owner (gets owner texts)" value={form.owner_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_contact_id: value })} options={ownerContactOptions} />
+              <SelectField label="Office (gets office texts)" value={form.office_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ office_contact_id: value })} options={officeContactOptions} />
             </SettingsSection>
 
             <SettingsSection title="Supply & Costs">
