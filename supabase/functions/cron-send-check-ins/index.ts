@@ -79,25 +79,6 @@ Deno.serve(async (req) => {
     const eligibleJobs = (jobs ?? []).filter((j: any) => checkInStates.has(j.current_state_id));
     if (!eligibleJobs.length) continue;
 
-    // Links already sent today (company-local), REGARDLESS of dedupe key — the Settings testing
-    // button sends keyless (forced) rows the per-day key can't collide with, so a button press
-    // just before this hour would otherwise double-text the crew. The scheduled run never repeats
-    // what today already produced; force=1 still fires unconditionally.
-    const sentTodayKeys = new Set<string>();
-    if (!force) {
-      const { data: sentToday } = await sb
-        .from("scheduled_notifications")
-        .select("job_id, recipient, created_at")
-        .eq("location_id", loc)
-        .eq("template_key", "daily_check_in_link")
-        .gt("created_at", new Date(now.getTime() - 36 * 3600 * 1000).toISOString());
-      for (const row of sentToday ?? []) {
-        if (localContext(tz, new Date(row.created_at as string)).date === date) {
-          sentTodayKeys.add(`${row.job_id}:${row.recipient}`);
-        }
-      }
-    }
-
     // EVERY crew member on those jobs (not just the lead) gets their own check-in link, so each
     // assigned crew can self-report. Each row carries the contact's Uptiq id (the SMS recipient) +
     // uuid (the token binding); crew without a Uptiq id are skipped (nothing to text). The lead
@@ -119,7 +100,6 @@ Deno.serve(async (req) => {
         const contactId = contact.id ?? "";
         const uptiqId = (contact.uptiq_contact_id ?? "").trim();
         if (!contactId || !uptiqId) { skipped++; continue; }
-        if (!force && sentTodayKeys.has(`${job.id}:${uptiqId}`)) { skipped++; continue; }
 
         // Mint the link, then enqueue. A duplicate enqueue (e.g. the matching hour firing
         // twice) trips the unique dedupe_key and is skipped; the orphaned token simply
