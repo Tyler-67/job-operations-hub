@@ -8,6 +8,8 @@ import { applyDecision } from "../_shared/apply-decision.ts";
 import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 
 const ADMIN_ROLES = new Set(["owner_admin", "office_manager", "support_admin"]);
+// Hard-delete (debug) is scoped like the other debug tools — no office_manager.
+const DEBUG_DELETE_ROLES = new Set(["owner_admin", "support_admin"]);
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -511,6 +513,9 @@ Deno.serve(async (req) => {
       // — this is a testing reset, not the normal "remove a job" path (that's Archive). dry_run
       // returns the child counts without deleting so the UI can preview.
       if (cleanText(body.action) === "delete_job") {
+        // Tighter than canWrite: hard-deleting is a debug/reset tool, so it matches the other
+        // debug tools' gate (owner_admin/support_admin) — office_manager keeps Archive only.
+        if (!DEBUG_DELETE_ROLES.has(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
         const jobId = cleanText(body.id);
         if (!jobId) return json({ error: "id_required" }, 400);
         const dryRun = body.dry_run === true;
@@ -520,7 +525,7 @@ Deno.serve(async (req) => {
         if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
 
         const { data: job } = await sb
-          .from("jobs").select("id, address").eq("location_id", locationId).eq("id", jobId).maybeSingle();
+          .from("jobs").select("id, address, inspection_appointment_id").eq("location_id", locationId).eq("id", jobId).maybeSingle();
         if (!job) return json({ error: "not_found" }, 404);
 
         const countOf = async (table: string) => {
@@ -538,13 +543,21 @@ Deno.serve(async (req) => {
           return json({ ok: true, dry_run: true, job: { id: job.id, address: job.address }, counts });
         }
 
+        // A synced inspection appointment must be cancelled BEFORE the row goes away (the helper
+        // reads the job) — otherwise the debug delete strands a dead event on the real Uptiq
+        // calendar, which Archive already guards against. Best-effort (never throws); the outcome
+        // is recorded in the audit row below because the helper's own event_log entry is swept.
+        const calendar = job.inspection_appointment_id
+          ? (await cancelInspectionAppointment(sb, { jobId })).action
+          : null;
+
         await sb.from("event_log").delete().eq("location_id", locationId).eq("payload->>job_id", jobId);
         const { error: delErr } = await sb.from("jobs").delete().eq("location_id", locationId).eq("id", jobId);
         if (delErr) throw delErr;
 
         await logEvent({
           source: "admin", kind: "job.debug_delete", location_id: locationId,
-          payload: { job_id: jobId, address: job.address, counts, by: claims.email },
+          payload: { job_id: jobId, address: job.address, counts, calendar, by: claims.email },
         });
         return json({ ok: true, dry_run: false, deleted: true, job: { id: job.id, address: job.address }, counts });
       }

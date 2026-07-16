@@ -42,18 +42,19 @@ const FORM_CONFIG: Record<
 };
 
 // Human copy for decisions that DON'T open an inline form — a plain confirmation.
+// For the three form-bearing actions this is a fallback only: it shows when the decision
+// produced no form token (e.g. the tap changed nothing because the job already moved on).
+// No link SMS is sent on the tap path, so the copy must not promise one.
 const COPY: Record<string, string> = {
   inspection_pass: "Inspection marked PASSED. The job has advanced to the next phase.",
-  // Fallback only: normally the fix-details form opens inline. This shows if the form link
-  // couldn't be surfaced — the same link was also texted to the owner.
-  inspection_fail: "Inspection marked FAILED. We also texted you a link to list the required fixes for the crew.",
+  inspection_fail: "Inspection marked FAILED.",
   finish_walkthrough_yes: "Marked ready for the final walkthrough.",
   finish_walkthrough_no: "Noted — not ready yet. The crew will keep working.",
   walkthrough_approve: "Walkthrough approved. The job is ready to invoice.",
   walkthrough_reschedule:
     "Reschedule noted. The office has been asked to rebook the walkthrough — the job stays open until it's approved.",
-  walkthrough_punch_list: "Punch list started. We also texted you a link to list the items still to fix.",
-  walkthrough_still_issues: "Noted — still some issues. We also texted you a link to update the punch list.",
+  walkthrough_punch_list: "Punch list noted.",
+  walkthrough_still_issues: "Noted — still some issues.",
 };
 
 const HEADING: Record<string, string> = {
