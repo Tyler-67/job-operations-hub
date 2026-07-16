@@ -16,6 +16,7 @@ import { enqueueWalkthroughResultAsk } from "./walkthrough.ts";
 import { maybeBuildCompletionReport } from "./completion-report.ts";
 import { maybeEnqueueReviewRequest } from "./review-request.ts";
 import { logEvent } from "./util.ts";
+import { triggerDrain } from "./drain.ts";
 
 export interface ApplyDecisionJob {
   id: string;
@@ -119,6 +120,12 @@ export async function applyDecision(
       actor_app_user_id: opts.actorAppUserId ?? null,
     },
   });
+
+  // A completed decision's follow-ups (outcome SMS, the fail -> fix-details link, the pass ->
+  // walkthrough ask) are user-facing and time-sensitive, so flush them now instead of waiting up
+  // to ~15 min for the drain cron. Best-effort; the drain cron is still the backstop. Only fired
+  // when something was actually queued.
+  if (enqueued > 0 || walkthroughAsked) await triggerDrain();
 
   return { changed, toStateId, reason, enqueued, walkthroughAsked, completionReportBuilt, reviewRequestQueued };
 }
