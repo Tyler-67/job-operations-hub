@@ -15,6 +15,13 @@ export interface EnqueueFollowupsOptions {
   // Lets a re-askable decision (walkthrough_still_issues/_reschedule) enqueue a distinct
   // follow-up each cycle; absent for callers that want the legacy per-(action,job,audience) key.
   cycleKey?: string;
+  // Inline-form flow (the owner tapped the decision in the browser): mint the OWNER's form-link
+  // token but DON'T text it — the tap page shows that form inline, so the "here's a link" SMS
+  // would just be a redundant duplicate. The minted { action, token } is pushed to
+  // ownerFormLinksOut for the caller to hand to the page. The office-button path leaves this off
+  // (the owner isn't present there), so it still gets the link by SMS.
+  suppressOwnerFormSms?: boolean;
+  ownerFormLinksOut?: Array<{ action: string; token: string }>;
 }
 
 export interface DecisionJob {
@@ -70,6 +77,11 @@ export async function enqueueFollowups(
         action: f.link.action, jobId: job.id, contactId: null,
         payload: { address: job.address ?? null },
       });
+      // Inline flow: hand the owner's form link back to the caller instead of texting it.
+      if (opts.suppressOwnerFormSms && f.audience === "owner") {
+        opts.ownerFormLinksOut?.push({ action: f.link.action, token: minted.token });
+        continue;
+      }
       payload.link = buildActionLink(opts.appBaseUrl, f.link.path, minted.token);
     }
 

@@ -41,6 +41,10 @@ export interface ApplyDecisionOptions {
   cycleKey: string;
   // event_log source: "action" for a tap-link, "app" for the office button.
   source?: string;
+  // Inline-form flow (owner tapped the decision in the browser): suppress the owner's form-link
+  // SMS and return the minted token as `form` instead, so the tap page shows the fix-details /
+  // punch-list form inline. Off for the office button (the owner isn't present → keep the SMS).
+  suppressOwnerFormSms?: boolean;
 }
 
 export interface ApplyDecisionResult {
@@ -51,6 +55,9 @@ export interface ApplyDecisionResult {
   walkthroughAsked: boolean;
   completionReportBuilt: boolean;
   reviewRequestQueued: boolean;
+  // Set (with suppressOwnerFormSms) when this decision hands the owner an inline form — the
+  // minted { action, token } for the fix-details / punch-list form. Null otherwise.
+  form: { action: string; token: string } | null;
 }
 
 // Applies a resolved decision to an already-loaded job. Identical to the tail of
@@ -82,9 +89,16 @@ export async function applyDecision(
   // Notify only when the job actually moved (or a no-trigger ack, or an explicit opt-in).
   // A replayed/no-op decision that changed nothing stays silent.
   const shouldEnqueue = changed || !decision.trigger || decision.followupsOnNoChange === true;
+  const ownerFormLinks: Array<{ action: string; token: string }> = [];
   const enqueued = shouldEnqueue
-    ? await enqueueFollowups(sb, decision, job, { appBaseUrl: opts.appBaseUrl, cycleKey: opts.cycleKey })
+    ? await enqueueFollowups(sb, decision, job, {
+      appBaseUrl: opts.appBaseUrl,
+      cycleKey: opts.cycleKey,
+      suppressOwnerFormSms: opts.suppressOwnerFormSms,
+      ownerFormLinksOut: ownerFormLinks,
+    })
     : 0;
+  const form = ownerFormLinks[0] ?? null;
 
   // On a genuine walkthrough entry, hand the owner APPROVE / PUNCH-LIST / RESCHEDULE links.
   // Gated inside on the new state offering a walkthrough_approved transition. Entering a
@@ -127,5 +141,5 @@ export async function applyDecision(
   // when something was actually queued.
   if (enqueued > 0 || walkthroughAsked) await triggerDrain();
 
-  return { changed, toStateId, reason, enqueued, walkthroughAsked, completionReportBuilt, reviewRequestQueued };
+  return { changed, toStateId, reason, enqueued, walkthroughAsked, completionReportBuilt, reviewRequestQueued, form };
 }

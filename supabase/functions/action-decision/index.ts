@@ -7,37 +7,8 @@
 // re-implementing consume + transition + notify.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
-import { followupDedupeKey, resolveDecision } from "../_shared/decisions.ts";
+import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
-
-// If this decision hands the OWNER a form link (inspection fix-details / walkthrough punch list),
-// pull the single-use token out of the row applyDecision just enqueued so the tap page can render
-// that form INLINE — the owner fills it in the same visit instead of hunting for a second SMS. The
-// link SMS is still sent (same token) as a fallback if they close the page. Matched by the exact
-// dedupe key of this tap's row (followup key + the consumed token id) so it can't grab a stale link.
-async function ownerFormLink(
-  sb: any,
-  decision: ReturnType<typeof resolveDecision>,
-  jobId: string,
-  cycleKey: string,
-): Promise<{ action: string; token: string } | null> {
-  const followup = decision?.followups.find((f) => f.link && f.audience === "owner");
-  if (!followup?.link) return null;
-  const dedupeKey = `${followupDedupeKey(decision!.action, jobId, "owner")}:${cycleKey}`;
-  const { data } = await sb
-    .from("scheduled_notifications")
-    .select("payload")
-    .eq("dedupe_key", dedupeKey)
-    .maybeSingle();
-  const link = (data?.payload as { link?: string } | null)?.link;
-  if (!link) return null;
-  try {
-    const token = new URL(link).searchParams.get("token");
-    return token ? { action: followup.link.action, token } : null;
-  } catch {
-    return null;
-  }
-}
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -75,15 +46,16 @@ Deno.serve(async (req) => {
   // follow-ups + walkthrough ask + completion report + review tag + audit). The office
   // "fire a result" button runs the exact same helper via the jobs function. Here the
   // actor is the tapping contact and the follow-up cycle key is the consumed token id.
+  // suppressOwnerFormSms: the owner is in the browser, so hand the fix-details / punch-list
+  // form token back for the tap page to render INLINE instead of texting a redundant link.
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
   const result = await applyDecision(sb, decision, job, {
     actorContactId: tok.contact_id ?? null,
     appBaseUrl,
     cycleKey: tok.id as string,
     source: "action",
+    suppressOwnerFormSms: true,
   });
-
-  const form = await ownerFormLink(sb, decision, job.id, tok.id as string);
 
   return json({
     ok: true,
@@ -97,6 +69,6 @@ Deno.serve(async (req) => {
     review_request_queued: result.reviewRequestQueued,
     // Present only when the owner should now fill a form (fix details / punch list) — the tap
     // page renders it inline. { action, token } → POST to the matching forms-* endpoint.
-    form,
+    form: result.form,
   });
 });
