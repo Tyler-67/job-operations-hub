@@ -7,8 +7,37 @@
 // re-implementing consume + transition + notify.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
-import { resolveDecision } from "../_shared/decisions.ts";
+import { followupDedupeKey, resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
+
+// If this decision hands the OWNER a form link (inspection fix-details / walkthrough punch list),
+// pull the single-use token out of the row applyDecision just enqueued so the tap page can render
+// that form INLINE — the owner fills it in the same visit instead of hunting for a second SMS. The
+// link SMS is still sent (same token) as a fallback if they close the page. Matched by the exact
+// dedupe key of this tap's row (followup key + the consumed token id) so it can't grab a stale link.
+async function ownerFormLink(
+  sb: any,
+  decision: ReturnType<typeof resolveDecision>,
+  jobId: string,
+  cycleKey: string,
+): Promise<{ action: string; token: string } | null> {
+  const followup = decision?.followups.find((f) => f.link && f.audience === "owner");
+  if (!followup?.link) return null;
+  const dedupeKey = `${followupDedupeKey(decision!.action, jobId, "owner")}:${cycleKey}`;
+  const { data } = await sb
+    .from("scheduled_notifications")
+    .select("payload")
+    .eq("dedupe_key", dedupeKey)
+    .maybeSingle();
+  const link = (data?.payload as { link?: string } | null)?.link;
+  if (!link) return null;
+  try {
+    const token = new URL(link).searchParams.get("token");
+    return token ? { action: followup.link.action, token } : null;
+  } catch {
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
@@ -54,6 +83,8 @@ Deno.serve(async (req) => {
     source: "action",
   });
 
+  const form = await ownerFormLink(sb, decision, job.id, tok.id as string);
+
   return json({
     ok: true,
     action: tok.action,
@@ -64,5 +95,8 @@ Deno.serve(async (req) => {
     walkthrough_asked: result.walkthroughAsked,
     completion_report_built: result.completionReportBuilt,
     review_request_queued: result.reviewRequestQueued,
+    // Present only when the owner should now fill a form (fix details / punch list) — the tap
+    // page renders it inline. { action, token } → POST to the matching forms-* endpoint.
+    form,
   });
 });
