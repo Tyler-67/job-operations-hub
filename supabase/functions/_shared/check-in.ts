@@ -56,8 +56,9 @@ function partsSourceOf(value: unknown): PartsSource {
   return value === "field_purchase" || value === "supply_house" ? value : "none";
 }
 
-// Defaults to the safe, non-destructive option: an unrecognized/absent action
-// never auto-places an order or emails a supply house.
+// Defaults to the safe, non-destructive option: an unrecognized/absent action never
+// auto-places an order (no PO number is minted and the supply house gets only a
+// confirmation heads-up, never a formal order email).
 function supplyHouseActionOf(value: unknown): SupplyHouseAction {
   return value === "place_order" ? "place_order" : "already_ordered";
 }

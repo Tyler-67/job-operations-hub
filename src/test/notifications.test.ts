@@ -37,6 +37,29 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("Pickup 7AM.");
   });
 
+  it("renders the already-ordered warehouse heads-up as a confirmation, never a new order", () => {
+    const msg = renderNotification("supply_house_already_ordered_notice", {
+      parts_list: "copper fittings, 3/4 valve",
+      pickup_time: "7AM",
+      address: "1420 Canyon Rd",
+      po_number: null, // pending_value PO — no number minted yet
+    });
+    expect(msg.subject).toBe("1420 Canyon Rd - Order confirmation check (pickup 7AM)");
+    expect(msg.body).toContain("crew reports they already placed an order");
+    expect(msg.body).toContain("copper fittings, 3/4 valve");
+    expect(msg.body).toContain("please don't create a new order");
+    expect(msg.body).not.toContain("PO ");
+    expect(msg.body).toContain("<br>");
+  });
+
+  it("already-ordered heads-up falls back to a job-site subject with no pickup time", () => {
+    const msg = renderNotification("supply_house_already_ordered_notice", {
+      parts_list: "pipe",
+    });
+    expect(msg.subject).toBe("Job site - Order confirmation check");
+    expect(msg.body).not.toContain("Pickup:");
+  });
+
   it("escapes HTML in email bodies to avoid breaking the markup", () => {
     const msg = renderNotification("supply_house_parts_order", {
       parts_list: "<script>alert(1)</script> & fittings",

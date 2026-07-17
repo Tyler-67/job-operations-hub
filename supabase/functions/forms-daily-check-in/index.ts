@@ -215,18 +215,26 @@ async function queueOwnerOfficeNotices(sb: any, opts: {
   }
 }
 
-// place_order only: queues the warehouse email to the supply house (parts list, pickup
-// time, "don't exceed $X" ceiling) plus an owner + office "parts ordered" SMS — exactly
-// the v1 n8n shape. Every recipient is an Uptiq contact ID because the drain cron sends
-// through the Uptiq conversations API, which only addresses contacts. Dedupe keys are
-// per-PO so a replayed run never double-sends; the actual send happens in the drain cron.
+// Queues the warehouse email to the supply house, for BOTH supply-house actions:
+//  - place_order (placedOrder=true): the formal PO email (parts list, pickup time,
+//    "don't exceed $X" ceiling) plus an owner + office "parts ordered" SMS — exactly
+//    the v1 n8n shape.
+//  - already_ordered (placedOrder=false): a confirmation heads-up only — the crew placed
+//    the order themselves, so the copy must never read as a new order, and no PO number
+//    exists yet (poNumber null; the office values the pending PO afterward). Owner/office
+//    get no extra SMS here (the daily summary carries the parts info).
+// Every recipient is an Uptiq contact ID because the drain sends through the Uptiq
+// conversations API, which only addresses contacts. Dedupe keys are per-PO so a replayed
+// run never double-sends; the handler fires the drain immediately after enqueueing (the
+// 15-min drain cron is only the retry backstop).
 async function queueSupplyHouseOrder(sb: any, opts: {
   locationId: string;
   jobId: string;
   address: string;
   supplyHouseId: string | null;
   purchaseOrderId: string;
-  poNumber: string;
+  poNumber: string | null;
+  placedOrder: boolean;
   partsList: string | null;
 }) {
   const now = new Date().toISOString();
@@ -255,7 +263,8 @@ async function queueSupplyHouseOrder(sb: any, opts: {
     purchase_order_id: opts.purchaseOrderId,
   };
 
-  // 1. Warehouse email to the supply house's Uptiq contact.
+  // 1. Warehouse email to the supply house's Uptiq contact — the formal PO on place_order,
+  //    a confirmation heads-up on already_ordered.
   const houseContactId = typeof house?.uptiq_contact_id === "string" ? house.uptiq_contact_id.trim() : "";
   if (houseContactId) {
     const { error } = await sb.from("scheduled_notifications").insert({
@@ -263,15 +272,18 @@ async function queueSupplyHouseOrder(sb: any, opts: {
       job_id: opts.jobId,
       channel: "email",
       recipient: houseContactId,
-      template_key: "supply_house_parts_order",
+      template_key: opts.placedOrder ? "supply_house_parts_order" : "supply_house_already_ordered_notice",
       payload,
       scheduled_for: now,
-      dedupe_key: `notif:po_order:${opts.purchaseOrderId}`,
+      dedupe_key: `notif:${opts.placedOrder ? "po_order" : "po_already_ordered"}:${opts.purchaseOrderId}`,
     });
     if (error && !isDuplicateKeyError(error)) throw error;
   }
 
-  // 2. Owner + office "parts ordered" SMS, by Uptiq contact ID.
+  // 2. Owner + office "parts ordered" SMS, by Uptiq contact ID — only when the app actually
+  //    placed the order (already_ordered surfaces to the office via the daily summary and
+  //    the pending-value PO queue instead).
+  if (!opts.placedOrder) return;
   const ownerOfficeIds = [settings?.owner_contact_id, settings?.office_contact_id];
   for (const raw of ownerOfficeIds) {
     const contactId = typeof raw === "string" ? raw.trim() : "";
@@ -492,8 +504,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Notify owner/office of the daily check-in, and — when the crew placed an
-    //    order — fire the warehouse email + owner/office "parts ordered" notice.
+    // 5. Notify owner/office of the daily check-in, and — whenever the check-in involves
+    //    the supply house — notify the warehouse too: the formal PO email on place_order,
+    //    a confirmation heads-up on already_ordered. Both ride the immediate drain below.
     await queueOwnerOfficeNotices(sb, {
       locationId: job.location_id,
       jobId,
@@ -502,7 +515,7 @@ Deno.serve(async (req) => {
       logDate: input.logDate,
       address: job.address,
     });
-    if (parts.purchaseOrder?.placeOrder && purchaseOrderId && placedPoNumber) {
+    if (parts.purchaseOrder && purchaseOrderId) {
       await queueSupplyHouseOrder(sb, {
         locationId: job.location_id,
         jobId,
@@ -510,6 +523,7 @@ Deno.serve(async (req) => {
         supplyHouseId: input.supplyHouseId,
         purchaseOrderId,
         poNumber: placedPoNumber,
+        placedOrder: Boolean(parts.purchaseOrder.placeOrder),
         partsList: input.partsList,
       });
     }

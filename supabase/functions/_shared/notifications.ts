@@ -64,6 +64,24 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       ].filter(Boolean);
       return { subject: null, body: bits.join(" ") };
     }
+    // Warehouse heads-up when a crew check-in reports parts were ALREADY ordered with the
+    // supply house (the place_order twin above sends the formal PO email). Worded as a
+    // confirmation, never a new order — the crew placed it themselves, so the counter
+    // double-ordering it is the failure mode to avoid. No PO number exists yet: the office
+    // values the pending PO afterward.
+    case "supply_house_already_ordered_notice": {
+      const subject = `${address || "Job site"} - Order confirmation check${pickup ? ` (pickup ${pickup})` : ""}`;
+      const lines = [
+        address ? `Job: ${address}` : "",
+        pickup ? `Pickup: ${pickup}` : "",
+        "",
+        "Our crew reports they already placed an order with you for:",
+        parts,
+        "",
+        "Heads-up only - please don't create a new order. If nothing is on file for this job, call the office.",
+      ].filter((line, i) => line !== "" || i === 2 || i === 5); // keep the two spacer lines
+      return { subject, body: lines.map(escapeHtml).join("<br>") };
+    }
     // v1 Test 12: owner + office "field purchase" SMS. Fires when a crew check-in records
     // a field_purchase expense (crew paid out of pocket / on a card). Mirrors the v1 text:
     // who bought, where, and the receipt/parts photo links so the office can value it.
