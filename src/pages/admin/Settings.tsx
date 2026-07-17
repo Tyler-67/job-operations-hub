@@ -8,10 +8,9 @@ import {
   canManageSettings,
   fetchSettings,
   moneyLabel,
-  pullContacts,
   runCrons,
   saveSettings,
-  syncContacts,
+  syncWithUptiq,
   timeForInput,
   clearData,
   CLEAR_DATA_CATEGORIES,
@@ -326,10 +325,10 @@ export default function AdminSettings() {
     }
   }
 
-  // ONE command, two steps in a fixed chain: (1) the tag pull imports/repairs everything Uptiq
-  // says (it is the id authority), then (2) the link pass fills Uptiq ids for whatever app-side
-  // parties remain unlinked (job customers, hand-entered supply houses). Link runs second and
-  // never overwrites, so the chain can't undo step 1.
+  // ONE command (contacts-sync mode:"sync") running both steps server-side: (1) the tag pull
+  // imports/repairs everything Uptiq says (it is the id authority), then (2) the link pass fills
+  // Uptiq ids for whatever app-side parties remain unlinked (job customers, hand-entered supply
+  // houses). Link runs second and never overwrites, so the chain can't undo step 1.
   async function handleUptiqSync(dryRun: boolean) {
     if (!dryRun && !(await confirm({
       title: "Sync contacts with Uptiq now?",
@@ -340,9 +339,8 @@ export default function AdminSettings() {
     setUptiqSyncResult(null);
     setError(null);
     try {
-      const pull = await pullContacts({ dryRun });
-      const link = await syncContacts({ dryRun });
-      setUptiqSyncResult({ pull, link });
+      const res = await syncWithUptiq({ dryRun });
+      setUptiqSyncResult({ pull: res.pull, link: res.link });
       // The pull may have imported/repaired contacts — refresh the pickers that feed off them.
       if (!dryRun) fetchContacts().then((r) => setContacts(r.contacts.filter((c) => c.uptiq_contact_id))).catch(() => { /* stale list is fine */ });
     } catch (err) {

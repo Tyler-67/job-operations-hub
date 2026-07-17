@@ -165,32 +165,6 @@ export interface ContactsSyncResult {
   results?: Array<{ key: string; ok: boolean; action?: string; contact_id?: string; error?: string }>;
 }
 
-// Contacts sync — READ-ONLY (link) mode only: find each app party in Uptiq by email/phone and
-// store the matching Uptiq contact id on the app record. No writes to Uptiq. dry_run previews
-// the plan without any Uptiq calls. (Uptiq-write/upsert is intentionally not exposed here.)
-export function syncContacts(opts: { dryRun?: boolean } = {}) {
-  return callEdge("contacts-sync", { method: "POST", body: { mode: "link", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<ContactsSyncResult>;
-}
-
-export interface CrewPullResult {
-  mode: string;
-  tag: string;
-  dry_run: boolean;
-  scanned?: number;
-  capped?: boolean;
-  found: number;
-  imported?: number;
-  updated?: number;
-  skipped?: number;
-  contacts?: Array<{ id: string; name: string | null; email: string | null; phone: string | null }>;
-  results?: Array<{ id: string; name: string | null; action: string; error?: string }>;
-}
-
-// Uptiq -> app PULL (read-only): import Uptiq contacts tagged `crew` as Daily Burn crew contacts.
-export function pullCrew(opts: { dryRun?: boolean } = {}) {
-  return callEdge("contacts-sync", { method: "POST", body: { mode: "pull_crew", tag: "crew", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<CrewPullResult>;
-}
-
 export interface ContactsPullResult {
   location?: string;
   mode: string;
@@ -211,12 +185,22 @@ export interface ContactsPullResult {
   errors?: Array<{ id?: string; where?: string; error?: string }>;
 }
 
-// Uptiq -> app PULL (read-only, full mirror): import every tagged Uptiq contact into the app
-// contacts table by role (crew/customer/owner/office/supply_house), and additionally link
-// supply-house-tagged contacts into the Supply Houses ordering table. dry_run previews the
-// tag->role breakdown (so the mapping can be confirmed) without any write.
-export function pullContacts(opts: { dryRun?: boolean } = {}) {
-  return callEdge("contacts-sync", { method: "POST", body: { mode: "pull_contacts", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<ContactsPullResult>;
+export interface UptiqSyncResult {
+  location?: string;
+  mode: string;
+  dry_run: boolean;
+  pull: ContactsPullResult;
+  link: ContactsSyncResult;
+}
+
+// THE Uptiq contact sync — ONE command, two steps server-side. Step 1 (pull) imports every
+// tagged Uptiq contact into the app contacts table by role (crew/customer/owner/office/
+// supply_house), repairing stale links (the pull is the id authority; supply houses also land
+// in the Supply Houses ordering table). Step 2 (link) finds any app party still missing a Uptiq
+// id by email/phone and stores it — never overwriting an existing id. Read-only in Uptiq,
+// additive; dry_run previews both steps without writing anything.
+export function syncWithUptiq(opts: { dryRun?: boolean } = {}) {
+  return callEdge("contacts-sync", { method: "POST", body: { mode: "sync", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<UptiqSyncResult>;
 }
 
 export function timeForInput(value: string | null | undefined) {

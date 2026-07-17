@@ -90,6 +90,236 @@ async function upsertSupplyHouseFromContact(
   return error ? { action: "error", error: error.message } : { action: "imported" };
 }
 
+type StepResult = { status: number; body: Record<string, unknown> };
+
+// SYNC STEP 1 — Uptiq -> app PULL (full mirror): import EVERY tagged Uptiq contact into the app
+// `contacts` table under a role derived from its tags (crew/customer/owner/office/supply_house),
+// and ALSO link supply_house-tagged contacts into supply_house_contacts. READ-ONLY to Uptiq,
+// additive (never deletes/deactivates). The pull is the identity AUTHORITY: it repairs a
+// same-named row whose stored Uptiq id is stale. dry_run previews the tag->role breakdown so the
+// operator can confirm the mapping matches their GHL tags before any write. Contacts with no
+// recognized tag are skipped (surfaced under `unrecognized`).
+async function runPullContacts(
+  sb: any, locId: string, companyName: string, uptiqLoc: string,
+  dryRun: boolean, limit: number | null, byEmail: unknown,
+): Promise<StepResult> {
+  const res = await uptiq.listContacts({ locationId: uptiqLoc });
+  if (!res.ok) return { status: 502, body: { mode: "pull_contacts", error: res.error ?? "list_failed", status: res.status, detail: res.data } };
+
+  const categorized = res.contacts.map((c) => ({ c, role: roleForTags(c.tags) }));
+  const byRole: Record<string, number> = {};
+  for (const x of categorized) { const k = x.role ?? "unrecognized"; byRole[k] = (byRole[k] ?? 0) + 1; }
+  const importable = categorized.filter((x): x is { c: PulledContact; role: string } => Boolean(x.role && x.c.id));
+
+  if (dryRun) {
+    return { status: 200, body: {
+      location: companyName, mode: "pull_contacts", dry_run: true,
+      scanned: res.scanned, capped: res.capped, by_role: byRole, would_import: importable.length,
+      preview: importable.slice(0, 50).map((x) => ({ id: x.c.id, name: x.c.name, role: x.role, tags: x.c.tags })),
+      unrecognized: categorized.filter((x) => !x.role).slice(0, 25).map((x) => ({ name: x.c.name, email: x.c.email, tags: x.c.tags })),
+    } };
+  }
+
+  const counts = { contacts_imported: 0, contacts_updated: 0, supply_imported: 0, supply_updated: 0, supply_linked: 0, skipped: 0 };
+  const errors: any[] = [];
+  const applied = limit ? importable.slice(0, limit) : importable;
+  for (const { c, role } of applied) {
+    // 1) contacts mirror row — dedupe by uptiq_contact_id within the target role (limit(1): a
+    // Uptiq id can be shared across roles, so scope the match to the role we're writing).
+    const { data: existingRows, error: exErr } = await sb
+      .from("contacts").select("id").eq("location_id", locId).eq("role", role).eq("uptiq_contact_id", c.id).limit(1);
+    if (exErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: exErr.message }); continue; }
+    let existing = existingRows?.[0] ?? null;
+    // REPAIR path: no id match, but a same-named row of this role exists → its stored id is
+    // stale/wrong (e.g. a loose email/phone link once stamped another contact's id on it).
+    // The tag pull is the identity authority from Uptiq, so re-point the row at the real id.
+    const patch: Record<string, unknown> = { role, active: true };
+    if (!existing && c.name) {
+      const { data: byName, error: nameErr } = await sb
+        .from("contacts").select("id").eq("location_id", locId).eq("role", role).ilike("name", c.name).limit(1);
+      if (nameErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: nameErr.message }); continue; }
+      if (byName?.[0]) {
+        existing = byName[0];
+        patch.uptiq_contact_id = c.id;
+      }
+    }
+    // Update only overwrites email/phone when Uptiq has a value (don't null out data we hold).
+    if (c.name) patch.name = c.name;
+    if (c.email) patch.email = c.email;
+    if (c.phone) patch.phone = c.phone;
+    if (existing) {
+      const { error } = await sb.from("contacts").update(patch).eq("id", existing.id);
+      if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
+      counts.contacts_updated++;
+    } else {
+      const { error } = await sb.from("contacts").insert({
+        location_id: locId, uptiq_contact_id: c.id,
+        name: c.name ?? c.email ?? `(unnamed ${role})`, email: c.email, phone: c.phone, role, active: true,
+      });
+      if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
+      counts.contacts_imported++;
+    }
+
+    // 2) supply houses also link into the ordering table (Mirror + link supply houses).
+    if (role === "supply_house") {
+      const r = await upsertSupplyHouseFromContact(sb, locId, c);
+      if (r.action === "error") errors.push({ id: c.id, where: "supply_house", error: r.error });
+      else if (r.action === "updated") counts.supply_updated++;
+      else if (r.action === "linked") counts.supply_linked++;
+      else counts.supply_imported++;
+    }
+  }
+
+  await logEvent({
+    source: "admin", kind: "contacts_pull_contacts", location_id: locId,
+    payload: { ...counts, scanned: res.scanned, by_role: byRole, by: byEmail },
+  });
+  return { status: 200, body: {
+    location: companyName, mode: "pull_contacts", dry_run: false,
+    scanned: res.scanned, capped: res.capped, by_role: byRole, ...counts, errors: errors.slice(0, 20),
+  } };
+}
+
+// SYNC STEP 2 — app -> Uptiq LOOKUP over the app's messaging parties (job customers, crew,
+// supply houses, owner, office). "link": READ-ONLY — find each party in Uptiq by email/phone and
+// store the matching contact id on the app record; never overwrites an existing id (the tag pull
+// is the id authority — a loose re-match here once stamped ONE Uptiq id across several personas).
+// "upsert": create/update the party in Uptiq (needs the token's Contacts WRITE scope — deferred).
+async function runLinkSync(
+  sb: any, locId: string, companyName: string, uptiqLoc: string, mode: "link" | "upsert",
+  dryRun: boolean, limit: number | null, byEmail: unknown,
+): Promise<StepResult> {
+  const targets: Target[] = [];
+
+  // 1) contacts table (customers, crew, ...)
+  const { data: contactRows, error: cErr } = await sb
+    .from("contacts").select("id, name, email, phone, role, uptiq_contact_id").eq("location_id", locId).eq("active", true);
+  if (cErr) return { status: 500, body: { mode, error: cErr.message } };
+  for (const row of contactRows ?? []) {
+    if (!reachable(row.email, row.phone)) continue;
+    targets.push({
+      key: `contact:${row.role}:${row.name ?? row.id}`,
+      name: row.name, email: row.email, phone: row.phone,
+      tags: ["daily-burn", String(row.role ?? "contact")],
+      existingId: row.uptiq_contact_id ?? null,
+      save: (c, id) => c.from("contacts").update({ uptiq_contact_id: id }).eq("id", row.id).then(() => undefined),
+    });
+  }
+
+  // 2) supply houses
+  const { data: shRows, error: sErr } = await sb
+    .from("supply_house_contacts").select("id, name, rep_name, email, phone, uptiq_contact_id").eq("location_id", locId).eq("active", true);
+  if (sErr) return { status: 500, body: { mode, error: sErr.message } };
+  for (const row of shRows ?? []) {
+    if (!reachable(row.email, row.phone)) continue;
+    targets.push({
+      key: `supply_house:${row.name ?? row.id}`,
+      name: row.name ?? row.rep_name, email: row.email, phone: row.phone,
+      tags: ["daily-burn", "supply_house"],
+      existingId: row.uptiq_contact_id ?? null,
+      save: (c, id) => c.from("supply_house_contacts").update({ uptiq_contact_id: id }).eq("id", row.id).then(() => undefined),
+    });
+  }
+
+  // 3) owner + office (company_settings)
+  const { data: cs, error: csErr } = await sb
+    .from("company_settings")
+    .select("owner_name, owner_email, owner_phone, owner_contact_id, office_email, office_phone, office_contact_id")
+    .eq("location_id", locId).maybeSingle();
+  if (csErr) return { status: 500, body: { mode, error: csErr.message } };
+  if (cs) {
+    if (reachable(cs.owner_email, cs.owner_phone)) {
+      targets.push({
+        key: "owner", name: cs.owner_name ?? "Owner", email: cs.owner_email, phone: cs.owner_phone,
+        tags: ["daily-burn", "owner"], existingId: cs.owner_contact_id ?? null,
+        save: (c, id) => c.from("company_settings").update({ owner_contact_id: id }).eq("location_id", locId).then(() => undefined),
+      });
+    }
+    if (reachable(cs.office_email, cs.office_phone)) {
+      targets.push({
+        key: "office", name: "Office", email: cs.office_email, phone: cs.office_phone,
+        tags: ["daily-burn", "office"], existingId: cs.office_contact_id ?? null,
+        save: (c, id) => c.from("company_settings").update({ office_contact_id: id }).eq("location_id", locId).then(() => undefined),
+      });
+    }
+  }
+
+  const planned = limit ? targets.slice(0, limit) : targets;
+
+  if (dryRun) {
+    return { status: 200, body: {
+      location: companyName, uptiq_location_id: uptiqLoc, mode, dry_run: true,
+      would_sync: planned.length, total_reachable: targets.length,
+      parties: planned.map((t) => ({ key: t.key, name: t.name, email: t.email, phone: t.phone, has_existing_id: Boolean(t.existingId) })),
+    } };
+  }
+
+  const results: any[] = [];
+  let linked = 0, notFound = 0, created = 0, updated = 0, failed = 0;
+  for (const t of planned) {
+    if (mode === "link") {
+      // Already linked → leave it alone. Personas/test setups often share an email or phone, so
+      // a loose re-match here once stamped ONE Uptiq contact's id across several parties (owner,
+      // office, and a crew member all became "tyler testesto"). The tag pull is the authority
+      // for id repairs; link only fills in the blanks.
+      if (t.existingId) {
+        results.push({ key: t.key, ok: true, contact_id: t.existingId, action: "already_linked" });
+        continue;
+      }
+      // READ ONLY: find an existing Uptiq contact and attach its id. Prefer an exact NAME match
+      // (distinguishes persona contacts sharing an email/phone), then exact email, then first hit.
+      const query = (t.email || t.phone || "").trim();
+      if (!query) { failed++; results.push({ key: t.key, ok: false, error: "no_query" }); continue; }
+      const res = await uptiq.findContacts({ locationId: uptiqLoc, query });
+      if (!res.ok) {
+        failed++;
+        results.push({ key: t.key, ok: false, status: res.status, error: res.error ?? "find_failed", detail: res.data });
+        continue;
+      }
+      const found = ((res.data as any)?.contacts ?? []) as any[];
+      const nameOf = (c: any) => String(c?.contactName ?? c?.fullName ?? c?.name ?? "").trim().toLowerCase();
+      const wanted = String(t.name ?? "").trim().toLowerCase();
+      const match = (wanted ? found.find((c) => nameOf(c) === wanted) : null)
+        ?? found.find((c) => t.email && String(c.email ?? "").toLowerCase() === String(t.email).toLowerCase())
+        ?? found[0] ?? null;
+      if (match?.id) {
+        await t.save(sb, String(match.id));
+        linked++;
+        results.push({ key: t.key, ok: true, contact_id: match.id, action: "linked" });
+      } else {
+        notFound++;
+        results.push({ key: t.key, ok: false, action: "not_in_uptiq", error: "not_found" });
+      }
+      continue;
+    }
+
+    // upsert mode — needs Contacts WRITE scope (currently disabled by token scope)
+    const res = await uptiq.upsertContact({ locationId: uptiqLoc, name: t.name, email: t.email, phone: t.phone, tags: t.tags });
+    if (!res.ok) {
+      failed++;
+      results.push({ key: t.key, ok: false, status: res.status, error: res.error ?? "upsert_failed", detail: res.data });
+      continue;
+    }
+    const d = res.data as any;
+    const contactId = d?.contact?.id ?? d?.id ?? null;
+    if (!contactId) { failed++; results.push({ key: t.key, ok: false, error: "no_contact_id_in_response", detail: d }); continue; }
+    await t.save(sb, String(contactId));
+    if (d?.new === true) created++; else updated++;
+    results.push({ key: t.key, ok: true, contact_id: contactId, action: d?.new ? "created" : "updated" });
+  }
+
+  await logEvent({
+    source: "admin", kind: "contacts_sync", location_id: locId,
+    payload: { mode, total: planned.length, linked, not_found: notFound, created, updated, failed, by: byEmail },
+  });
+
+  return { status: 200, body: {
+    location: companyName, uptiq_location_id: uptiqLoc, mode, dry_run: false,
+    total_reachable: targets.length, attempted: planned.length,
+    linked, not_found: notFound, created, updated, failed, results,
+  } };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -126,6 +356,12 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body.dry_run === true;
   const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.trunc(Number(body.limit))) : null;
+
+  // Fail loud on a mode this function no longer (or never) supported — e.g. the retired
+  // pull_crew/pull_tag modes (the full-mirror pull imports crew too) — instead of silently
+  // falling through to link. Omitting mode entirely still defaults to link (original behavior).
+  const KNOWN_MODES = new Set(["delete", "set_active", "list_conversations", "delete_conversation", "pull_contacts", "sync", "link", "upsert"]);
+  if (body.mode !== undefined && !KNOWN_MODES.has(String(body.mode))) return json({ error: "unknown_mode" }, 400);
 
   // Manage an app contact directly (no Uptiq round-trip): hard delete, or toggle active.
   // Tenant-scoped by location_id so a caller can never touch another tenant's row.
@@ -164,10 +400,6 @@ Deno.serve(async (req) => {
     });
     return json({ ok: true, deleted: contactId });
   }
-  // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
-  // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
-  const mode = body.mode === "upsert" ? "upsert" : "link";
-
   const { data: loc, error: locErr } = await sb
     .from("locations").select("id, uptiq_location_id, company_name").eq("id", locId).maybeSingle();
   if (locErr) return json({ error: locErr.message }, 500);
@@ -319,272 +551,28 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Uptiq -> app PULL: import every Uptiq contact carrying a tag (default "crew") as an app crew
-  // contact. READ-ONLY to Uptiq. Deduped by uptiq_contact_id and additive (never deletes/deactivates
-  // existing app contacts). dry_run previews the matched contacts without touching the app.
-  if (body.mode === "pull_crew" || body.mode === "pull_tag") {
-    const tag = (typeof body.tag === "string" && body.tag.trim()) ? body.tag.trim() : "crew";
-    const res = await uptiq.listContactsByTag({ locationId: uptiqLoc, tag });
-    if (!res.ok) return json({ mode: "pull_crew", tag, error: res.error ?? "list_failed", status: res.status, detail: res.data }, 502);
-    const found = limit ? res.matched.slice(0, limit) : res.matched;
-
-    if (dryRun) {
-      return json({
-        location: loc.company_name, mode: "pull_crew", tag, dry_run: true,
-        scanned: res.scanned, capped: res.capped, found: res.matched.length,
-        contacts: found.map((c) => ({ id: c.id, name: c.name, email: c.email, phone: c.phone })),
-      });
-    }
-
-    let imported = 0, updated = 0, skipped = 0;
-    const results: any[] = [];
-    for (const c of found) {
-      if (!c.id) { skipped++; continue; }
-      // Dedupe against existing CREW rows only (limit(1) — a Uptiq id can be shared by other-role
-      // app contacts, e.g. a customer, so maybeSingle across all roles could match multiple/throw
-      // and we must not flip a non-crew contact to crew).
-      const { data: existingRows, error: exErr } = await sb
-        .from("contacts").select("id").eq("location_id", locId).eq("role", "crew").eq("uptiq_contact_id", c.id).limit(1);
-      if (exErr) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: exErr.message }); continue; }
-      const existing = existingRows?.[0] ?? null;
-      const patch: Record<string, unknown> = { email: c.email, phone: c.phone, role: "crew", active: true };
-      if (c.name) patch.name = c.name;
-      if (existing) {
-        const { error } = await sb.from("contacts").update(patch).eq("id", existing.id);
-        if (error) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: error.message }); continue; }
-        updated++; results.push({ id: c.id, name: c.name, action: "updated" });
-      } else {
-        const { error } = await sb.from("contacts").insert({
-          location_id: locId, uptiq_contact_id: c.id,
-          name: c.name ?? c.email ?? "(unnamed crew)", email: c.email, phone: c.phone, role: "crew", active: true,
-        });
-        if (error) { skipped++; results.push({ id: c.id, name: c.name, action: "error", error: error.message }); continue; }
-        imported++; results.push({ id: c.id, name: c.name, action: "imported" });
-      }
-    }
-
-    await logEvent({
-      source: "admin", kind: "contacts_pull_crew", location_id: locId,
-      payload: { tag, found: res.matched.length, imported, updated, skipped, by: claims.email },
-    });
-    return json({
-      location: loc.company_name, mode: "pull_crew", tag, dry_run: false,
-      scanned: res.scanned, capped: res.capped, found: res.matched.length,
-      imported, updated, skipped, results,
-    });
-  }
-
-  // Uptiq -> app PULL (full mirror): import EVERY tagged Uptiq contact into the app `contacts`
-  // table under a role derived from its tags (crew/customer/owner/office/supply_house), and ALSO
-  // link supply_house-tagged contacts into supply_house_contacts. READ-ONLY to Uptiq, additive
-  // (never deletes/deactivates). dry_run previews the tag->role breakdown so the operator can
-  // confirm the mapping matches their GHL tags before any write. Contacts with no recognized tag
-  // are skipped (surfaced under `unrecognized`).
+  // Uptiq -> app PULL only (sync step 1, standalone for targeted debugging via the API).
   if (body.mode === "pull_contacts") {
-    const res = await uptiq.listContacts({ locationId: uptiqLoc });
-    if (!res.ok) return json({ mode: "pull_contacts", error: res.error ?? "list_failed", status: res.status, detail: res.data }, 502);
-
-    const categorized = res.contacts.map((c) => ({ c, role: roleForTags(c.tags) }));
-    const byRole: Record<string, number> = {};
-    for (const x of categorized) { const k = x.role ?? "unrecognized"; byRole[k] = (byRole[k] ?? 0) + 1; }
-    const importable = categorized.filter((x): x is { c: PulledContact; role: string } => Boolean(x.role && x.c.id));
-
-    if (dryRun) {
-      return json({
-        location: loc.company_name, mode: "pull_contacts", dry_run: true,
-        scanned: res.scanned, capped: res.capped, by_role: byRole, would_import: importable.length,
-        preview: importable.slice(0, 50).map((x) => ({ id: x.c.id, name: x.c.name, role: x.role, tags: x.c.tags })),
-        unrecognized: categorized.filter((x) => !x.role).slice(0, 25).map((x) => ({ name: x.c.name, email: x.c.email, tags: x.c.tags })),
-      });
-    }
-
-    const counts = { contacts_imported: 0, contacts_updated: 0, supply_imported: 0, supply_updated: 0, supply_linked: 0, skipped: 0 };
-    const errors: any[] = [];
-    const applied = limit ? importable.slice(0, limit) : importable;
-    for (const { c, role } of applied) {
-      // 1) contacts mirror row — dedupe by uptiq_contact_id within the target role (limit(1): a
-      // Uptiq id can be shared across roles, so scope the match to the role we're writing).
-      const { data: existingRows, error: exErr } = await sb
-        .from("contacts").select("id").eq("location_id", locId).eq("role", role).eq("uptiq_contact_id", c.id).limit(1);
-      if (exErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: exErr.message }); continue; }
-      let existing = existingRows?.[0] ?? null;
-      // REPAIR path: no id match, but a same-named row of this role exists → its stored id is
-      // stale/wrong (e.g. a loose email/phone link once stamped another contact's id on it).
-      // The tag pull is the identity authority from Uptiq, so re-point the row at the real id.
-      const patch: Record<string, unknown> = { role, active: true };
-      if (!existing && c.name) {
-        const { data: byName, error: nameErr } = await sb
-          .from("contacts").select("id").eq("location_id", locId).eq("role", role).ilike("name", c.name).limit(1);
-        if (nameErr) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: nameErr.message }); continue; }
-        if (byName?.[0]) {
-          existing = byName[0];
-          patch.uptiq_contact_id = c.id;
-        }
-      }
-      // Update only overwrites email/phone when Uptiq has a value (don't null out data we hold).
-      if (c.name) patch.name = c.name;
-      if (c.email) patch.email = c.email;
-      if (c.phone) patch.phone = c.phone;
-      if (existing) {
-        const { error } = await sb.from("contacts").update(patch).eq("id", existing.id);
-        if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
-        counts.contacts_updated++;
-      } else {
-        const { error } = await sb.from("contacts").insert({
-          location_id: locId, uptiq_contact_id: c.id,
-          name: c.name ?? c.email ?? `(unnamed ${role})`, email: c.email, phone: c.phone, role, active: true,
-        });
-        if (error) { counts.skipped++; errors.push({ id: c.id, where: "contacts", error: error.message }); continue; }
-        counts.contacts_imported++;
-      }
-
-      // 2) supply houses also link into the ordering table (Mirror + link supply houses).
-      if (role === "supply_house") {
-        const r = await upsertSupplyHouseFromContact(sb, locId, c);
-        if (r.action === "error") errors.push({ id: c.id, where: "supply_house", error: r.error });
-        else if (r.action === "updated") counts.supply_updated++;
-        else if (r.action === "linked") counts.supply_linked++;
-        else counts.supply_imported++;
-      }
-    }
-
-    await logEvent({
-      source: "admin", kind: "contacts_pull_contacts", location_id: locId,
-      payload: { ...counts, scanned: res.scanned, by_role: byRole, by: claims.email },
-    });
-    return json({
-      location: loc.company_name, mode: "pull_contacts", dry_run: false,
-      scanned: res.scanned, capped: res.capped, by_role: byRole, ...counts, errors: errors.slice(0, 20),
-    });
+    const r = await runPullContacts(sb, locId, loc.company_name, uptiqLoc, dryRun, limit, claims.email);
+    return json(r.body, r.status);
   }
 
-  const targets: Target[] = [];
-
-  // 1) contacts table (customers, crew, ...)
-  const { data: contactRows, error: cErr } = await sb
-    .from("contacts").select("id, name, email, phone, role, uptiq_contact_id").eq("location_id", locId).eq("active", true);
-  if (cErr) return json({ error: cErr.message }, 500);
-  for (const row of contactRows ?? []) {
-    if (!reachable(row.email, row.phone)) continue;
-    targets.push({
-      key: `contact:${row.role}:${row.name ?? row.id}`,
-      name: row.name, email: row.email, phone: row.phone,
-      tags: ["daily-burn", String(row.role ?? "contact")],
-      existingId: row.uptiq_contact_id ?? null,
-      save: (c, id) => c.from("contacts").update({ uptiq_contact_id: id }).eq("id", row.id).then(() => undefined),
-    });
+  // ONE sync command, two steps in a fixed chain: (1) the tag pull imports/repairs everything
+  // Uptiq says (it is the id authority), then (2) the link pass fills Uptiq ids for whatever
+  // app-side parties remain unlinked (job customers, hand-entered supply houses, owner/office).
+  // Link runs second and never overwrites, so the chain can't undo step 1. Read-only in Uptiq.
+  // On a step failure the response carries `step` (plus step 1's summary once it completed) —
+  // both steps are additive + idempotent, so re-running the sync continues where it left off.
+  if (body.mode === "sync") {
+    const pull = await runPullContacts(sb, locId, loc.company_name, uptiqLoc, dryRun, limit, claims.email);
+    if (pull.status !== 200) return json({ ...pull.body, mode: "sync", step: "pull_contacts" }, pull.status);
+    const link = await runLinkSync(sb, locId, loc.company_name, uptiqLoc, "link", dryRun, limit, claims.email);
+    if (link.status !== 200) return json({ ...link.body, mode: "sync", step: "link", pull: pull.body }, link.status);
+    return json({ location: loc.company_name, mode: "sync", dry_run: dryRun, pull: pull.body, link: link.body });
   }
 
-  // 2) supply houses
-  const { data: shRows, error: sErr } = await sb
-    .from("supply_house_contacts").select("id, name, rep_name, email, phone, uptiq_contact_id").eq("location_id", locId).eq("active", true);
-  if (sErr) return json({ error: sErr.message }, 500);
-  for (const row of shRows ?? []) {
-    if (!reachable(row.email, row.phone)) continue;
-    targets.push({
-      key: `supply_house:${row.name ?? row.id}`,
-      name: row.name ?? row.rep_name, email: row.email, phone: row.phone,
-      tags: ["daily-burn", "supply_house"],
-      existingId: row.uptiq_contact_id ?? null,
-      save: (c, id) => c.from("supply_house_contacts").update({ uptiq_contact_id: id }).eq("id", row.id).then(() => undefined),
-    });
-  }
-
-  // 3) owner + office (company_settings)
-  const { data: cs, error: csErr } = await sb
-    .from("company_settings")
-    .select("owner_name, owner_email, owner_phone, owner_contact_id, office_email, office_phone, office_contact_id")
-    .eq("location_id", locId).maybeSingle();
-  if (csErr) return json({ error: csErr.message }, 500);
-  if (cs) {
-    if (reachable(cs.owner_email, cs.owner_phone)) {
-      targets.push({
-        key: "owner", name: cs.owner_name ?? "Owner", email: cs.owner_email, phone: cs.owner_phone,
-        tags: ["daily-burn", "owner"], existingId: cs.owner_contact_id ?? null,
-        save: (c, id) => c.from("company_settings").update({ owner_contact_id: id }).eq("location_id", locId).then(() => undefined),
-      });
-    }
-    if (reachable(cs.office_email, cs.office_phone)) {
-      targets.push({
-        key: "office", name: "Office", email: cs.office_email, phone: cs.office_phone,
-        tags: ["daily-burn", "office"], existingId: cs.office_contact_id ?? null,
-        save: (c, id) => c.from("company_settings").update({ office_contact_id: id }).eq("location_id", locId).then(() => undefined),
-      });
-    }
-  }
-
-  const planned = limit ? targets.slice(0, limit) : targets;
-
-  if (dryRun) {
-    return json({
-      location: loc.company_name, uptiq_location_id: uptiqLoc, mode, dry_run: true,
-      would_sync: planned.length, total_reachable: targets.length,
-      parties: planned.map((t) => ({ key: t.key, name: t.name, email: t.email, phone: t.phone, has_existing_id: Boolean(t.existingId) })),
-    });
-  }
-
-  const results: any[] = [];
-  let linked = 0, notFound = 0, created = 0, updated = 0, failed = 0;
-  for (const t of planned) {
-    if (mode === "link") {
-      // Already linked → leave it alone. Personas/test setups often share an email or phone, so
-      // a loose re-match here once stamped ONE Uptiq contact's id across several parties (owner,
-      // office, and a crew member all became "tyler testesto"). The tag pull is the authority
-      // for id repairs; link only fills in the blanks.
-      if (t.existingId) {
-        results.push({ key: t.key, ok: true, contact_id: t.existingId, action: "already_linked" });
-        continue;
-      }
-      // READ ONLY: find an existing Uptiq contact and attach its id. Prefer an exact NAME match
-      // (distinguishes persona contacts sharing an email/phone), then exact email, then first hit.
-      const query = (t.email || t.phone || "").trim();
-      if (!query) { failed++; results.push({ key: t.key, ok: false, error: "no_query" }); continue; }
-      const res = await uptiq.findContacts({ locationId: uptiqLoc, query });
-      if (!res.ok) {
-        failed++;
-        results.push({ key: t.key, ok: false, status: res.status, error: res.error ?? "find_failed", detail: res.data });
-        continue;
-      }
-      const found = ((res.data as any)?.contacts ?? []) as any[];
-      const nameOf = (c: any) => String(c?.contactName ?? c?.fullName ?? c?.name ?? "").trim().toLowerCase();
-      const wanted = String(t.name ?? "").trim().toLowerCase();
-      const match = (wanted ? found.find((c) => nameOf(c) === wanted) : null)
-        ?? found.find((c) => t.email && String(c.email ?? "").toLowerCase() === String(t.email).toLowerCase())
-        ?? found[0] ?? null;
-      if (match?.id) {
-        await t.save(sb, String(match.id));
-        linked++;
-        results.push({ key: t.key, ok: true, contact_id: match.id, action: "linked" });
-      } else {
-        notFound++;
-        results.push({ key: t.key, ok: false, action: "not_in_uptiq", error: "not_found" });
-      }
-      continue;
-    }
-
-    // upsert mode — needs Contacts WRITE scope (currently disabled by token scope)
-    const res = await uptiq.upsertContact({ locationId: uptiqLoc, name: t.name, email: t.email, phone: t.phone, tags: t.tags });
-    if (!res.ok) {
-      failed++;
-      results.push({ key: t.key, ok: false, status: res.status, error: res.error ?? "upsert_failed", detail: res.data });
-      continue;
-    }
-    const d = res.data as any;
-    const contactId = d?.contact?.id ?? d?.id ?? null;
-    if (!contactId) { failed++; results.push({ key: t.key, ok: false, error: "no_contact_id_in_response", detail: d }); continue; }
-    await t.save(sb, String(contactId));
-    if (d?.new === true) created++; else updated++;
-    results.push({ key: t.key, ok: true, contact_id: contactId, action: d?.new ? "created" : "updated" });
-  }
-
-  await logEvent({
-    source: "admin", kind: "contacts_sync", location_id: locId,
-    payload: { mode, total: planned.length, linked, not_found: notFound, created, updated, failed, by: claims.email },
-  });
-
-  return json({
-    location: loc.company_name, uptiq_location_id: uptiqLoc, mode, dry_run: false,
-    total_reachable: targets.length, attempted: planned.length,
-    linked, not_found: notFound, created, updated, failed, results,
-  });
+  // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
+  // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
+  const r = await runLinkSync(sb, locId, loc.company_name, uptiqLoc, body.mode === "upsert" ? "upsert" : "link", dryRun, limit, claims.email);
+  return json(r.body, r.status);
 });

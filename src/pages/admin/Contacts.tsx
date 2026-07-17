@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Ban, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { canManageContacts, deleteContact, fetchContacts, setContactActive, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
-import { pullContacts } from "@/lib/settings";
+import { syncWithUptiq } from "@/lib/settings";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
@@ -66,31 +66,37 @@ export default function AdminContacts() {
       .join(", ");
   }
 
-  async function handlePull() {
+  // The same ONE sync command as Settings (contacts-sync mode:"sync"): tag pull, then link the
+  // rest. Preview first (dry run, read-only) so the confirm shows what each step would do.
+  async function handleSync() {
     if (!canManage) return;
     setPulling(true);
     setError(null);
     setNotice(null);
     try {
-      // Preview first (read-only) so the confirm shows the tag->role breakdown before writing.
-      const preview = await pullContacts({ dryRun: true });
-      const breakdown = roleBreakdown(preview.by_role);
+      const preview = await syncWithUptiq({ dryRun: true });
+      const breakdown = roleBreakdown(preview.pull.by_role);
+      const unlinked = (preview.link.parties ?? []).filter((p) => !p.has_existing_id).length;
       const ok = await confirm({
-        title: "Pull contacts from Uptiq?",
-        body: `Found ${preview.scanned ?? 0} Uptiq contacts — will import ${preview.would_import ?? 0} by tag${breakdown ? `:\n${breakdown}` : ""}.\n\nRead-only in Uptiq; untagged/unrecognized contacts are skipped. Supply houses are also linked into the Supply Houses list.`,
-        confirmLabel: "Import",
+        title: "Sync contacts with Uptiq?",
+        body: `Step 1 imports ${preview.pull.would_import ?? 0} of ${preview.pull.scanned ?? 0} Uptiq contacts by tag${breakdown ? ` (${breakdown})` : ""}; supply houses also land in the Supply Houses list. Step 2 links ${unlinked} app record${unlinked === 1 ? "" : "s"} still missing a Uptiq id.\n\nRead-only in Uptiq; additive — never removes anyone. Untagged/unrecognized contacts are skipped.`,
+        confirmLabel: "Sync",
       });
       if (!ok) return;
-      const res = await pullContacts({ dryRun: false });
-      const sh = (res.supply_imported ?? 0) + (res.supply_updated ?? 0) + (res.supply_linked ?? 0);
+      const res = await syncWithUptiq({ dryRun: false });
+      const sh = (res.pull.supply_imported ?? 0) + (res.pull.supply_updated ?? 0) + (res.pull.supply_linked ?? 0);
+      const linked = res.link.linked ?? 0;
+      const notFound = res.link.not_found ?? 0;
       setNotice(
-        `Imported ${res.contacts_imported ?? 0}, updated ${res.contacts_updated ?? 0} contacts` +
+        `Imported ${res.pull.contacts_imported ?? 0}, updated ${res.pull.contacts_updated ?? 0} contacts` +
         `${sh ? `; ${sh} supply house${sh === 1 ? "" : "s"} linked` : ""}` +
-        `${res.skipped ? `; ${res.skipped} skipped` : ""}.`,
+        `${res.pull.skipped ? `; ${res.pull.skipped} skipped` : ""}` +
+        `${linked ? `; linked ${linked} more by lookup` : ""}` +
+        `${notFound ? `; ${notFound} not found in Uptiq` : ""}.`,
       );
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Contact pull failed");
+      setError(err instanceof Error ? err.message : "Uptiq contact sync failed");
     } finally {
       setPulling(false);
     }
@@ -142,7 +148,7 @@ export default function AdminContacts() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
         <div>
           <h1 className="text-sm font-semibold">Contacts</h1>
-          <p className="text-xs text-muted-foreground">People this company messages: customers, crew, owner, office, supply houses. Pulled from Uptiq by tag; supply houses also link into the Supply Houses list.</p>
+          <p className="text-xs text-muted-foreground">People this company messages: customers, crew, owner, office, supply houses. Synced from Uptiq by tag; supply houses also link into the Supply Houses list.</p>
         </div>
         <div className="flex-1" />
         <input
@@ -158,9 +164,9 @@ export default function AdminContacts() {
           options={[{ value: "all", label: "All roles" }, ...roles.map((r) => ({ value: r, label: `${roleLabel(r)} (${data?.role_counts[r]})` }))]}
         />
         {canManage && (
-          <button type="button" onClick={handlePull} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+          <button type="button" onClick={handleSync} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <RefreshCw className={`h-3.5 w-3.5 ${pulling ? "animate-spin" : ""}`} />
-            {pulling ? "Pulling..." : "Pull from Uptiq"}
+            {pulling ? "Syncing..." : "Sync with Uptiq"}
           </button>
         )}
       </div>
