@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Archive, DollarSign, RotateCcw, Save } from "lucide-react";
+import { ArrowLeft, Archive, ChevronDown, ChevronRight, DollarSign, RotateCcw, Save } from "lucide-react";
 import {
   canManageJobs,
   createJob,
@@ -17,6 +17,7 @@ import {
   type JobState,
 } from "@/lib/jobs";
 import { fetchContacts, type ContactRow } from "@/lib/contacts";
+import { fetchPhotoReadUrls, isPdfPath } from "@/lib/photos";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm, usePrompt } from "@/components/dialogs";
@@ -157,6 +158,10 @@ export default function JobDetail() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [crewContacts, setCrewContacts] = useState<ContactRow[]>([]);
+  // Check-ins drill-down: which log row is expanded + signed read URLs for its photos.
+  // URLs are short-lived (~10 min), fetched once per detail load for every path on the job.
+  const [openLogId, setOpenLogId] = useState<string | null>(null);
+  const [logPhotoUrls, setLogPhotoUrls] = useState<Record<string, string | null>>({});
 
   // Crew dropdown options come from the contacts table (role=crew, active) — the crew synced
   // from the Uptiq "crew" tag. Only editors need it; the read is admin-gated.
@@ -168,6 +173,23 @@ export default function JobDetail() {
       .catch(() => { /* leave the dropdown empty on failure — the text field still works */ });
     return () => { active = false; };
   }, [canManage]);
+
+  // Sign every check-in photo path (job-site + receipt + parts) once the detail loads, so the
+  // Check-ins drill-down can render thumbnails. Failure just means no thumbnails — rows still show.
+  useEffect(() => {
+    const logs = detail?.daily_logs ?? [];
+    const paths = logs.flatMap((log) => [
+      ...(Array.isArray(log.job_site_photo_urls) ? log.job_site_photo_urls : []),
+      log.receipt_photo_url,
+      log.parts_photo_url,
+    ]);
+    if (!paths.some(Boolean)) { setLogPhotoUrls({}); return; }
+    let active = true;
+    fetchPhotoReadUrls(paths)
+      .then((urls) => { if (active) setLogPhotoUrls(urls); })
+      .catch(() => { /* thumbnails just won't render */ });
+    return () => { active = false; };
+  }, [detail]);
 
   useEffect(() => {
     let active = true;
@@ -651,18 +673,74 @@ export default function JobDetail() {
           </div>
 
           <div className="border-b border-border p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent logs</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check-ins</h2>
+            <p className="mt-0.5 text-2xs text-muted-foreground">Everything the crew submitted, one row per day per crew — click a row for photos and details.</p>
             <div className="mt-2 divide-y divide-border text-xs">
-              {(detail?.daily_logs ?? []).slice(0, 5).map((log) => (
-                <div key={log.id} className="py-2">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-medium">{shortDate(log.log_date)}</span>
-                    <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
+              {(detail?.daily_logs ?? []).map((log) => {
+                const open = openLogId === log.id;
+                const crewName = detail?.job.crew.find((c) => c.id === log.crew_contact_id)?.name ?? null;
+                const phase = states.find((s) => s.id === log.state_id)?.label ?? null;
+                const sitePhotos = Array.isArray(log.job_site_photo_urls) ? log.job_site_photo_urls : [];
+                const source = (log as { source?: string | null }).source; // types.ts predates the column
+                const partsSummary = log.parts_source === "field_purchase"
+                  ? `Field purchase${log.field_purchase_amount != null ? ` ${currency(Number(log.field_purchase_amount))}` : ""}${log.field_purchase_vendor ? ` at ${log.field_purchase_vendor}` : ""}`
+                  : log.parts_source === "supply_house"
+                    ? "Supply house order"
+                    : null;
+                return (
+                  <div key={log.id}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenLogId(open ? null : log.id)}
+                      className="flex w-full items-center gap-2 py-2 text-left hover:bg-muted/40"
+                    >
+                      {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                      <span className="font-medium">{shortDate(log.log_date)}</span>
+                      {crewName && <span className="text-muted-foreground">{crewName}</span>}
+                      {phase && <span className="pill bg-muted text-muted-foreground">{phase}</span>}
+                      {log.inspection_requested && <span className="pill bg-accent/10 text-accent">ready for inspection</span>}
+                      {sitePhotos.length > 0 && <span className="text-2xs text-muted-foreground">{sitePhotos.length} photo{sitePhotos.length === 1 ? "" : "s"}</span>}
+                      <span className="flex-1" />
+                      {log.state_progress_pct != null && <span className="font-mono-num text-muted-foreground">{log.state_progress_pct}%</span>}
+                      <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
+                    </button>
+                    {open && (
+                      <div className="space-y-2 pb-3 pl-6 pr-2">
+                        {log.issues && (
+                          <div>
+                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
+                            <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
+                          </div>
+                        )}
+                        {(partsSummary || log.parts_list) && (
+                          <div>
+                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts</div>
+                            {partsSummary && <div className="mt-0.5">{partsSummary}{log.field_purchase_description ? ` — ${log.field_purchase_description}` : ""}</div>}
+                            {log.parts_list && <div className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{log.parts_list}</div>}
+                          </div>
+                        )}
+                        {(sitePhotos.length > 0 || log.receipt_photo_url || log.parts_photo_url) && (
+                          <div>
+                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Photos</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {sitePhotos.map((path, i) => (
+                                <LogPhotoThumb key={path} path={path} urls={logPhotoUrls} label={`Job site ${i + 1}`} />
+                              ))}
+                              {log.receipt_photo_url && <LogPhotoThumb path={log.receipt_photo_url} urls={logPhotoUrls} label="Receipt" />}
+                              {log.parts_photo_url && <LogPhotoThumb path={log.parts_photo_url} urls={logPhotoUrls} label="Parts" />}
+                            </div>
+                          </div>
+                        )}
+                        <div className="text-2xs text-muted-foreground">
+                          Submitted {log.created_at ? new Date(log.created_at).toLocaleString() : "-"}
+                          {source ? ` · via ${source === "quick_log" ? "quick log" : source === "check_in" ? "daily check-in" : source}` : ""}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1 text-muted-foreground">{log.issues || log.parts_list || "Daily check-in submitted"}</div>
-                </div>
-              ))}
-              {(detail?.daily_logs ?? []).length === 0 && <div className="py-3 text-muted-foreground">No daily logs yet.</div>}
+                );
+              })}
+              {(detail?.daily_logs ?? []).length === 0 && <div className="py-3 text-muted-foreground">No check-ins yet.</div>}
             </div>
           </div>
 
@@ -700,5 +778,21 @@ export default function JobDetail() {
         </aside>
       </div>
     </form>
+  );
+}
+
+// Signed-URL photo thumbnail for the Check-ins drill-down — same pattern as the Expenses
+// table: still-loading paths show a placeholder, PDFs render as links, images as 40px thumbs
+// that open full size in a new tab.
+function LogPhotoThumb({ path, urls, label }: { path: string; urls: Record<string, string | null>; label: string }) {
+  const url = urls[path];
+  if (!url) return <span className="text-2xs text-muted-foreground" title={path}>{label}…</span>;
+  if (isPdfPath(path)) {
+    return <a href={url} target="_blank" rel="noreferrer" className="text-2xs text-accent hover:underline">{label} (PDF)</a>;
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title={`${label} — open full size`}>
+      <img src={url} alt={label} className="h-10 w-10 rounded-sm border border-border object-cover" loading="lazy" />
+    </a>
   );
 }
