@@ -241,7 +241,13 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "walkthrough_punch_list_notice": {
       const where = address ? ` at ${address}` : "";
       const details = str(payload.details) || "(see owner)";
-      return { subject: null, body: `Walkthrough punch list${where}: ${details}`.trim() };
+      // The close-the-loop instruction matters: the owner's approve/still-issues re-ask only
+      // fires when the crew marks ready-for-inspection on a check-in (like a failed
+      // inspection's fix list), so the crew must know that's the "done" signal.
+      return {
+        subject: null,
+        body: `Walkthrough punch list${where}: ${details} When the list is done, mark "ready for inspection" on your daily check-in.`.trim(),
+      };
     }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
     // advances a job. Copy is keyed off the decision's action so one template serves

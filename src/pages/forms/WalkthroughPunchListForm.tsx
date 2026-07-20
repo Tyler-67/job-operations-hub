@@ -55,7 +55,7 @@ export default function WalkthroughPunchListForm({ payload }: { payload: TokenPa
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
         <p className="font-semibold">Punch list sent.</p>
-        <p className="mt-1 text-sm">The crew has been notified of the items to finish before approval.</p>
+        <p className="mt-1 text-sm">The crew has been notified of the items to finish before approval. You&rsquo;ll get a text to approve the walkthrough once they mark the list done.</p>
       </div>
     );
   }

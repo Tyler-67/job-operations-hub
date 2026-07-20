@@ -127,7 +127,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ inspectionRequested: boolean } | null>(null);
+  const [done, setDone] = useState<{ inspectionRequested: boolean; walkthroughReasked: boolean } | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -164,8 +164,13 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
       if (!res.ok) throw new Error(data?.error ?? "submit_failed");
       // Only claim the office was notified when the phase actually advanced into an
       // inspection state — that is exactly when the backend enqueues the owner/office
-      // notice. (A request from a state with no inspection transition is a no-op.)
-      setDone({ inspectionRequested: Boolean(data.state_changed) });
+      // notice. In the walkthrough state there is no inspection transition; a ready-for-
+      // inspection request there re-asks the owner to review the walkthrough instead
+      // (walkthrough_reasked), so the confirmation says that.
+      setDone({
+        inspectionRequested: Boolean(data.state_changed),
+        walkthroughReasked: Boolean(data.walkthrough_reasked),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
     } finally {
@@ -180,6 +185,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
         <p className="mt-1 text-sm">
           Thanks{brand.companyName !== "Daily Check-In" ? ` — ${brand.companyName} has it` : ""}.
           {done.inspectionRequested ? " The office has been notified that this phase is ready for inspection." : ""}
+          {done.walkthroughReasked ? " The owner has been asked to review the walkthrough." : ""}
         </p>
       </div>
     );

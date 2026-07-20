@@ -37,7 +37,7 @@ const FORM_CONFIG: Record<
     prompt: "What still needs to be fixed?",
     placeholder: "List the punch items the crew needs to complete before approval.",
     button: "Send punch list to crew",
-    sent: "The punch list has been sent to the crew.",
+    sent: "The punch list has been sent to the crew. You'll get a text to approve the walkthrough once they mark it done.",
   },
 };
 

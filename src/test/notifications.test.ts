@@ -186,7 +186,7 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("https://app.example.com/forms/walkthrough-punch-list?token=abc");
   });
 
-  it("renders the crew punch-list notice with the actual item list", () => {
+  it("renders the crew punch-list notice with the actual item list and the done signal", () => {
     const msg = renderNotification("walkthrough_punch_list_notice", {
       address: "1420 Canyon Rd",
       details: "Caulk the tub; re-hang the closet door.",
@@ -194,6 +194,9 @@ describe("renderNotification", () => {
     expect(msg.subject).toBeNull();
     expect(msg.body).toContain("Walkthrough punch list at 1420 Canyon Rd:");
     expect(msg.body).toContain("Caulk the tub; re-hang the closet door.");
+    // The re-ask to the owner fires off the crew's ready-for-inspection check-in, so the
+    // notice must tell the crew that's how they signal the list is done.
+    expect(msg.body).toContain('mark "ready for inspection" on your daily check-in');
   });
 
   it("renders the weekly report digest email with all four sections and the preview link", () => {

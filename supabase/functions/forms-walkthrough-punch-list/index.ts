@@ -6,12 +6,14 @@
 // action "walkthrough_punch_details") binds the submission to one job, so the body carries
 // only the free-text details. The token is single-use and consumed FIRST: a replayed submit
 // returns 410, which also makes the note append + crew notice below safe without their own
-// dedupe. Mirrors forms-inspection-fix-details; the job stays in the walkthrough state so the
-// owner can approve it later once the punch items are cleared.
+// dedupe. Mirrors forms-inspection-fix-details COMPLETELY: submitting the list notifies the
+// CREW only — the owner is NOT re-asked here. The job stays in the walkthrough state, and the
+// owner's APPROVE / STILL-ISSUES re-ask fires when the crew marks "ready for inspection" on a
+// later daily check-in (forms-daily-check-in), i.e. when the punch items are actually done —
+// exactly how a failed inspection's fix list works on every other phase of the job.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { appendPunchListNote, normalizePunchListInput } from "../_shared/punch-list.ts";
-import { enqueueWalkthroughReask } from "../_shared/walkthrough.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 
 const PUNCH_LIST_ACTION = "walkthrough_punch_details";
@@ -116,22 +118,17 @@ Deno.serve(async (req) => {
     });
     if (evtErr && !isDuplicateKeyError(evtErr)) throw evtErr;
 
-    // 4. Close the loop: re-ask the owner APPROVE / STILL ISSUES / RESCHEDULE now that the
-    // punch list is recorded. Gated inside on the job still offering walkthrough_approved
-    // and an owner contact; the date-scoped dedupe key allows one re-ask per cycle.
-    const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
-    const reasked = await enqueueWalkthroughReask(
-      sb,
-      { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
-      { appBaseUrl, cycleKey: claim.id as string },
-    );
+    // (Deliberately NO owner re-ask here: the owner just wrote this list, so asking them to
+    // approve seconds later is premature. The APPROVE / STILL-ISSUES re-ask fires from the
+    // crew's later "ready for inspection" check-in — see forms-daily-check-in — matching the
+    // inspection FAIL loop on every other phase.)
 
-    // Flush the crew punch list + the owner's APPROVE/STILL-ISSUES re-ask NOW instead of waiting up
-    // to ~15 min for the drain cron. Best-effort; the drain cron is still the backstop. Mirrors the
-    // decision spine's immediate drain.
-    if (notified || reasked) await triggerDrain();
+    // Flush the crew punch list NOW instead of waiting up to ~15 min for the drain cron.
+    // Best-effort; the drain cron is still the backstop. Mirrors the decision spine's
+    // immediate drain.
+    if (notified) await triggerDrain();
 
-    return json({ ok: true, job_id: jobId, crew_notified: notified, reasked });
+    return json({ ok: true, job_id: jobId, crew_notified: notified });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return json({ error: message }, 500);

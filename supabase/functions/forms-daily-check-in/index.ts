@@ -13,6 +13,7 @@ import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.t
 import { applyTransition } from "../_shared/state-machine.ts";
 import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
 import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
+import { enqueueWalkthroughReask } from "../_shared/walkthrough.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
 import { triggerDrain } from "../_shared/drain.ts";
@@ -455,7 +456,9 @@ Deno.serve(async (req) => {
     // 4. Inspection request advances the job through the configurable state engine, and —
     //    when it actually moves — immediately texts owner + office so they hear right away
     //    instead of waiting for the next daily inspection-reminder cron.
+    const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
     let transition = null;
+    let walkthroughReasked = false;
     if (input.inspectionRequested) {
       transition = await applyTransition(sb, {
         locationId: job.location_id,
@@ -480,6 +483,21 @@ Deno.serve(async (req) => {
           address: job.address,
           toStateId: transition.toStateId,
         });
+      } else {
+        // No inspection_requested transition from this state. When the job is sitting in
+        // the WALKTHROUGH state (punch-list work), the crew marking "ready for inspection"
+        // means the punch items are done — THIS is what re-asks the owner APPROVE /
+        // STILL-ISSUES / RESCHEDULE. (The punch-list submit itself deliberately does not
+        // re-ask; the owner's next prompt comes from the crew's re-request, exactly like
+        // the inspection FAIL loop on every other phase.) enqueueWalkthroughReask
+        // self-gates on the state offering walkthrough_approved + an owner contact, so any
+        // other transitionless state stays a silent no-op. Keyed per submission (the
+        // consumed token id): each distinct crew request re-asks once.
+        walkthroughReasked = await enqueueWalkthroughReask(
+          sb,
+          { id: jobId, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
+          { appBaseUrl, cycleKey: submissionId },
+        );
       }
     }
 
@@ -489,7 +507,6 @@ Deno.serve(async (req) => {
     //     inspection/terminal states never fire it. One ask per job per log date.
     let finishWalkthroughAsked = false;
     if (!input.inspectionRequested) {
-      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
       finishWalkthroughAsked = await enqueueFinishWalkthroughAsk(
         sb,
         {
@@ -562,6 +579,7 @@ Deno.serve(async (req) => {
       state_changed: transition?.changed ?? false,
       to_state_id: transition?.toStateId ?? null,
       finish_walkthrough_asked: finishWalkthroughAsked,
+      walkthrough_reasked: walkthroughReasked,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
