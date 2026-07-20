@@ -126,8 +126,9 @@ describe("renderNotification", () => {
     });
     expect(msg.subject).toBeNull();
     expect(msg.body).toContain("Inspection result at 1420 Canyon Rd?");
-    expect(msg.body).toContain("PASS https://app.example.com/action/decision?token=pass");
-    expect(msg.body).toContain("FAIL https://app.example.com/action/decision?token=fail");
+    // Each option sits on its own labeled line so the SMS reads as a menu, not a run-on.
+    expect(msg.body).toContain("\n\nPASS: https://app.example.com/action/decision?token=pass");
+    expect(msg.body).toContain("\n\nFAIL: https://app.example.com/action/decision?token=fail");
   });
 
   it("renders the inspection fix-details link to the owner with address and link", () => {
@@ -160,8 +161,8 @@ describe("renderNotification", () => {
     expect(msg.subject).toBeNull();
     expect(msg.body).toContain("100% complete");
     expect(msg.body).toContain("at 1420 Canyon Rd");
-    expect(msg.body).toContain("YES https://app.example.com/action/decision?token=yes");
-    expect(msg.body).toContain("NO https://app.example.com/action/decision?token=no");
+    expect(msg.body).toContain("\n\nYES: https://app.example.com/action/decision?token=yes");
+    expect(msg.body).toContain("\n\nNO: https://app.example.com/action/decision?token=no");
   });
 
   it("renders the walkthrough result ask with both APPROVE and PUNCH-LIST links", () => {
@@ -172,8 +173,8 @@ describe("renderNotification", () => {
     });
     expect(msg.subject).toBeNull();
     expect(msg.body).toContain("Final walkthrough at 1420 Canyon Rd");
-    expect(msg.body).toContain("APPROVE https://app.example.com/action/decision?token=appr");
-    expect(msg.body).toContain("PUNCH LIST https://app.example.com/action/decision?token=punch");
+    expect(msg.body).toContain("\n\nAPPROVE: https://app.example.com/action/decision?token=appr");
+    expect(msg.body).toContain("\n\nPUNCH LIST: https://app.example.com/action/decision?token=punch");
   });
 
   it("renders the walkthrough punch-list link to the owner with address and link", () => {
@@ -192,7 +193,7 @@ describe("renderNotification", () => {
       link: "https://app.example.com/forms/walkthrough-date?token=abc",
     });
     expect(msg.subject).toBeNull();
-    expect(msg.body).toBe("Schedule the final walkthrough at 1420 Canyon Rd: https://app.example.com/forms/walkthrough-date?token=abc");
+    expect(msg.body).toBe("Schedule the final walkthrough at 1420 Canyon Rd:\nhttps://app.example.com/forms/walkthrough-date?token=abc");
   });
 
   it("renders the crew punch-list notice with the actual item list and the done signal", () => {

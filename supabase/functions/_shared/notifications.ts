@@ -94,7 +94,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
         receipt ? `Receipt: ${receipt}` : "",
         partsPhoto ? `Parts: ${partsPhoto}` : "",
       ].filter(Boolean);
-      return { subject: null, body: bits.join(" ") };
+      return { subject: null, body: bits.join("\n") };
     }
     // The hourly check-in cron enqueues this as an SMS to the job's lead crew. The link
     // is a single-use, job+contact-bound daily_check_in action token built by the cron.
@@ -103,7 +103,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
       const lead = company ? `${company}: ` : "";
-      return { subject: null, body: `${lead}Time for today's job check-in${where}. Submit here: ${link}`.trim() };
+      return { subject: null, body: `${lead}Time for today's job check-in${where}.\nSubmit here: ${link}`.trim() };
     }
     // Reply the inbound-sms handler enqueues when a crew member texts LOG. The link is a
     // single-use, contact-bound quick_log token that opens the lightweight hours/progress
@@ -146,7 +146,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "inspection_date_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Pick the inspection date${where}: ${link}`.trim() };
+      return { subject: null, body: `Pick the inspection date${where}:\n${link}`.trim() };
     }
     // The owner's "schedule the walkthrough" link — sent when a job is promoted into the
     // walkthrough state (and re-sent daily by the reminder cron until a date is picked,
@@ -154,7 +154,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "walkthrough_date_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Schedule the final walkthrough${where}: ${link}`.trim() };
+      return { subject: null, body: `Schedule the final walkthrough${where}:\n${link}`.trim() };
     }
     // Office copy of the inspection reminder (v1 Test 5): same nudge the owner gets, but
     // with NO action link — the office can't enter the date or the result. One template,
@@ -175,7 +175,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const fail = str(payload.fail_link);
       return {
         subject: null,
-        body: `Inspection result${where}? Tap PASS ${pass} or FAIL ${fail}`.trim(),
+        body: `Inspection result${where}?\n\nPASS: ${pass}\n\nFAIL: ${fail}`.trim(),
       };
     }
     // Sent to the owner after a FAILED inspection: a single-use link to the form where
@@ -183,13 +183,13 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "inspection_fix_details_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Inspection failed${where}. Tell the crew what to fix: ${link}`.trim() };
+      return { subject: null, body: `Inspection failed${where}. Tell the crew what to fix:\n${link}`.trim() };
     }
     // Sent to the crew lead once the owner submits the fix details: the actual fix list.
     case "inspection_fix_details_notice": {
       const where = address ? ` at ${address}` : "";
       const details = str(payload.details) || "(see owner)";
-      return { subject: null, body: `Inspection fixes needed${where}: ${details}`.trim() };
+      return { subject: null, body: `Inspection fixes needed${where}:\n\n${details}`.trim() };
     }
     // Enqueued to the owner when the crew reports the work 100% complete: two single-use
     // decision links (YES advances the job to the final walkthrough, NO just acknowledges
@@ -200,7 +200,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const no = str(payload.no_link);
       return {
         subject: null,
-        body: `Crew marked the job${where} 100% complete. Ready for the final walkthrough? YES ${yes} NO ${no}`.trim(),
+        body: `Crew marked the job${where} 100% complete. Ready for the final walkthrough?\n\nYES: ${yes}\n\nNO: ${no}`.trim(),
       };
     }
     // Enqueued to the owner when a job enters the final walkthrough state: two single-use
@@ -211,11 +211,15 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const approve = str(payload.approve_link);
       const punch = str(payload.punch_link);
       const reschedule = str(payload.reschedule_link);
-      const tail = reschedule ? `, or RESCHEDULE ${reschedule}` : "";
-      return {
-        subject: null,
-        body: `Final walkthrough${where}. APPROVE ${approve}, start a PUNCH LIST ${punch}${tail}`.trim(),
-      };
+      const lines = [
+        `Final walkthrough${where} - how did it go?`,
+        "",
+        `APPROVE: ${approve}`,
+        "",
+        `PUNCH LIST: ${punch}`,
+      ];
+      if (reschedule) lines.push("", `RESCHEDULE: ${reschedule}`);
+      return { subject: null, body: lines.join("\n") };
     }
     // Re-asked to the owner after a punch list is completed: three single-use decision
     // links. APPROVE advances to complete/invoice-ready; STILL ISSUES reopens the punch-list
@@ -227,7 +231,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const reschedule = str(payload.reschedule_link);
       return {
         subject: null,
-        body: `Punch list done${where}. APPROVE ${approve}, STILL ISSUES ${still}, or RESCHEDULE ${reschedule}`.trim(),
+        body: `Punch list done${where} - ready to approve?\n\nAPPROVE: ${approve}\n\nSTILL ISSUES: ${still}\n\nRESCHEDULE: ${reschedule}`.trim(),
       };
     }
     // Owner+office copy when the owner taps RESCHEDULE on a walkthrough ask. No state
@@ -243,7 +247,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "walkthrough_punch_list_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Walkthrough${where}: list the punch items here: ${link}`.trim() };
+      return { subject: null, body: `Walkthrough${where}: list the punch items here:\n${link}`.trim() };
     }
     // Sent to the crew lead once the owner submits the punch list: the actual item list.
     case "walkthrough_punch_list_notice": {
@@ -256,7 +260,7 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       // city inspector, not the customer walkthrough.)
       return {
         subject: null,
-        body: `Walkthrough punch list${where}: ${details} The job is back in the finish phase - report 100% on your daily check-in when the list is done.`.trim(),
+        body: `Walkthrough punch list${where}:\n\n${details}\n\nThe job is back in the finish phase - report 100% on your daily check-in when the list is done.`.trim(),
       };
     }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link
