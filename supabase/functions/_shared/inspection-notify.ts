@@ -16,6 +16,19 @@ function isDuplicate(error: unknown): boolean {
   return String((error as { message?: unknown })?.message ?? error).toLowerCase().includes("duplicate");
 }
 
+// The job's current stage label ("Rough-In Inspection") so every inspection text says WHICH
+// inspection it is. Callers that already hold the label (the reminder cron's state map) pass
+// it via opts to skip the lookup; user-action callers omit it and this resolves it. At every
+// enqueue site the job is already IN the inspection state, so current_state_id is the stage.
+async function resolvePhaseLabel(sb: any, jobId: string, provided?: string | null): Promise<string | null> {
+  if (typeof provided === "string" && provided.trim()) return provided.trim();
+  const { data: job } = await sb.from("jobs").select("current_state_id").eq("id", jobId).maybeSingle();
+  if (!job?.current_state_id) return null;
+  const { data: state } = await sb.from("job_states").select("label").eq("id", job.current_state_id).maybeSingle();
+  const label = (state?.label ?? "").trim();
+  return label || null;
+}
+
 // The owner's "pick the inspection date" SMS: mints a single-use inspection_date token and
 // queues the branded date-picker link. Callers: cron-inspection-reminders (daily nudge, deduped
 // per local day) and forms-daily-check-in (immediate on a ready-for-inspection advance, force —
@@ -28,10 +41,12 @@ export async function queueInspectionDateAsk(sb: any, opts: {
   appBaseUrl: string;
   localDate: string;
   force?: boolean;
+  phaseLabel?: string | null;
 }): Promise<boolean> {
+  const phaseLabel = await resolvePhaseLabel(sb, opts.jobId, opts.phaseLabel);
   const minted = await mintActionToken(sb, {
     action: INSPECTION_DATE_ACTION, jobId: opts.jobId, contactId: null,
-    payload: { address: opts.address ?? null },
+    payload: { address: opts.address ?? null, phase_label: phaseLabel },
   });
   const link = buildActionLink(opts.appBaseUrl, INSPECTION_DATE_PATH, minted.token);
   const { error } = await sb.from("scheduled_notifications").insert({
@@ -40,7 +55,7 @@ export async function queueInspectionDateAsk(sb: any, opts: {
     channel: "sms",
     recipient: opts.ownerContactId,
     template_key: "inspection_date_link",
-    payload: { link, address: opts.address ?? null },
+    payload: { link, address: opts.address ?? null, phase_label: phaseLabel },
     scheduled_for: new Date().toISOString(),
     dedupe_key: opts.force ? null : `notif:insp_date:${opts.jobId}:${opts.localDate}`,
   });
@@ -63,12 +78,16 @@ export async function queueInspectionResultAsk(sb: any, opts: {
   officeContactId?: string | null;
   appBaseUrl: string;
   force?: boolean;
+  phaseLabel?: string | null;
 }): Promise<boolean> {
+  const phaseLabel = await resolvePhaseLabel(sb, opts.jobId, opts.phaseLabel);
   const pass = await mintActionToken(sb, {
-    action: "inspection_pass", jobId: opts.jobId, contactId: null, payload: { address: opts.address ?? null },
+    action: "inspection_pass", jobId: opts.jobId, contactId: null,
+    payload: { address: opts.address ?? null, phase_label: phaseLabel },
   });
   const fail = await mintActionToken(sb, {
-    action: "inspection_fail", jobId: opts.jobId, contactId: null, payload: { address: opts.address ?? null },
+    action: "inspection_fail", jobId: opts.jobId, contactId: null,
+    payload: { address: opts.address ?? null, phase_label: phaseLabel },
   });
   const { error } = await sb.from("scheduled_notifications").insert({
     location_id: opts.locationId,
@@ -78,6 +97,7 @@ export async function queueInspectionResultAsk(sb: any, opts: {
     template_key: "inspection_result_ask",
     payload: {
       address: opts.address ?? null,
+      phase_label: phaseLabel,
       pass_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, pass.token),
       fail_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, fail.token),
     },
@@ -94,7 +114,7 @@ export async function queueInspectionResultAsk(sb: any, opts: {
       channel: "sms",
       recipient: officeContactId,
       template_key: "inspection_reminder_office_notice",
-      payload: { phase: "result", address: opts.address ?? null },
+      payload: { phase: "result", address: opts.address ?? null, phase_label: phaseLabel },
       scheduled_for: new Date().toISOString(),
       dedupe_key: opts.force ? null : `notif:insp_result_office:${opts.jobId}:${opts.inspectionDate}`,
     });

@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
     if (updErr) throw updErr;
 
     // 2. Notify the crew lead with the actual fix list (best-effort: skipped if none configured).
+    // The stage label rode in on the form token (stamped by the decision spine when the owner
+    // tapped FAIL), so the crew notice can say WHICH inspection these fixes are for — by now
+    // the job has already reverted to the work state, so its current state is the wrong label.
+    const phaseLabel = typeof (claim.payload as any)?.phase_label === "string" ? (claim.payload as any).phase_label : null;
     let notified = false;
     const crewLead = await crewLeadContactId(sb, jobId);
     if (crewLead) {
@@ -93,7 +97,7 @@ Deno.serve(async (req) => {
         channel: "sms",
         recipient: crewLead,
         template_key: "inspection_fix_details_notice",
-        payload: { address: job.address ?? null, details },
+        payload: { address: job.address ?? null, details, phase_label: phaseLabel },
         scheduled_for: new Date().toISOString(),
         dedupe_key: `notif:fix_details:${jobId}:${claim.id}`,
       });

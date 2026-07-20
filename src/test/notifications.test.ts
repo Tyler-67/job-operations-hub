@@ -92,14 +92,41 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("https://app.example.com/forms/check-in?token=abc");
   });
 
-  it("renders the inspection-date link as a subject-less SMS with the address and link", () => {
+  it("renders the inspection-date link labeled with the stage inspection", () => {
+    const msg = renderNotification("inspection_date_link", {
+      address: "1420 Canyon Rd",
+      phase_label: "Rough-In Inspection",
+      link: "https://app.example.com/forms/inspection-date?token=abc",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toContain("Rough-In Inspection at 1420 Canyon Rd - pick the date:");
+    expect(msg.body).toContain("https://app.example.com/forms/inspection-date?token=abc");
+  });
+
+  it("falls back to a generic inspection label on older queued rows without phase_label", () => {
     const msg = renderNotification("inspection_date_link", {
       address: "1420 Canyon Rd",
       link: "https://app.example.com/forms/inspection-date?token=abc",
     });
-    expect(msg.subject).toBeNull();
-    expect(msg.body).toContain("Pick the inspection date at 1420 Canyon Rd");
-    expect(msg.body).toContain("https://app.example.com/forms/inspection-date?token=abc");
+    expect(msg.body).toContain("Inspection at 1420 Canyon Rd - pick the date:");
+  });
+
+  it("labels every inspection text with its stage inspection", () => {
+    const p = { address: "1420 Canyon Rd", phase_label: "Dirt Work Inspection" };
+    expect(renderNotification("inspection_result_ask", { ...p, pass_link: "https://x/p", fail_link: "https://x/f" }).body)
+      .toContain("Dirt Work Inspection result at 1420 Canyon Rd?");
+    expect(renderNotification("inspection_fix_details_link", { ...p, link: "https://x/fix" }).body)
+      .toContain("Dirt Work Inspection failed at 1420 Canyon Rd.");
+    expect(renderNotification("inspection_fix_details_notice", { ...p, details: "strap the vent" }).body)
+      .toContain("Dirt Work Inspection fixes needed at 1420 Canyon Rd:");
+    expect(renderNotification("inspection_reminder_office_notice", { ...p, phase: "result" }).body)
+      .toContain("Reminder: Dirt Work Inspection is today at 1420 Canyon Rd.");
+    expect(renderNotification("inspection_reminder_office_notice", { ...p, phase: "date" }).body)
+      .toContain("awaiting a Dirt Work Inspection date");
+    expect(renderNotification("decision_outcome", { ...p, action: "inspection_pass" }).body)
+      .toContain("Dirt Work Inspection passed at 1420 Canyon Rd.");
+    expect(renderNotification("decision_outcome", { ...p, action: "inspection_fail" }).body)
+      .toContain("Dirt Work Inspection failed at 1420 Canyon Rd.");
   });
 
   it("renders the immediate inspection-requested notice with the phase label", () => {

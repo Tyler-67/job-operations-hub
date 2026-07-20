@@ -30,6 +30,11 @@ function makeSb(opts: {
       if (table === "job_customers") {
         return chain(null);
       }
+      if (table === "job_states") {
+        // The stage label enqueueFollowups stamps on payloads + minted tokens so texts say
+        // WHICH inspection the decision settled.
+        return chain({ label: "Rough-In Inspection" });
+      }
       if (table === "scheduled_notifications") {
         return {
           insert(row: Record<string, unknown>) {
@@ -120,8 +125,11 @@ describe("enqueueFollowups for inspection outcomes", () => {
     // One token minted for the owner's fix-details link.
     expect(mintedTokens).toHaveLength(1);
     expect(mintedTokens[0]).toMatchObject({ action: "inspection_fix_details", job_id: "job-1" });
+    // The stage label rides the token payload so the fix-details form can label its crew notice.
+    expect((mintedTokens[0] as any).payload).toMatchObject({ phase_label: "Rough-In Inspection" });
     const ownerRow = inserts.find((r) => r.recipient === "demo-owner-cj")!;
     expect(ownerRow.template_key).toBe("inspection_fix_details_link");
+    expect((ownerRow.payload as any).phase_label).toBe("Rough-In Inspection");
     expect(String((ownerRow.payload as any).link)).toContain("https://app.example.com/forms/inspection-fix-details?token=");
     // The crew lead still gets the plain failed-outcome notice (no link, no token).
     const crewRow = inserts.find((r) => r.recipient === "demo-crew-tyrell")!;

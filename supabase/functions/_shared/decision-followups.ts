@@ -64,18 +64,27 @@ export async function enqueueFollowups(
   opts: EnqueueFollowupsOptions = {},
 ): Promise<number> {
   let enqueued = 0;
+  // The stage label ("Rough-In Inspection") of the state the decision was made ON — the job
+  // object here carries the PRE-transition state, which is exactly the inspection being
+  // decided. Rides every follow-up payload AND the minted form tokens, so downstream forms
+  // (fix details) can label their own crew notices too.
+  let phaseLabel: string | null = null;
+  if (decision.followups.length && job.current_state_id) {
+    const { data: state } = await sb.from("job_states").select("label").eq("id", job.current_state_id).maybeSingle();
+    phaseLabel = (state?.label ?? "").trim() || null;
+  }
   for (const f of decision.followups) {
     const recipient = await resolveRecipient(sb, f.audience, job);
     if (!recipient) continue; // no contact configured for this audience — skip silently
 
     const payload: Record<string, unknown> = {
-      address: job.address ?? null, action: decision.action, audience: f.audience,
+      address: job.address ?? null, action: decision.action, audience: f.audience, phase_label: phaseLabel,
     };
     if (f.link) {
       if (!opts.appBaseUrl) continue; // can't build a link without the app base URL — skip
       const minted = await mintActionToken(sb, {
         action: f.link.action, jobId: job.id, contactId: null,
-        payload: { address: job.address ?? null },
+        payload: { address: job.address ?? null, phase_label: phaseLabel },
       });
       // Inline flow: hand the owner's form link back to the caller instead of texting it.
       if (opts.suppressOwnerFormSms && f.audience === "owner") {

@@ -41,11 +41,16 @@ Deno.serve(async (req) => {
     .select("location_id, owner_contact_id, office_contact_id, inspection_reminder_time, locations(timezone)");
   if (cErr) return json({ error: cErr.message }, 500);
 
-  // Inspection-phase state ids, flagged in the configurable state set.
-  const { data: states, error: sErr } = await sb.from("job_states").select("id, is_inspection");
+  // Inspection-phase state ids, flagged in the configurable state set. Labels ride along so
+  // every reminder says WHICH stage inspection it is ("Rough-In Inspection").
+  const { data: states, error: sErr } = await sb.from("job_states").select("id, is_inspection, label");
   if (sErr) return json({ error: sErr.message }, 500);
   const inspectionStateIds = new Set<string>();
-  for (const st of states ?? []) if (st.is_inspection) inspectionStateIds.add(st.id as string);
+  const stateLabelById = new Map<string, string>();
+  for (const st of states ?? []) {
+    if (st.is_inspection) inspectionStateIds.add(st.id as string);
+    if (typeof st.label === "string" && st.label.trim()) stateLabelById.set(st.id as string, st.label.trim());
+  }
 
   // Walkthrough-capable state ids — data-driven the same way the decision spine gates the
   // asks: any state offering a walkthrough_approved transition (2026-07-20 scheduling parity).
@@ -84,11 +89,13 @@ Deno.serve(async (req) => {
       // midnight-UTC timestamp's date portion), so the today-check never drifts by zone.
       const inspectionDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
 
+      const phaseLabel = stateLabelById.get(job.current_state_id as string) ?? null;
+
       if (!inspectionDate) {
         // Branch A: the owner still needs to pick a date (shared with the check-in immediate send).
         const sent = await queueInspectionDateAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
-          ownerContactId, appBaseUrl, localDate: date, force,
+          ownerContactId, appBaseUrl, localDate: date, force, phaseLabel,
         });
         if (!sent) { skipped++; continue; }
         dateNudges++;
@@ -96,7 +103,7 @@ Deno.serve(async (req) => {
           const { error: oErr } = await sb.from("scheduled_notifications").insert({
             location_id: loc, job_id: job.id, channel: "sms", recipient: officeContactId,
             template_key: "inspection_reminder_office_notice",
-            payload: { phase: "date", address: job.address ?? null },
+            payload: { phase: "date", address: job.address ?? null, phase_label: phaseLabel },
             scheduled_for: new Date().toISOString(),
             dedupe_key: force ? null : `notif:insp_date_office:${job.id}:${date}`,
           });
@@ -107,7 +114,7 @@ Deno.serve(async (req) => {
         // immediate send; same per-job+date dedupe, so both paths collapse to one ask).
         const sent = await queueInspectionResultAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
-          inspectionDate, ownerContactId, officeContactId, appBaseUrl, force,
+          inspectionDate, ownerContactId, officeContactId, appBaseUrl, force, phaseLabel,
         });
         if (!sent) { skipped++; continue; }
         resultAsks++;

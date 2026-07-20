@@ -146,7 +146,10 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "inspection_date_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Pick the inspection date${where}:\n${link}`.trim() };
+      // phase_label = the job's inspection-stage label ("Rough-In Inspection") so the owner
+      // knows WHICH inspection they're scheduling; generic fallback for older queued rows.
+      const phase = str(payload.phase_label) || "Inspection";
+      return { subject: null, body: `${phase}${where} - pick the date:\n${link}`.trim() };
     }
     // The owner's "schedule the walkthrough" link — sent when a job is promoted into the
     // walkthrough state (and re-sent daily by the reminder cron until a date is picked,
@@ -161,10 +164,11 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     // two phases: "date" (owner still owes a date) and "result" (it's inspection day).
     case "inspection_reminder_office_notice": {
       const where = address ? ` at ${address}` : "";
-      const phase = str(payload.phase);
-      const body = phase === "result"
-        ? `Reminder: inspection is today${where}. Waiting on the owner for the PASS/FAIL result.`
-        : `Reminder: a job${where} is awaiting an inspection date. The owner has been asked to set one.`;
+      const mode = str(payload.phase); // "date" | "result" — which reminder this is
+      const phase = str(payload.phase_label); // the stage label ("Rough-In Inspection")
+      const body = mode === "result"
+        ? `Reminder: ${phase || "inspection"} is today${where}. Waiting on the owner for the PASS/FAIL result.`
+        : `Reminder: a job${where} is awaiting a ${phase || "inspection"} date. The owner has been asked to set one.`;
       return { subject: null, body };
     }
     // Day-of-inspection SMS to the owner: two single-use decision links (PASS / FAIL),
@@ -173,9 +177,10 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const where = address ? ` at ${address}` : "";
       const pass = str(payload.pass_link);
       const fail = str(payload.fail_link);
+      const phase = str(payload.phase_label) || "Inspection";
       return {
         subject: null,
-        body: `Inspection result${where}?\n\nPASS: ${pass}\n\nFAIL: ${fail}`.trim(),
+        body: `${phase} result${where}?\n\nPASS: ${pass}\n\nFAIL: ${fail}`.trim(),
       };
     }
     // Sent to the owner after a FAILED inspection: a single-use link to the form where
@@ -183,13 +188,15 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "inspection_fix_details_link": {
       const link = str(payload.link);
       const where = address ? ` at ${address}` : "";
-      return { subject: null, body: `Inspection failed${where}. Tell the crew what to fix:\n${link}`.trim() };
+      const phase = str(payload.phase_label) || "Inspection";
+      return { subject: null, body: `${phase} failed${where}. Tell the crew what to fix:\n${link}`.trim() };
     }
     // Sent to the crew lead once the owner submits the fix details: the actual fix list.
     case "inspection_fix_details_notice": {
       const where = address ? ` at ${address}` : "";
       const details = str(payload.details) || "(see owner)";
-      return { subject: null, body: `Inspection fixes needed${where}:\n\n${details}`.trim() };
+      const phase = str(payload.phase_label) || "Inspection";
+      return { subject: null, body: `${phase} fixes needed${where}:\n\n${details}`.trim() };
     }
     // Enqueued to the owner when the crew reports the work 100% complete: two single-use
     // decision links (YES advances the job to the final walkthrough, NO just acknowledges
@@ -269,9 +276,12 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "decision_outcome": {
       const where = address ? ` at ${address}` : "";
       const action = str(payload.action);
+      // The stage label ("Rough-In Inspection") of the state the decision was made ON, so
+      // pass/fail outcomes say which inspection they settle. Walkthrough copies self-label.
+      const phase = str(payload.phase_label) || "Inspection";
       const copy: Record<string, string> = {
-        inspection_pass: `Inspection passed${where}. The job has advanced to the next phase.`,
-        inspection_fail: `Inspection failed${where}. Please review the required fixes.`,
+        inspection_pass: `${phase} passed${where}. The job has advanced to the next phase.`,
+        inspection_fail: `${phase} failed${where}. Please review the required fixes.`,
         finish_walkthrough_yes: `Marked ready for walkthrough${where}. The final walkthrough will be scheduled.`,
         walkthrough_approve: `Walkthrough approved${where}. Ready to prepare the invoice.`,
         walkthrough_reschedule: `Walkthrough reschedule requested${where}. Please rebook the walkthrough.`,
