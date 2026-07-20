@@ -7,6 +7,7 @@ import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
 import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
+import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
@@ -378,6 +379,20 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
         });
         if (asked) await triggerDrain();
       }
+    }
+
+    // Walkthrough entry via the office state dropdown: hand the owner the APPROVE /
+    // PUNCH-LIST / RESCHEDULE links immediately — the manual path must notify like the
+    // decision spine does. enqueueWalkthroughResultAsk self-gates on the new state offering
+    // walkthrough_approved, so every other state stays a silent no-op. Fresh uuid per save:
+    // the state-CHANGE gate is the real dedupe (an unchanged re-save never reaches here),
+    // and a job flipped back into walkthrough must ask again.
+    if (stateChanged && appBaseUrl) {
+      const asked = await enqueueWalkthroughResultAsk(sb, {
+        id: jobId, location_id: locationId, state_set_id: existing.state_set_id,
+        current_state_id: effectiveStateId, address: jobRow?.address ?? null,
+      }, { appBaseUrl, cycleKey: crypto.randomUUID() });
+      if (asked) await triggerDrain();
     }
   }
 

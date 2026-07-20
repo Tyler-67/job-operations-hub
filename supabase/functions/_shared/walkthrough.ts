@@ -24,6 +24,13 @@ export interface WalkthroughJob {
 export interface WalkthroughResultAskOptions {
   // Required to build the APPROVE/PUNCH-LIST links; without it the ask is skipped.
   appBaseUrl?: string;
+  // Per-ENTRY discriminator for the dedupe key (the decision spine's cycle key — consumed
+  // token id or office-fire uuid — or a fresh uuid on the office state-dropdown path). The
+  // key used to be (job, state)-scoped, which silently swallowed the ask every time a job
+  // RE-entered walkthrough for the rest of its life (found live 2026-07-20: second pass
+  // into walkthrough → owner never texted). Real replay protection is upstream: the
+  // transition CHANGE gate + single-use decision tokens.
+  cycleKey: string;
 }
 
 // Does the job's (new) current state have a walkthrough_approved transition in its set?
@@ -87,7 +94,7 @@ export async function enqueueWalkthroughResultAsk(
       reschedule_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, reschedule.token),
     },
     scheduled_for: new Date().toISOString(),
-    dedupe_key: `notif:walkthrough_ask:${job.id}:${job.current_state_id}`,
+    dedupe_key: `notif:walkthrough_ask:${job.id}:${opts.cycleKey}`,
   });
   if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
   return true;

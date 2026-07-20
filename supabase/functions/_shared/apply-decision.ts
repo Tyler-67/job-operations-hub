@@ -111,7 +111,9 @@ export async function applyDecision(
     walkthroughAsked = await enqueueWalkthroughResultAsk(
       sb,
       { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: toStateId, address: job.address },
-      { appBaseUrl: opts.appBaseUrl },
+      // Keyed per decision invocation (same cycleKey as the follow-ups) so a job that
+      // RE-enters walkthrough asks the owner again — the change gate above is the dedupe.
+      { appBaseUrl: opts.appBaseUrl, cycleKey: opts.cycleKey },
     );
     completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
     reviewRequestQueued = await maybeEnqueueReviewRequest(sb, job.id, toStateId);

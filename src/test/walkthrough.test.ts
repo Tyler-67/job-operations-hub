@@ -56,7 +56,7 @@ function chain(data: unknown) {
 }
 
 describe("enqueueWalkthroughResultAsk", () => {
-  const opts = { appBaseUrl: "https://app.example.com" };
+  const opts = { appBaseUrl: "https://app.example.com", cycleKey: "cycle-1" };
 
   it("mints APPROVE/PUNCH tokens and enqueues the owner ask when fully gated", async () => {
     const { sb, inserts, mintedTokens } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
@@ -67,7 +67,9 @@ describe("enqueueWalkthroughResultAsk", () => {
     const row = inserts[0];
     expect(row.recipient).toBe("demo-owner-cj");
     expect(row.template_key).toBe("walkthrough_result_ask");
-    expect(row.dedupe_key).toBe("notif:walkthrough_ask:job-1:state-walk");
+    // Keyed per ENTRY (cycle key), not per (job, state) — a job re-entering walkthrough
+    // must ask the owner again instead of being swallowed by the first entry's key.
+    expect(row.dedupe_key).toBe("notif:walkthrough_ask:job-1:cycle-1");
     expect(String((row.payload as any).approve_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).punch_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).reschedule_link)).toContain("https://app.example.com/action/decision?token=");
@@ -75,7 +77,7 @@ describe("enqueueWalkthroughResultAsk", () => {
 
   it("no-ops without an appBaseUrl (no link to build)", async () => {
     const { sb, inserts, mintedTokens } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
-    expect(await enqueueWalkthroughResultAsk(sb, JOB, {})).toBe(false);
+    expect(await enqueueWalkthroughResultAsk(sb, JOB, { cycleKey: "cycle-1" })).toBe(false);
     expect(inserts).toHaveLength(0);
     expect(mintedTokens).toHaveLength(0);
   });
