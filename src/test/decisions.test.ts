@@ -34,14 +34,22 @@ describe("resolveDecision", () => {
     expect(d.followups[0].audience).toBe("office");
   });
 
-  it("maps walkthrough_punch_list to an acknowledge-only decision handing the owner a form link", () => {
+  it("maps walkthrough_punch_list to a FAIL decision (reverts the job) handing the owner a form link", () => {
     const d = resolveDecision("walkthrough_punch_list")!;
-    expect(d.trigger).toBeNull();
+    // Failing the walkthrough fires the fail trigger — the default set reverts
+    // walkthrough -> finish_work, exactly like an inspection FAIL on any other phase.
+    expect(d.trigger).toBe("fail");
     expect(d.followups[0].audience).toBe("owner");
     expect(d.followups[0].link).toEqual({
       action: "walkthrough_punch_details",
       path: "/forms/walkthrough-punch-list",
     });
+  });
+
+  it("maps walkthrough_still_issues to the same FAIL shape with its own token action", () => {
+    const d = resolveDecision("walkthrough_still_issues")!;
+    expect(d.trigger).toBe("fail");
+    expect(d.followups[0].link?.action).toBe("walkthrough_punch_details");
   });
 
   it("returns null for an unknown action", () => {

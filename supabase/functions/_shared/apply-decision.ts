@@ -13,6 +13,7 @@ import { applyTransition } from "./state-machine.ts";
 import type { DecisionSpec } from "./decisions.ts";
 import { enqueueFollowups } from "./decision-followups.ts";
 import { queueWalkthroughScheduleAsk } from "./walkthrough-notify.ts";
+import { cancelInspectionAppointment } from "./inspection-calendar.ts";
 import { maybeBuildCompletionReport } from "./completion-report.ts";
 import { maybeEnqueueReviewRequest } from "./review-request.ts";
 import { logEvent } from "./util.ts";
@@ -117,6 +118,16 @@ export async function applyDecision(
     );
     completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
     reviewRequestQueued = await maybeEnqueueReviewRequest(sb, job.id, toStateId);
+  }
+
+  // PUNCH LIST / STILL ISSUES failing the walkthrough (the job actually reverted): the
+  // scheduled walkthrough is off, so void the stored date and cancel the Uptiq calendar
+  // slot (best-effort; a fresh appointment is created when the next cycle's date is picked).
+  // Only on a REAL state change — on a set without the fail edge the decision stays
+  // acknowledge-only and the schedule stands.
+  if (changed && (decision.action === "walkthrough_punch_list" || decision.action === "walkthrough_still_issues")) {
+    await sb.from("jobs").update({ walkthrough_date: null }).eq("id", job.id);
+    await cancelInspectionAppointment(sb, { jobId: job.id, kind: "walkthrough" });
   }
 
   // RESCHEDULE re-opens the scheduling loop: void the stored walkthrough date and text the

@@ -203,9 +203,11 @@ describe("renderNotification", () => {
     expect(msg.subject).toBeNull();
     expect(msg.body).toContain("Walkthrough punch list at 1420 Canyon Rd:");
     expect(msg.body).toContain("Caulk the tub; re-hang the closet door.");
-    // The re-ask to the owner fires off the crew's ready-for-inspection check-in, so the
-    // notice must tell the crew that's how they signal the list is done.
-    expect(msg.body).toContain('mark "ready for inspection" on your daily check-in');
+    // Failing the walkthrough reverts the job to the finish phase; the owner's next prompt
+    // rides the crew's 100% check-in, so the notice must name THAT as the done signal
+    // (not "ready for inspection", which would re-request the city inspector).
+    expect(msg.body).toContain("report 100% on your daily check-in");
+    expect(msg.body).not.toContain("ready for inspection");
   });
 
   it("renders the weekly report digest email with all four sections and the preview link", () => {

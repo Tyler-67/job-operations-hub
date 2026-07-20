@@ -33,11 +33,11 @@ const FORM_CONFIG: Record<
   walkthrough_punch_details: {
     endpoint: "forms-walkthrough-punch-list",
     heading: "Walkthrough Punch List",
-    intro: "Punch list noted. List what still needs fixing — the crew gets it as soon as you send.",
+    intro: "Walkthrough failed — the job moves back to the finish phase. List what still needs fixing; the crew gets it as soon as you send.",
     prompt: "What still needs to be fixed?",
     placeholder: "List the punch items the crew needs to complete before approval.",
     button: "Send punch list to crew",
-    sent: "The punch list has been sent to the crew. You'll get a text to approve the walkthrough once they mark it done.",
+    sent: "The punch list has been sent to the crew and the job is back in the finish phase. When they report 100% you'll be asked to schedule the walkthrough again.",
   },
 };
 
@@ -52,9 +52,9 @@ const COPY: Record<string, string> = {
   finish_walkthrough_no: "Noted — not ready yet. The crew will keep working.",
   walkthrough_approve: "Walkthrough approved. The job is ready to invoice.",
   walkthrough_reschedule:
-    "Reschedule noted. The office has been asked to rebook the walkthrough — the job stays open until it's approved.",
-  walkthrough_punch_list: "Punch list noted.",
-  walkthrough_still_issues: "Noted — still some issues.",
+    "Reschedule noted — we've texted you a fresh link to pick a new walkthrough day.",
+  walkthrough_punch_list: "Punch list noted — the job is back in the finish phase.",
+  walkthrough_still_issues: "Noted — still some issues. The job is back in the finish phase.",
 };
 
 const HEADING: Record<string, string> = {

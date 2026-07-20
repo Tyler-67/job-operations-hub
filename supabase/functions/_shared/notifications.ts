@@ -249,12 +249,14 @@ export function renderNotification(templateKey: string, payload: NotificationPay
     case "walkthrough_punch_list_notice": {
       const where = address ? ` at ${address}` : "";
       const details = str(payload.details) || "(see owner)";
-      // The close-the-loop instruction matters: the owner's approve/still-issues re-ask only
-      // fires when the crew marks ready-for-inspection on a check-in (like a failed
-      // inspection's fix list), so the crew must know that's the "done" signal.
+      // The close-the-loop instruction matters: failing the walkthrough reverts the job to
+      // the finish phase, and the owner's next prompt (the walkthrough schedule link) fires
+      // off the crew's 100% check-in -> owner YES path — so the crew must know reporting
+      // 100% is the "done" signal. (NOT "ready for inspection" — that would re-request the
+      // city inspector, not the customer walkthrough.)
       return {
         subject: null,
-        body: `Walkthrough punch list${where}: ${details} When the list is done, mark "ready for inspection" on your daily check-in.`.trim(),
+        body: `Walkthrough punch list${where}: ${details} The job is back in the finish phase - report 100% on your daily check-in when the list is done.`.trim(),
       };
     }
     // Follow-on SMS the decision spine (action-decision) enqueues after a tap-link

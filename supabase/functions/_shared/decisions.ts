@@ -86,13 +86,16 @@ const REGISTRY: Record<string, DecisionSpec> = {
       { audience: "office", channel: "sms", template_key: "decision_outcome" },
     ],
   },
-  // The owner tapped PUNCH LIST during the final walkthrough: acknowledge only (the job
-  // stays in walkthrough, not yet approved) and hand the owner a link to the form where
-  // they record the items still to fix. Mirrors inspection_fail → fix-details. The crew
-  // lead is notified with the actual list once the owner submits that form.
+  // The owner tapped PUNCH LIST during the final walkthrough: FAILING the walkthrough.
+  // Fires the 'fail' trigger — the default set reverts walkthrough -> finish_work (2026-07-20,
+  // per Tyler: exactly like an inspection FAIL on any other phase), and the owner gets the
+  // form link to record the items still to fix. The crew works the list under normal daily
+  // check-ins in the reverted phase; reporting 100% re-runs the standard forward path
+  // (finish_walkthrough ask -> owner YES -> walkthrough -> fresh schedule link). On a state
+  // set without a (walkthrough, fail) edge this degrades to the old acknowledge-only shape.
   walkthrough_punch_list: {
     action: "walkthrough_punch_list",
-    trigger: null,
+    trigger: "fail",
     followups: [
       {
         audience: "owner", channel: "sms", template_key: "walkthrough_punch_list_link",
@@ -101,11 +104,11 @@ const REGISTRY: Record<string, DecisionSpec> = {
     ],
   },
   // STILL ISSUES on the post-punch-list re-ask: same effect as walkthrough_punch_list
-  // (acknowledge only, hand the owner the punch-list form again) but a distinct action so
-  // the re-ask's link is its own single-use token and the audit/event copy stays distinct.
+  // (fail the walkthrough, hand the owner the punch-list form again) but a distinct action
+  // so the re-ask's link is its own single-use token and the audit/event copy stays distinct.
   walkthrough_still_issues: {
     action: "walkthrough_still_issues",
-    trigger: null,
+    trigger: "fail",
     followups: [
       {
         audience: "owner", channel: "sms", template_key: "walkthrough_punch_list_link",
