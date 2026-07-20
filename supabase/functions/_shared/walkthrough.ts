@@ -36,6 +36,8 @@ export interface WalkthroughResultAskOptions {
 // Does the job's (new) current state have a walkthrough_approved transition in its set?
 // This is the data-driven gate: only a genuine walkthrough state offers it, so the ask
 // never fires on work/inspection/terminal states even if some other decision lands there.
+// Exported (as stateOffersWalkthroughApproved below) for the scheduling paths that need
+// the same gate outside this module (office job form, walkthrough-date form).
 async function hasApproveTransition(sb: any, stateSetId: string, fromStateId: string | null): Promise<boolean> {
   if (!fromStateId) return false;
   const { data, error } = await sb
@@ -49,6 +51,8 @@ async function hasApproveTransition(sb: any, stateSetId: string, fromStateId: st
   if (error) throw error;
   return !!data;
 }
+
+export const stateOffersWalkthroughApproved = hasApproveTransition;
 
 async function ownerContactId(sb: any, locationId: string): Promise<string | null> {
   const { data } = await sb

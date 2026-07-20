@@ -54,6 +54,7 @@ export interface JobSummary {
   scope_of_work: string | null;
   notes: string | null;
   inspection_date: string | null;
+  walkthrough_date: string | null;
   latest_po: string | null;
   completion_report: CompletionReport | null;
   paid_at: string | null;
@@ -109,6 +110,7 @@ export interface SaveJobPayload {
   invoice_number?: string | null;
   start_date?: string | null;
   inspection_date?: string | null;
+  walkthrough_date?: string | null;
   scope_of_work?: string | null;
   notes?: string | null;
   active?: boolean;

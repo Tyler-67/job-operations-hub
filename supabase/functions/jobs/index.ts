@@ -7,7 +7,8 @@ import { resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
 import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
-import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
+import { enqueueWalkthroughResultAsk, stateOffersWalkthroughApproved } from "../_shared/walkthrough.ts";
+import { queueWalkthroughScheduleAsk } from "../_shared/walkthrough-notify.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
@@ -284,7 +285,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, current_state_id")
+    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, walkthrough_date, walkthrough_appointment_id, current_state_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -307,6 +308,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   if ("invoice_number" in body) patch.invoice_number = cleanText(body.invoice_number);
   if ("start_date" in body) patch.start_date = cleanText(body.start_date);
   if ("inspection_date" in body) patch.inspection_date = cleanText(body.inspection_date);
+  if ("walkthrough_date" in body) patch.walkthrough_date = cleanText(body.walkthrough_date);
   if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
   if ("notes" in body) patch.notes = cleanText(body.notes);
   if ("active" in body) patch.active = body.active !== false;
@@ -335,11 +337,21 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   const dateChanged = Boolean(bodyDate) && bodyDate !== oldDate;
   const stateChanged = Boolean(patch.current_state_id) && patch.current_state_id !== existing.current_state_id;
   const effectiveStateId = (patch.current_state_id as string | undefined) ?? existing.current_state_id ?? null;
+  // Walkthrough date twin of the inspection tracking above.
+  const oldWtDate = existing.walkthrough_date ? String(existing.walkthrough_date).slice(0, 10) : null;
+  const bodyWtDate = "walkthrough_date" in body ? (patch.walkthrough_date as string | null) : oldWtDate;
+  const wtDateChanged = Boolean(bodyWtDate) && bodyWtDate !== oldWtDate;
 
   if ("inspection_date" in body) {
     const newDate = patch.inspection_date as string | null;
     if (newDate && (newDate !== oldDate || !existing.inspection_appointment_id)) {
       calendar = await syncInspectionAppointment(sb, { jobId });
+    }
+  }
+  if ("walkthrough_date" in body) {
+    const newDate = patch.walkthrough_date as string | null;
+    if (newDate && (newDate !== oldWtDate || !existing.walkthrough_appointment_id)) {
+      await syncInspectionAppointment(sb, { jobId, kind: "walkthrough" });
     }
   }
 
@@ -350,7 +362,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   //  • the update MOVED the job into an inspection phase WITHOUT scheduling it → a new inspection
   //    cycle just began: void any prior cycle's stale date and text the owner the date-picker
   //    link immediately — the office state dropdown must notify like the crew's request does.
-  if ((dateChanged || stateChanged) && effectiveStateId) {
+  if ((dateChanged || stateChanged || wtDateChanged) && effectiveStateId) {
     const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
     const [{ data: state }, { data: jobRow }, { data: loc }, { data: cs }] = await Promise.all([
       sb.from("job_states").select("is_inspection").eq("id", effectiveStateId).maybeSingle(),
@@ -381,25 +393,42 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
       }
     }
 
-    // Walkthrough entry via the office state dropdown: hand the owner the APPROVE /
-    // PUNCH-LIST / RESCHEDULE links immediately — the manual path must notify like the
-    // decision spine does. enqueueWalkthroughResultAsk self-gates on the new state offering
-    // walkthrough_approved, so every other state stays a silent no-op. Fresh uuid per save:
-    // the state-CHANGE gate is the real dedupe (an unchanged re-save never reaches here),
-    // and a job flipped back into walkthrough must ask again.
-    if (stateChanged && appBaseUrl) {
-      const asked = await enqueueWalkthroughResultAsk(sb, {
-        id: jobId, location_id: locationId, state_set_id: existing.state_set_id,
-        current_state_id: effectiveStateId, address: jobRow?.address ?? null,
-      }, { appBaseUrl, cycleKey: crypto.randomUUID() });
-      if (asked) await triggerDrain();
+    // Walkthrough scheduling for an OFFICE job update — the walkthrough twin of the
+    // inspection block above (2026-07-20 parity: entry asks for a DATE; the APPROVE /
+    // PUNCH-LIST ask fires on the scheduled day):
+    //  • the update MOVED the job into a walkthrough-capable state (no date in the same
+    //    save) → a new cycle begins: void any stale date + text the owner the schedule
+    //    link immediately (queueWalkthroughScheduleAsk self-gates, so any other state
+    //    change is a silent no-op).
+    //  • walkthrough_date (re)set to TODAY → the APPROVE / PUNCH-LIST ask is due NOW
+    //    (covers both a date-only save and a state+today save in one; change-gated so a
+    //    no-op re-save stays quiet; fresh uuid key per genuine change).
+    if (appBaseUrl) {
+      if (stateChanged && !wtDateChanged) {
+        const asked = await queueWalkthroughScheduleAsk(sb, {
+          id: jobId, location_id: locationId, state_set_id: existing.state_set_id,
+          current_state_id: effectiveStateId, address: jobRow?.address ?? null,
+        }, { appBaseUrl });
+        if (asked) await triggerDrain();
+      } else if (wtDateChanged && bodyWtDate === localToday && ownerContactId) {
+        const wtCapable = await stateOffersWalkthroughApproved(sb, existing.state_set_id, effectiveStateId);
+        if (wtCapable) {
+          const asked = await enqueueWalkthroughResultAsk(sb, {
+            id: jobId, location_id: locationId, state_set_id: existing.state_set_id,
+            current_state_id: effectiveStateId, address: jobRow?.address ?? null,
+          }, { appBaseUrl, cycleKey: crypto.randomUUID() });
+          if (asked) await triggerDrain();
+        }
+      }
     }
   }
 
-  // Archiving a job cancels its scheduled Uptiq inspection appointment (best-effort) so the
-  // inspections calendar doesn't keep a dead slot. Only on the active true -> false transition.
-  if ("active" in body && patch.active === false && existing.active && existing.inspection_appointment_id) {
-    await cancelInspectionAppointment(sb, { jobId });
+  // Archiving a job cancels its scheduled Uptiq inspection/walkthrough appointments
+  // (best-effort) so the calendar doesn't keep dead slots. Only on the active true -> false
+  // transition.
+  if ("active" in body && patch.active === false && existing.active) {
+    if (existing.inspection_appointment_id) await cancelInspectionAppointment(sb, { jobId });
+    if (existing.walkthrough_appointment_id) await cancelInspectionAppointment(sb, { jobId, kind: "walkthrough" });
   }
 
   const detail = await getJobDetail(sb, locationId, jobId);
@@ -585,7 +614,7 @@ Deno.serve(async (req) => {
         if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
 
         const { data: job } = await sb
-          .from("jobs").select("id, address, inspection_appointment_id").eq("location_id", locationId).eq("id", jobId).maybeSingle();
+          .from("jobs").select("id, address, inspection_appointment_id, walkthrough_appointment_id").eq("location_id", locationId).eq("id", jobId).maybeSingle();
         if (!job) return json({ error: "not_found" }, 404);
 
         const countOf = async (table: string) => {
@@ -610,6 +639,9 @@ Deno.serve(async (req) => {
         const calendar = job.inspection_appointment_id
           ? (await cancelInspectionAppointment(sb, { jobId })).action
           : null;
+        const wtCalendar = job.walkthrough_appointment_id
+          ? (await cancelInspectionAppointment(sb, { jobId, kind: "walkthrough" })).action
+          : null;
 
         await sb.from("event_log").delete().eq("location_id", locationId).eq("payload->>job_id", jobId);
         const { error: delErr } = await sb.from("jobs").delete().eq("location_id", locationId).eq("id", jobId);
@@ -617,7 +649,7 @@ Deno.serve(async (req) => {
 
         await logEvent({
           source: "admin", kind: "job.debug_delete", location_id: locationId,
-          payload: { job_id: jobId, address: job.address, counts, calendar, by: claims.email },
+          payload: { job_id: jobId, address: job.address, counts, calendar, wt_calendar: wtCalendar, by: claims.email },
         });
         return json({ ok: true, dry_run: false, deleted: true, job: { id: job.id, address: job.address }, counts });
       }

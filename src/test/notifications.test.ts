@@ -186,6 +186,15 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("https://app.example.com/forms/walkthrough-punch-list?token=abc");
   });
 
+  it("renders the walkthrough date link as a subject-less SMS with the schedule link", () => {
+    const msg = renderNotification("walkthrough_date_link", {
+      address: "1420 Canyon Rd",
+      link: "https://app.example.com/forms/walkthrough-date?token=abc",
+    });
+    expect(msg.subject).toBeNull();
+    expect(msg.body).toBe("Schedule the final walkthrough at 1420 Canyon Rd: https://app.example.com/forms/walkthrough-date?token=abc");
+  });
+
   it("renders the crew punch-list notice with the actual item list and the done signal", () => {
     const msg = renderNotification("walkthrough_punch_list_notice", {
       address: "1420 Canyon Rd",

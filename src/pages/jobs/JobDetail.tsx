@@ -36,6 +36,7 @@ interface FormState {
   invoice_number: string;
   start_date: string;
   inspection_date: string;
+  walkthrough_date: string;
   scope_of_work: string;
   notes: string;
   active: boolean;
@@ -56,6 +57,7 @@ const emptyForm: FormState = {
   invoice_number: "",
   start_date: "",
   inspection_date: "",
+  walkthrough_date: "",
   scope_of_work: "",
   notes: "",
   active: true,
@@ -202,6 +204,7 @@ export default function JobDetail() {
             invoice_number: job.invoice_number ?? "",
             start_date: dateInput(job.start_date),
             inspection_date: dateInput(job.inspection_date),
+            walkthrough_date: dateInput(job.walkthrough_date),
             scope_of_work: job.scope_of_work ?? "",
             notes: job.notes ?? "",
             active: job.active,
@@ -259,6 +262,7 @@ export default function JobDetail() {
         invoice_number: form.invoice_number || null,
         start_date: form.start_date || null,
         inspection_date: form.inspection_date || null,
+        walkthrough_date: form.walkthrough_date || null,
         scope_of_work: form.scope_of_work || null,
         notes: form.notes || null,
         active: form.active,
@@ -369,6 +373,7 @@ export default function JobDetail() {
         state_progress_pct: String(res.job.state_progress_pct),
         job_completion_pct: String(res.job.job_completion_pct),
         inspection_date: dateInput(res.job.inspection_date),
+        walkthrough_date: dateInput(res.job.walkthrough_date),
         active: res.job.active,
       }));
       const d = res.decision;
@@ -542,6 +547,9 @@ export default function JobDetail() {
             </Field>
             <Field label="Inspection date">
               <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={inputClass(readOnly)} />
+            </Field>
+            <Field label="Walkthrough date">
+              <input disabled={readOnly} type="date" value={form.walkthrough_date} onChange={(event) => update("walkthrough_date", event.target.value)} className={inputClass(readOnly)} />
             </Field>
 
             <Field label="State progress %">

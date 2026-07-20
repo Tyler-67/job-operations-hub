@@ -148,6 +148,14 @@ export function renderNotification(templateKey: string, payload: NotificationPay
       const where = address ? ` at ${address}` : "";
       return { subject: null, body: `Pick the inspection date${where}: ${link}`.trim() };
     }
+    // The owner's "schedule the walkthrough" link — sent when a job is promoted into the
+    // walkthrough state (and re-sent daily by the reminder cron until a date is picked,
+    // and again on a RESCHEDULE tap). The walkthrough twin of inspection_date_link.
+    case "walkthrough_date_link": {
+      const link = str(payload.link);
+      const where = address ? ` at ${address}` : "";
+      return { subject: null, body: `Schedule the final walkthrough${where}: ${link}`.trim() };
+    }
     // Office copy of the inspection reminder (v1 Test 5): same nudge the owner gets, but
     // with NO action link — the office can't enter the date or the result. One template,
     // two phases: "date" (owner still owes a date) and "result" (it's inspection day).

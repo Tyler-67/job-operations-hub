@@ -45,6 +45,9 @@ verify_jwt = true
 [functions.forms-inspection-date]
 verify_jwt = true
 
+[functions.forms-walkthrough-date]
+verify_jwt = true
+
 [functions.forms-inspection-fix-details]
 verify_jwt = true
 

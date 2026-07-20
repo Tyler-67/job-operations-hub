@@ -18,6 +18,7 @@ import AdminUsers from "@/pages/admin/Users";
 import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
 import InspectionDateForm from "@/pages/forms/InspectionDateForm";
+import WalkthroughDateForm from "@/pages/forms/WalkthroughDateForm";
 import InspectionFixDetailsForm from "@/pages/forms/InspectionFixDetailsForm";
 import WalkthroughPunchListForm from "@/pages/forms/WalkthroughPunchListForm";
 import QuickLogForm from "@/pages/forms/QuickLogForm";
@@ -51,6 +52,11 @@ const App = () => (
             <Route path="/forms/inspection-date" element={
               <TokenForm tokenAction="inspection_date" title="Set Inspection Date">
                 {(payload) => <InspectionDateForm payload={payload} />}
+              </TokenForm>
+            } />
+            <Route path="/forms/walkthrough-date" element={
+              <TokenForm tokenAction="walkthrough_date" title="Schedule Walkthrough">
+                {(payload) => <WalkthroughDateForm payload={payload} />}
               </TokenForm>
             } />
             <Route path="/action/decision" element={<DecisionConfirm />} />

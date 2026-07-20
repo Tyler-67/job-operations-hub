@@ -12,6 +12,8 @@
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
 import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
+import { queueWalkthroughDateAsk } from "../_shared/walkthrough-notify.ts";
+import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
 
 function isDuplicate(error: unknown): boolean {
   return String((error as { message?: unknown })?.message ?? error).toLowerCase().includes("duplicate");
@@ -45,7 +47,15 @@ Deno.serve(async (req) => {
   const inspectionStateIds = new Set<string>();
   for (const st of states ?? []) if (st.is_inspection) inspectionStateIds.add(st.id as string);
 
-  let dateNudges = 0, resultAsks = 0, skipped = 0, companiesFired = 0;
+  // Walkthrough-capable state ids — data-driven the same way the decision spine gates the
+  // asks: any state offering a walkthrough_approved transition (2026-07-20 scheduling parity).
+  const { data: wtTransitions, error: wErr } = await sb
+    .from("job_state_transitions").select("from_state_id").eq("trigger", "walkthrough_approved");
+  if (wErr) return json({ error: wErr.message }, 500);
+  const walkthroughStateIds = new Set<string>();
+  for (const t of wtTransitions ?? []) if (t.from_state_id) walkthroughStateIds.add(t.from_state_id as string);
+
+  let dateNudges = 0, resultAsks = 0, wtDateNudges = 0, wtResultAsks = 0, skipped = 0, companiesFired = 0;
 
   for (const company of companies ?? []) {
     const loc = company.location_id as string;
@@ -65,7 +75,7 @@ Deno.serve(async (req) => {
 
     const { data: jobs } = await sb
       .from("jobs")
-      .select("id, address, current_state_id, inspection_date")
+      .select("id, address, state_set_id, current_state_id, inspection_date, walkthrough_date")
       .eq("location_id", loc).eq("active", true);
     const eligible = (jobs ?? []).filter((j: any) => inspectionStateIds.has(j.current_state_id));
 
@@ -103,8 +113,32 @@ Deno.serve(async (req) => {
         resultAsks++;
       }
     }
+
+    // Walkthrough twins (2026-07-20 scheduling parity): same daily nudge for jobs sitting in
+    // a walkthrough-capable state — pick-a-date link while walkthrough_date is unset, the
+    // APPROVE / PUNCH-LIST ask on the scheduled day. The day-of ask reuses the decision-spine
+    // helper with cycleKey `day:<date>`, so the cron sends exactly once per walkthrough day
+    // while user actions (date set to today) keep their own unconditional keys.
+    const wtEligible = (jobs ?? []).filter((j: any) => walkthroughStateIds.has(j.current_state_id));
+    for (const job of wtEligible) {
+      const walkthroughDate = job.walkthrough_date ? String(job.walkthrough_date).slice(0, 10) : null;
+      if (!walkthroughDate) {
+        const sent = await queueWalkthroughDateAsk(sb, {
+          locationId: loc, jobId: job.id, address: job.address ?? null,
+          ownerContactId, appBaseUrl, localDate: date, force,
+        });
+        if (!sent) { skipped++; continue; }
+        wtDateNudges++;
+      } else if (walkthroughDate === date) {
+        const sent = await enqueueWalkthroughResultAsk(sb, {
+          id: job.id, location_id: loc, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null,
+        }, { appBaseUrl, cycleKey: force ? `force:${crypto.randomUUID()}` : `day:${walkthroughDate}` });
+        if (!sent) { skipped++; continue; }
+        wtResultAsks++;
+      }
+    }
   }
 
-  await logEvent({ source: "cron", kind: "cron.inspection_reminders.tick", payload: { companiesFired, dateNudges, resultAsks, skipped } });
-  return json({ ok: true, companiesFired, dateNudges, resultAsks, skipped });
+  await logEvent({ source: "cron", kind: "cron.inspection_reminders.tick", payload: { companiesFired, dateNudges, resultAsks, wtDateNudges, wtResultAsks, skipped } });
+  return json({ ok: true, companiesFired, dateNudges, resultAsks, wtDateNudges, wtResultAsks, skipped });
 });

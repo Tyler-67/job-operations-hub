@@ -12,7 +12,7 @@
 import { applyTransition } from "./state-machine.ts";
 import type { DecisionSpec } from "./decisions.ts";
 import { enqueueFollowups } from "./decision-followups.ts";
-import { enqueueWalkthroughResultAsk } from "./walkthrough.ts";
+import { queueWalkthroughScheduleAsk } from "./walkthrough-notify.ts";
 import { maybeBuildCompletionReport } from "./completion-report.ts";
 import { maybeEnqueueReviewRequest } from "./review-request.ts";
 import { logEvent } from "./util.ts";
@@ -100,23 +100,35 @@ export async function applyDecision(
     : 0;
   const form = ownerFormLinks[0] ?? null;
 
-  // On a genuine walkthrough entry, hand the owner APPROVE / PUNCH-LIST / RESCHEDULE links.
-  // Gated inside on the new state offering a walkthrough_approved transition. Entering a
-  // billing state (walkthrough approved -> complete) snapshots the closed job + schedules
-  // the delayed customer review-request tag. All three self-guard + are idempotent.
+  // On a genuine walkthrough entry, text the owner the SCHEDULE-the-walkthrough date link
+  // (2026-07-20 parity with inspections: the APPROVE / PUNCH-LIST ask fires on the scheduled
+  // day, not on entry). Gated inside on the new state offering a walkthrough_approved
+  // transition + voids any stale date from a prior cycle. Entering a billing state
+  // (walkthrough approved -> complete) snapshots the closed job + schedules the delayed
+  // customer review-request tag. All three self-guard + are idempotent.
   let walkthroughAsked = false;
   let completionReportBuilt = false;
   let reviewRequestQueued = false;
   if (changed && toStateId) {
-    walkthroughAsked = await enqueueWalkthroughResultAsk(
+    walkthroughAsked = await queueWalkthroughScheduleAsk(
       sb,
       { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: toStateId, address: job.address },
-      // Keyed per decision invocation (same cycleKey as the follow-ups) so a job that
-      // RE-enters walkthrough asks the owner again — the change gate above is the dedupe.
-      { appBaseUrl: opts.appBaseUrl, cycleKey: opts.cycleKey },
+      { appBaseUrl: opts.appBaseUrl },
     );
     completionReportBuilt = await maybeBuildCompletionReport(sb, job.id, toStateId);
     reviewRequestQueued = await maybeEnqueueReviewRequest(sb, job.id, toStateId);
+  }
+
+  // RESCHEDULE re-opens the scheduling loop: void the stored walkthrough date and text the
+  // owner a fresh date-picker link (direct queue, NOT a registry link-followup — the browser
+  // tap's suppressOwnerFormSms must never swallow it). The decision itself stays
+  // acknowledge-only; owner/office still get their "reschedule requested" notices below.
+  if (decision.action === "walkthrough_reschedule") {
+    walkthroughAsked = await queueWalkthroughScheduleAsk(
+      sb,
+      { id: job.id, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address },
+      { appBaseUrl: opts.appBaseUrl },
+    ) || walkthroughAsked;
   }
 
   await logEvent({
