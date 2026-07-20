@@ -692,7 +692,7 @@ export default function JobDetail() {
                     <button
                       type="button"
                       onClick={() => setOpenLogId(open ? null : log.id)}
-                      className="flex w-full items-center gap-2 py-2 text-left hover:bg-muted/40"
+                      className="flex w-full items-center gap-2 py-2 pr-3 text-left hover:bg-muted/40"
                     >
                       {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                       <span className="font-medium">{shortDate(log.log_date)}</span>
@@ -705,7 +705,7 @@ export default function JobDetail() {
                       <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
                     </button>
                     {open && (
-                      <div className="space-y-2 pb-3 pl-6 pr-2">
+                      <div className="space-y-2 pb-3 pl-6 pr-4">
                         {log.issues && (
                           <div>
                             <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
