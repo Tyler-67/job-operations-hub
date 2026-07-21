@@ -4,6 +4,7 @@ import { callEdge, useSession } from "@/lib/session";
 import { roleLabel } from "@/lib/users";
 import {
   BarChart3,
+  BookOpen,
   BriefcaseBusiness,
   Contact,
   KeyRound,
@@ -137,9 +138,21 @@ export default function AppShell() {
               ))}
             </>
           )}
-          <div className="mt-auto flex items-center gap-1 p-2 text-2xs text-sidebar-foreground/40">
-            <Wifi className="h-3 w-3" />
-            v2 operations app
+          <div className="mt-auto">
+            <NavLink
+              to="/docs"
+              className={({ isActive }) => cn(
+                "flex items-center gap-2 rounded-sm px-2 py-1.5 text-2xs",
+                isActive ? "bg-sidebar-accent text-sidebar-primary" : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              )}
+            >
+              <BookOpen className="h-3 w-3" />
+              App guide
+            </NavLink>
+            <div className="flex items-center gap-1 p-2 text-2xs text-sidebar-foreground/40">
+              <Wifi className="h-3 w-3" />
+              v2 operations app
+            </div>
           </div>
         </nav>
       </aside>
