@@ -37,7 +37,9 @@ interface FormState {
   invoice_number: string;
   start_date: string;
   inspection_date: string;
+  inspection_slot: string;
   walkthrough_date: string;
+  walkthrough_slot: string;
   scope_of_work: string;
   notes: string;
   active: boolean;
@@ -58,7 +60,9 @@ const emptyForm: FormState = {
   invoice_number: "",
   start_date: "",
   inspection_date: "",
+  inspection_slot: "9am",
   walkthrough_date: "",
+  walkthrough_slot: "9am",
   scope_of_work: "",
   notes: "",
   active: true,
@@ -67,6 +71,12 @@ const emptyForm: FormState = {
 function dateInput(value: string | null | undefined) {
   if (!value) return "";
   return value.slice(0, 10);
+}
+
+// Appointment window select value — jobs saved before slots existed have null, shown as the
+// default morning window (the same default every calendar sync used before slots were stored).
+function slotInput(value: string | null | undefined) {
+  return value === "1pm" ? "1pm" : "9am";
 }
 
 function splitCrew(value: string) {
@@ -226,7 +236,9 @@ export default function JobDetail() {
             invoice_number: job.invoice_number ?? "",
             start_date: dateInput(job.start_date),
             inspection_date: dateInput(job.inspection_date),
+            inspection_slot: slotInput((job as { inspection_slot?: string | null }).inspection_slot),
             walkthrough_date: dateInput(job.walkthrough_date),
+            walkthrough_slot: slotInput((job as { walkthrough_slot?: string | null }).walkthrough_slot),
             scope_of_work: job.scope_of_work ?? "",
             notes: job.notes ?? "",
             active: job.active,
@@ -284,7 +296,11 @@ export default function JobDetail() {
         invoice_number: form.invoice_number || null,
         start_date: form.start_date || null,
         inspection_date: form.inspection_date || null,
+        ...(isNew || form.inspection_slot !== slotInput((detail?.job as { inspection_slot?: string | null } | undefined)?.inspection_slot)
+          ? { inspection_slot: form.inspection_slot } : {}),
         walkthrough_date: form.walkthrough_date || null,
+        ...(isNew || form.walkthrough_slot !== slotInput((detail?.job as { walkthrough_slot?: string | null } | undefined)?.walkthrough_slot)
+          ? { walkthrough_slot: form.walkthrough_slot } : {}),
         scope_of_work: form.scope_of_work || null,
         notes: form.notes || null,
         active: form.active,
@@ -395,7 +411,9 @@ export default function JobDetail() {
         state_progress_pct: String(res.job.state_progress_pct),
         job_completion_pct: String(res.job.job_completion_pct),
         inspection_date: dateInput(res.job.inspection_date),
+        inspection_slot: slotInput((res.job as { inspection_slot?: string | null }).inspection_slot),
         walkthrough_date: dateInput(res.job.walkthrough_date),
+        walkthrough_slot: slotInput((res.job as { walkthrough_slot?: string | null }).walkthrough_slot),
         active: res.job.active,
       }));
       const d = res.decision;
@@ -567,11 +585,23 @@ export default function JobDetail() {
             <Field label="Start date">
               <input disabled={readOnly} type="date" value={form.start_date} onChange={(event) => update("start_date", event.target.value)} className={inputClass(readOnly)} />
             </Field>
-            <Field label="Inspection date">
-              <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={inputClass(readOnly)} />
+            <Field label="Inspection date & time">
+              <div className="flex gap-2">
+                <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={inputClass(readOnly)} />
+                <select disabled={readOnly} value={form.inspection_slot} onChange={(event) => update("inspection_slot", event.target.value)} className={`${inputClass(readOnly)} w-28 shrink-0`}>
+                  <option value="9am">9:00 AM</option>
+                  <option value="1pm">1:00 PM</option>
+                </select>
+              </div>
             </Field>
-            <Field label="Walkthrough date">
-              <input disabled={readOnly} type="date" value={form.walkthrough_date} onChange={(event) => update("walkthrough_date", event.target.value)} className={inputClass(readOnly)} />
+            <Field label="Walkthrough date & time">
+              <div className="flex gap-2">
+                <input disabled={readOnly} type="date" value={form.walkthrough_date} onChange={(event) => update("walkthrough_date", event.target.value)} className={inputClass(readOnly)} />
+                <select disabled={readOnly} value={form.walkthrough_slot} onChange={(event) => update("walkthrough_slot", event.target.value)} className={`${inputClass(readOnly)} w-28 shrink-0`}>
+                  <option value="9am">9:00 AM</option>
+                  <option value="1pm">1:00 PM</option>
+                </select>
+              </div>
             </Field>
 
             <Field label="State progress %">

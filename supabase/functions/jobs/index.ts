@@ -285,7 +285,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, walkthrough_date, walkthrough_appointment_id, current_state_id")
+    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, inspection_slot, walkthrough_date, walkthrough_appointment_id, walkthrough_slot, current_state_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -309,6 +309,10 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   if ("start_date" in body) patch.start_date = cleanText(body.start_date);
   if ("inspection_date" in body) patch.inspection_date = cleanText(body.inspection_date);
   if ("walkthrough_date" in body) patch.walkthrough_date = cleanText(body.walkthrough_date);
+  // Appointment time windows — only the two known slots are accepted; anything else is ignored
+  // (never nulls a stored slot). The calendar sync below re-times the Uptiq event on a change.
+  if (body.inspection_slot === "9am" || body.inspection_slot === "1pm") patch.inspection_slot = body.inspection_slot;
+  if (body.walkthrough_slot === "9am" || body.walkthrough_slot === "1pm") patch.walkthrough_slot = body.walkthrough_slot;
   if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
   if ("notes" in body) patch.notes = cleanText(body.notes);
   if ("active" in body) patch.active = body.active !== false;
@@ -342,15 +346,22 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   const bodyWtDate = "walkthrough_date" in body ? (patch.walkthrough_date as string | null) : oldWtDate;
   const wtDateChanged = Boolean(bodyWtDate) && bodyWtDate !== oldWtDate;
 
-  if ("inspection_date" in body) {
-    const newDate = patch.inspection_date as string | null;
-    if (newDate && (newDate !== oldDate || !existing.inspection_appointment_id)) {
+  // Re-sync the Uptiq appointment when the date OR the time window changed (or a date exists
+  // with no appointment yet). The patch is already applied, so the helper reads the stored
+  // date + slot — a date-only change keeps the chosen time, a slot-only change re-times the
+  // same event. Slot-only saves never touch the ask notifications below (those stay
+  // date/state-change-gated).
+  const inspSlotChanged = "inspection_slot" in patch && patch.inspection_slot !== (existing.inspection_slot ?? null);
+  const wtSlotChanged = "walkthrough_slot" in patch && patch.walkthrough_slot !== (existing.walkthrough_slot ?? null);
+  if ("inspection_date" in body || inspSlotChanged) {
+    const newDate = ("inspection_date" in body ? patch.inspection_date : oldDate) as string | null;
+    if (newDate && (newDate !== oldDate || inspSlotChanged || !existing.inspection_appointment_id)) {
       calendar = await syncInspectionAppointment(sb, { jobId });
     }
   }
-  if ("walkthrough_date" in body) {
-    const newDate = patch.walkthrough_date as string | null;
-    if (newDate && (newDate !== oldWtDate || !existing.walkthrough_appointment_id)) {
+  if ("walkthrough_date" in body || wtSlotChanged) {
+    const newDate = ("walkthrough_date" in body ? patch.walkthrough_date : oldWtDate) as string | null;
+    if (newDate && (newDate !== oldWtDate || wtSlotChanged || !existing.walkthrough_appointment_id)) {
       await syncInspectionAppointment(sb, { jobId, kind: "walkthrough" });
     }
   }

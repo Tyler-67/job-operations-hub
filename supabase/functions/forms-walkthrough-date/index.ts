@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
     const oldDate = job.walkthrough_date ? String(job.walkthrough_date).slice(0, 10) : null;
 
     // 1. Authoritative write: record the chosen walkthrough date on the job.
-    const { error: updErr } = await sb.from("jobs").update({ walkthrough_date: chosenDate }).eq("id", jobId);
+    const { error: updErr } = await sb.from("jobs").update({ walkthrough_date: chosenDate, walkthrough_slot: input.slot }).eq("id", jobId);
     if (updErr) throw updErr;
 
     // 2. Best-effort calendar appointment (same company calendar as inspections; the event

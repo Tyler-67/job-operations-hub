@@ -23,10 +23,14 @@ export interface InspectionCalendarResult {
 // different job columns + event title. Both kinds land on the company's one configured Uptiq
 // calendar (inspections_calendar_id) — the title tells them apart on the calendar.
 export type AppointmentKind = "inspection" | "walkthrough";
-const KIND_CONFIG: Record<AppointmentKind, { dateCol: string; idCol: string; title: string; logKind: string }> = {
-  inspection: { dateCol: "inspection_date", idCol: "inspection_appointment_id", title: "Inspection", logKind: "calendar.inspection_appointment" },
-  walkthrough: { dateCol: "walkthrough_date", idCol: "walkthrough_appointment_id", title: "Walkthrough", logKind: "calendar.walkthrough_appointment" },
+const KIND_CONFIG: Record<AppointmentKind, { dateCol: string; idCol: string; slotCol: string; title: string; logKind: string }> = {
+  inspection: { dateCol: "inspection_date", idCol: "inspection_appointment_id", slotCol: "inspection_slot", title: "Inspection", logKind: "calendar.inspection_appointment" },
+  walkthrough: { dateCol: "walkthrough_date", idCol: "walkthrough_appointment_id", slotCol: "walkthrough_slot", title: "Walkthrough", logKind: "calendar.walkthrough_appointment" },
 };
+
+function slotOf(value: unknown): InspectionSlot | null {
+  return value === "9am" || value === "1pm" ? value : null;
+}
 
 // LeadConnector's appointment create/update responses nest the id differently across versions;
 // probe the known shapes so a reschedule can target the same event.
@@ -36,7 +40,9 @@ function appointmentIdFrom(data: unknown): string | null {
 }
 
 // Sync the inspection/walkthrough appointment for a job whose date column is already written.
-// slot defaults to the morning window (the office job form has no slot picker).
+// Slot resolution: an explicit opts.slot wins, else the slot STORED on the job (written by the
+// owner date-forms and the office job form), else the morning window — so a date-only change
+// keeps the previously chosen time instead of snapping the event back to 9am.
 export async function syncInspectionAppointment(
   sb: any,
   opts: { jobId: string; slot?: InspectionSlot; kind?: AppointmentKind },
@@ -44,11 +50,12 @@ export async function syncInspectionAppointment(
   const kind = KIND_CONFIG[opts.kind ?? "inspection"];
   const { data: job } = await sb
     .from("jobs")
-    .select(`id, location_id, address, ${kind.dateCol}, ${kind.idCol}`)
+    .select(`id, location_id, address, ${kind.dateCol}, ${kind.idCol}, ${kind.slotCol}`)
     .eq("id", opts.jobId)
     .maybeSingle();
   if (!job?.[kind.dateCol]) return { ok: false, action: "skipped_no_date" };
   const dateStr = String(job[kind.dateCol]).slice(0, 10);
+  const slot: InspectionSlot = opts.slot ?? slotOf(job[kind.slotCol]) ?? "9am";
 
   // Records every non-trivial outcome (skip/fail/create/update, with the real provider status +
   // error) so a blocked calendar sync is diagnosable from event_log — both the owner SMS date-form
@@ -58,7 +65,7 @@ export async function syncInspectionAppointment(
       location_id: job.location_id,
       source: "app",
       kind: kind.logKind,
-      payload: { job_id: job.id, action: r.action, status: r.status ?? null, error: r.error ?? null, detail: r.detail ?? null, appointment_id: r.appointment_id ?? null },
+      payload: { job_id: job.id, action: r.action, status: r.status ?? null, error: r.error ?? null, detail: r.detail ?? null, appointment_id: r.appointment_id ?? null, slot },
     });
     return r;
   };
@@ -73,7 +80,6 @@ export async function syncInspectionAppointment(
   const uptiqLocationId = (loc?.uptiq_location_id as string | null)?.trim() || null;
   if (!calendarId || !ownerContactId || !uptiqLocationId) return await logResult({ ok: false, action: "skipped_no_calendar" });
 
-  const slot: InspectionSlot = opts.slot ?? "9am";
   const { start, end } = appointmentTimesWithZone(dateStr, slot, loc?.timezone as string | null);
   const payload: Record<string, unknown> = {
     calendarId,

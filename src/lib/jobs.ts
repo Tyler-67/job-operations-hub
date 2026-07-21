@@ -110,6 +110,8 @@ export interface SaveJobPayload {
   invoice_number?: string | null;
   start_date?: string | null;
   inspection_date?: string | null;
+  inspection_slot?: string;
+  walkthrough_slot?: string;
   walkthrough_date?: string | null;
   scope_of_work?: string | null;
   notes?: string | null;

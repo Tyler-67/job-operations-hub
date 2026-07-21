@@ -68,8 +68,10 @@ Deno.serve(async (req) => {
     if (!job) return json({ error: "job_not_found" }, 404);
     const oldDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
 
-    // 1. Authoritative write: record the chosen calendar date on the job.
-    const { error: updErr } = await sb.from("jobs").update({ inspection_date: input.inspectionDate }).eq("id", jobId);
+    // 1. Authoritative write: record the chosen calendar date AND time window on the job —
+    //    the stored slot is what keeps a later office date change from re-timing the
+    //    appointment back to the default morning window.
+    const { error: updErr } = await sb.from("jobs").update({ inspection_date: input.inspectionDate, inspection_slot: input.slot }).eq("id", jobId);
     if (updErr) throw updErr;
 
     // 2. Best-effort calendar appointment on the company's inspections calendar (shared helper,
