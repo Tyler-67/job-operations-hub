@@ -587,8 +587,8 @@ export default function JobDetail() {
             </Field>
             <Field label="Inspection date & time">
               <div className="flex gap-2">
-                <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={inputClass(readOnly)} />
-                <select disabled={readOnly} value={form.inspection_slot} onChange={(event) => update("inspection_slot", event.target.value)} className={`${inputClass(readOnly)} w-28 shrink-0`}>
+                <input disabled={readOnly} type="date" value={form.inspection_date} onChange={(event) => update("inspection_date", event.target.value)} className={`${inputClass(readOnly)} min-w-0 flex-1`} />
+                <select disabled={readOnly} value={form.inspection_slot} onChange={(event) => update("inspection_slot", event.target.value)} className={`${inputClass(readOnly)} !w-28 flex-none`}>
                   <option value="9am">9:00 AM</option>
                   <option value="1pm">1:00 PM</option>
                 </select>
@@ -596,8 +596,8 @@ export default function JobDetail() {
             </Field>
             <Field label="Walkthrough date & time">
               <div className="flex gap-2">
-                <input disabled={readOnly} type="date" value={form.walkthrough_date} onChange={(event) => update("walkthrough_date", event.target.value)} className={inputClass(readOnly)} />
-                <select disabled={readOnly} value={form.walkthrough_slot} onChange={(event) => update("walkthrough_slot", event.target.value)} className={`${inputClass(readOnly)} w-28 shrink-0`}>
+                <input disabled={readOnly} type="date" value={form.walkthrough_date} onChange={(event) => update("walkthrough_date", event.target.value)} className={`${inputClass(readOnly)} min-w-0 flex-1`} />
+                <select disabled={readOnly} value={form.walkthrough_slot} onChange={(event) => update("walkthrough_slot", event.target.value)} className={`${inputClass(readOnly)} !w-28 flex-none`}>
                   <option value="9am">9:00 AM</option>
                   <option value="1pm">1:00 PM</option>
                 </select>
