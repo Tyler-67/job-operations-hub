@@ -136,7 +136,7 @@ export default function Dashboard() {
                   <th className="w-[30%] border-b border-border px-3 py-2 text-left font-medium">Address</th>
                   <th className="w-[12%] border-b border-border px-3 py-2 text-left font-medium">Customer</th>
                   <th className="w-[14%] border-b border-border px-3 py-2 text-left font-medium">State</th>
-                  <th className="w-[7%] border-b border-border px-3 py-2 text-left font-medium">Job %</th>
+                  <th className="w-[7%] border-b border-border px-3 py-2 text-left font-medium">State %</th>
                   <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Expenses</th>
                   <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Inspection</th>
                   <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Check-in</th>
@@ -163,7 +163,7 @@ export default function Dashboard() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono-num">{job.job_completion_pct}%</td>
+                      <td className="px-3 py-2 font-mono-num">{job.state_progress_pct}%</td>
                       <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDate(job.inspection_date)}</td>
                       <td className="px-3 py-2 text-muted-foreground">

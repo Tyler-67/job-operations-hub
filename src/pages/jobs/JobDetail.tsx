@@ -31,7 +31,6 @@ interface FormState {
   crew_lead: string;
   current_state_id: string;
   state_progress_pct: string;
-  job_completion_pct: string;
   total_hours: string;
   original_estimate: string;
   invoice_number: string;
@@ -54,7 +53,6 @@ const emptyForm: FormState = {
   crew_lead: "",
   current_state_id: "",
   state_progress_pct: "0",
-  job_completion_pct: "0",
   total_hours: "0",
   original_estimate: "",
   invoice_number: "",
@@ -230,7 +228,6 @@ export default function JobDetail() {
             crew_lead: job.crew.find((contact) => contact.is_lead)?.name ?? "",
             current_state_id: job.current_state_id ?? "",
             state_progress_pct: String(job.state_progress_pct),
-            job_completion_pct: String(job.job_completion_pct),
             total_hours: String(job.total_hours),
             original_estimate: numberInput(job.original_estimate),
             invoice_number: job.invoice_number ?? "",
@@ -290,7 +287,6 @@ export default function JobDetail() {
         address: form.address,
         current_state_id: form.current_state_id || null,
         state_progress_pct: percent(form.state_progress_pct),
-        job_completion_pct: percent(form.job_completion_pct),
         ...(isNew || enteredHours !== Number(detail?.job.total_hours ?? NaN) ? { total_hours: enteredHours } : {}),
         original_estimate: form.original_estimate ? nonNegative(form.original_estimate) : null,
         invoice_number: form.invoice_number || null,
@@ -317,7 +313,6 @@ export default function JobDetail() {
       setStates(saved.states);
       setForm((current) => ({ ...current, ...{
         state_progress_pct: String(saved.job.state_progress_pct),
-        job_completion_pct: String(saved.job.job_completion_pct),
         total_hours: String(saved.job.total_hours),
         original_estimate: numberInput(saved.job.original_estimate),
         invoice_number: saved.job.invoice_number ?? "",
@@ -374,7 +369,6 @@ export default function JobDetail() {
         ...current,
         current_state_id: saved.job.current_state_id ?? "",
         state_progress_pct: String(saved.job.state_progress_pct),
-        job_completion_pct: String(saved.job.job_completion_pct),
         invoice_number: saved.job.invoice_number ?? current.invoice_number,
         active: saved.job.active,
       }));
@@ -409,7 +403,6 @@ export default function JobDetail() {
         ...current,
         current_state_id: res.job.current_state_id ?? "",
         state_progress_pct: String(res.job.state_progress_pct),
-        job_completion_pct: String(res.job.job_completion_pct),
         inspection_date: dateInput(res.job.inspection_date),
         inspection_slot: slotInput((res.job as { inspection_slot?: string | null }).inspection_slot),
         walkthrough_date: dateInput(res.job.walkthrough_date),
@@ -607,10 +600,6 @@ export default function JobDetail() {
             <Field label="State progress %">
               <input disabled={readOnly} type="number" min="0" max="100" value={form.state_progress_pct} onChange={(event) => update("state_progress_pct", event.target.value)} className={inputClass(readOnly)} />
             </Field>
-            <Field label="Job completion %">
-              <input disabled={readOnly} type="number" min="0" max="100" value={form.job_completion_pct} onChange={(event) => update("job_completion_pct", event.target.value)} className={inputClass(readOnly)} />
-            </Field>
-
             <Field label="Hours">
               <input disabled={readOnly} type="number" min="0" step="0.25" value={form.total_hours} onChange={(event) => update("total_hours", event.target.value)} className={inputClass(readOnly)} />
             </Field>

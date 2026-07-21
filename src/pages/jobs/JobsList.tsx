@@ -173,9 +173,9 @@ export default function JobsList() {
                     <td className="px-3 py-2 font-mono-num">
                       <div className="flex items-center gap-2">
                         <div className="h-1.5 w-20 rounded-sm bg-secondary">
-                          <div className="h-full rounded-sm bg-accent" style={{ width: `${job.job_completion_pct}%` }} />
+                          <div className="h-full rounded-sm bg-accent" style={{ width: `${job.state_progress_pct}%` }} />
                         </div>
-                        {job.job_completion_pct}%
+                        {job.state_progress_pct}%
                       </div>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{job.crew.map((contact) => contact.name).join(", ") || "-"}</td>
