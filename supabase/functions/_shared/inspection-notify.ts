@@ -7,6 +7,7 @@
 // ever swallow a genuine request. The per-day/per-date dedupe keys below therefore only guard the
 // CRON against re-sending on its own schedule.
 import { mintActionToken, buildActionLink } from "./action-tokens.ts";
+import { appointmentTimesWithZone } from "./inspection.ts";
 
 const INSPECTION_DATE_ACTION = "inspection_date";
 const INSPECTION_DATE_PATH = "/forms/inspection-date";
@@ -81,12 +82,30 @@ export async function queueInspectionResultAsk(sb: any, opts: {
   phaseLabel?: string | null;
 }): Promise<boolean> {
   const phaseLabel = await resolvePhaseLabel(sb, opts.jobId, opts.phaseLabel);
+
+  // WHEN to ask: at the appointment window's start, not the moment the date lands. Setting
+  // today's date in the morning with a 1pm window must not fire PASS/FAIL immediately — the
+  // inspection hasn't happened yet. Uses the job's stored time window (morning default when
+  // none was chosen); if the window already passed, ask now. The 15-min delivery sweep
+  // carries it out once scheduled_for arrives.
+  const [{ data: slotRow }, { data: locRow }] = await Promise.all([
+    sb.from("jobs").select("inspection_slot").eq("id", opts.jobId).maybeSingle(),
+    sb.from("locations").select("timezone").eq("id", opts.locationId).maybeSingle(),
+  ]);
+  const slot = slotRow?.inspection_slot === "1pm" ? "1pm" as const : "9am" as const;
+  const windowStart = new Date(appointmentTimesWithZone(opts.inspectionDate, slot, (locRow?.timezone as string | null) ?? null).start);
+  const scheduledFor = Number.isFinite(windowStart.getTime()) && windowStart.getTime() > Date.now()
+    ? windowStart.toISOString()
+    : new Date().toISOString();
+
+  // PASS and FAIL are one text: share a batch so answering one burns the other.
+  const batchId = crypto.randomUUID();
   const pass = await mintActionToken(sb, {
-    action: "inspection_pass", jobId: opts.jobId, contactId: null,
+    action: "inspection_pass", jobId: opts.jobId, contactId: null, batchId,
     payload: { address: opts.address ?? null, phase_label: phaseLabel },
   });
   const fail = await mintActionToken(sb, {
-    action: "inspection_fail", jobId: opts.jobId, contactId: null,
+    action: "inspection_fail", jobId: opts.jobId, contactId: null, batchId,
     payload: { address: opts.address ?? null, phase_label: phaseLabel },
   });
   const { error } = await sb.from("scheduled_notifications").insert({
@@ -101,7 +120,7 @@ export async function queueInspectionResultAsk(sb: any, opts: {
       pass_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, pass.token),
       fail_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, fail.token),
     },
-    scheduled_for: new Date().toISOString(),
+    scheduled_for: scheduledFor,
     dedupe_key: opts.force ? null : `notif:insp_result:${opts.jobId}:${opts.inspectionDate}`,
   });
   if (error) { if (isDuplicate(error)) return false; throw error; }
@@ -115,7 +134,7 @@ export async function queueInspectionResultAsk(sb: any, opts: {
       recipient: officeContactId,
       template_key: "inspection_reminder_office_notice",
       payload: { phase: "result", address: opts.address ?? null, phase_label: phaseLabel },
-      scheduled_for: new Date().toISOString(),
+      scheduled_for: scheduledFor,
       dedupe_key: opts.force ? null : `notif:insp_result_office:${opts.jobId}:${opts.inspectionDate}`,
     });
     if (oErr && !isDuplicate(oErr)) throw oErr;

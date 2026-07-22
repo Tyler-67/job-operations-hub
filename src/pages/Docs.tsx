@@ -83,7 +83,10 @@ const TABS: DocTab[] = [
         <P>
           Links in texts are <strong>single-use and expiring</strong>: once submitted (or after the expiry window) the
           link shows &quot;already used&quot; instead of a form, so a forwarded or re-tapped link can&apos;t double-submit.
-          When a step needs doing again, the flow sends a fresh link — or the office drives it from the job page.
+          Multi-choice texts retire <strong>as a unit</strong> — answering PASS also burns the FAIL link from that same
+          text (and likewise for APPROVE/PUNCH LIST/RESCHEDULE and YES/NO). A decision link also only acts while the
+          job is still in the matching phase; anything stale just shows the &quot;no longer valid&quot; page. When a step
+          needs doing again, the flow sends a fresh link — or the office drives it from the job page.
         </P>
 
         <H2>The job lifecycle</H2>
@@ -143,7 +146,7 @@ const TABS: DocTab[] = [
             [<strong>Customer</strong>, <>Name/email/phone. Linked to an Uptiq contact by the sync; the customer gets the review request after completion.</>],
             [<strong>Crew + crew lead</strong>, <>Pick crew from the synced contact list or type names. Every active crew member with an Uptiq contact gets the daily check-in text; the <strong>lead</strong> also gets decision outcomes and fix/punch lists.</>],
             [<strong>Start date</strong>, <>Shown on reports; no automation hangs off it.</>],
-            [<strong>Inspection date &amp; time</strong>, <>The scheduled inspection. Setting/moving it syncs the Uptiq calendar appointment (9:00 AM or 1:00 PM window). Setting it to today sends the owner&apos;s PASS/FAIL ask immediately.</>],
+            [<strong>Inspection date &amp; time</strong>, <>The scheduled inspection. Setting/moving it syncs the Uptiq calendar appointment. Time offers &quot;No time&quot; / 9:00 AM / 1:00 PM — with no time chosen, the calendar and the day-of ask fall back to the morning window. The PASS/FAIL ask arrives at the window, not the moment the date is saved.</>],
             [<strong>Walkthrough date &amp; time</strong>, <>Same semantics for the walkthrough appointment and the APPROVE/PUNCH LIST ask.</>],
             [<strong>State progress %</strong>, <>Phase progress from crew check-ins (resets each phase). Editable here as a correction.</>],
             [<strong>Hours</strong>, <>Running job total. Check-ins add to it; an office edit here is the correction path — later check-ins add on top of your corrected number.</>],
@@ -223,7 +226,7 @@ const TABS: DocTab[] = [
         <Steps items={[
           <><strong>Request.</strong> The crew marks ready for inspection (or the office moves the job into the inspection phase). Instantly: the owner gets the <strong>pick-the-date link</strong> (date + 9:00 AM / 1:00 PM window) and the office gets a heads-up text.</>,
           <><strong>Schedule.</strong> The picked date &amp; time land on the job and as an appointment on the company&apos;s Uptiq calendar. Re-picking moves the same appointment (it never duplicates). While no date is set, the owner gets one nudge per day at the reminder hour, and the office a copy.</>,
-          <><strong>Inspection day.</strong> The owner gets <strong>PASS / FAIL</strong> links (immediately if the date was set to today — even by the office). The office gets a no-links copy.</>,
+          <><strong>Inspection day.</strong> The owner gets <strong>PASS / FAIL</strong> links at the appointment&apos;s time window — a 1:00 PM inspection asks at 1:00 PM, not at dawn (and not the moment someone sets today&apos;s date; if the window already passed, it asks right away). The office gets a no-links copy at the same time.</>,
           <><strong>PASS.</strong> The job advances; owner, office, and crew lead get the stage-named outcome text.</>,
           <><strong>FAIL.</strong> The job falls back to the work phase, and the same page asks the owner what the inspector flagged. The list is appended to the job&apos;s notes and texted to the crew lead. The inspection date clears — the next cycle schedules fresh.</>,
           <><strong>Fix &amp; re-request.</strong> When the crew marks ready for inspection again, the whole cycle restarts: fresh date link, fresh appointment, fresh PASS/FAIL. Every re-entry asks again — nothing is swallowed because &quot;it already asked once.&quot;</>,
@@ -246,7 +249,7 @@ const TABS: DocTab[] = [
         <P>The customer-facing final review. It runs like an inspection — scheduled first, decided on the day.</P>
         <Steps items={[
           <><strong>Enter Walkthrough</strong> (Final Inspection PASS, the owner&apos;s YES after 100%, or the office dropdown): the owner gets the <strong>schedule-the-walkthrough link</strong> (date + 9:00 AM / 1:00 PM). The appointment lands on the Uptiq calendar; an unset date gets a daily nudge at the reminder hour.</>,
-          <><strong>Walkthrough day:</strong> the owner gets <strong>APPROVE / PUNCH LIST / RESCHEDULE</strong> (immediately if the date was set to today).</>,
+          <><strong>Walkthrough day:</strong> the owner gets <strong>APPROVE / PUNCH LIST / RESCHEDULE</strong> at the walkthrough&apos;s time window (right away if the window already passed).</>,
           <><strong>APPROVE:</strong> the job moves to Complete — the completion report snapshot is generated and the customer review request is scheduled (see Reports).</>,
           <><strong>PUNCH LIST</strong> — failing the walkthrough: the owner writes the list on the same page. The job reverts to <strong>Finish Work</strong>, the walkthrough date is voided and the calendar slot cancelled, the list is appended to the job notes, and the crew lead gets it by text with the done-signal: <em>report 100% on the daily check-in when the list is finished</em>.</>,
           <><strong>The loop closes:</strong> the crew&apos;s 100% report asks the owner &quot;ready for the final walkthrough?&quot; — YES re-enters Walkthrough and sends a <strong>fresh schedule link</strong>. Approve, or run another punch list; every cycle asks again.</>,
@@ -322,13 +325,13 @@ const TABS: DocTab[] = [
             [<>Ready-for-inspection notice <K>SMS</K></>, "Owner + office", "Crew marks ready and the job advances (stage-named)"],
             [<>Inspection date &amp; time link <K>SMS</K></>, "Owner", "Entering an inspection phase; re-sent daily at the reminder hour while unset"],
             [<>Office reminder copy <K>SMS</K></>, "Office", "Alongside the owner's nudge / day-of ask (no links)"],
-            [<>Inspection PASS/FAIL ask <K>SMS</K></>, "Owner", "Inspection day at the reminder hour — or instantly when the date is set to today"],
+            [<>Inspection PASS/FAIL ask <K>SMS</K></>, "Owner", "At the inspection's time window on its day (as soon as the window passed, if scheduled late)"],
             [<>Fix-details link <K>SMS</K></>, "Owner", "Office marks FAIL (an owner FAIL tap shows the form inline instead)"],
             [<>Fix list <K>SMS</K></>, "Crew lead", "Owner submits the fix details (stage-named)"],
             [<>Decision outcome <K>SMS</K></>, "Owner / office / crew lead", "After each decision — pass, fail, approve, etc. (stage-named)"],
             [<>&quot;Ready for the final walkthrough?&quot; YES/NO <K>SMS</K></>, "Owner", "Crew reports 100% in a phase that leads to the walkthrough"],
             [<>Walkthrough schedule link <K>SMS</K></>, "Owner", "Entering Walkthrough; daily nudge while unset; after RESCHEDULE or a punch-list revert cycle"],
-            [<>Walkthrough APPROVE/PUNCH LIST ask <K>SMS</K></>, "Owner", "Walkthrough day — or instantly when the date is set to today"],
+            [<>Walkthrough APPROVE/PUNCH LIST ask <K>SMS</K></>, "Owner", "At the walkthrough's time window on its day (as soon as the window passed, if scheduled late)"],
             [<>Walkthrough re-ask (APPROVE/STILL ISSUES) <K>SMS</K></>, "Owner", "Crew marks ready for inspection while the job sits in Walkthrough"],
             [<>Punch list <K>SMS</K></>, "Crew lead", "Owner submits a punch list (includes the report-100% done signal)"],
             [<>Supply order <K>email</K></>, "Supply house", "Crew places an order (parts list, pickup time, cost ceiling, PO number)"],
@@ -473,7 +476,7 @@ const TABS: DocTab[] = [
           <><strong>Change the appointment time?</strong> The date &amp; time fields on the job page (9:00 AM / 1:00 PM) re-time the calendar appointment without texting anyone.</>,
           <><strong>Who hears about a supply order?</strong> The supply house always (order or heads-up email); owner + office when the app placed it. Pending POs wait under Admin → Expenses.</>,
           <><strong>Why did the crew get two check-in links?</strong> Usually a testing button fired near the real send time — see above.</>,
-          <><strong>Same-day re-inspection?</strong> Set the date to today (or the crew re-requests) — the ask sends immediately; nothing waits for tomorrow&apos;s reminder hour.</>,
+          <><strong>Same-day re-inspection?</strong> Set today&apos;s date (or the crew re-requests) — the PASS/FAIL ask arrives at the chosen time window, or right away if that time already passed. Nothing waits for tomorrow&apos;s reminder hour.</>,
         ]} />
       </>
     ),

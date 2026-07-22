@@ -174,8 +174,11 @@ export default function Dashboard() {
                         <div className="flex flex-col items-start gap-1">
                           {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">{checkInStatus(job) ?? "check-in"}</span>}
                           {pendingPoCount > 0 && <span className="pill bg-warning/20 text-warning">PO value</span>}
-                          {inspectionDue(job) && <span className="pill bg-info/10 text-info">inspection</span>}
-                          {!needsCheckIn(job) && pendingPoCount === 0 && !inspectionDue(job) && <span className="text-muted-foreground">-</span>}
+                          {/* Same condition as the Jobs list's Office action column: the job is IN an
+                              inspection phase right now (not the date-window heuristic — that left a
+                              dateless inspection chipped on Jobs but blank here). */}
+                          {job.current_state?.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
+                          {!needsCheckIn(job) && pendingPoCount === 0 && !job.current_state?.is_inspection && <span className="text-muted-foreground">-</span>}
                         </div>
                       </td>
                     </tr>

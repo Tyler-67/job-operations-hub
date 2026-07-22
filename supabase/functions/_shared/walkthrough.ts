@@ -9,6 +9,7 @@
 // a mock sb client; takes sb as a parameter rather than importing the Deno client.
 
 import { buildActionLink, mintActionToken } from "./action-tokens.ts";
+import { appointmentTimesWithZone } from "./inspection.ts";
 
 const DECISION_PATH = "/action/decision";
 const APPROVE_TRIGGER = "walkthrough_approved";
@@ -80,10 +81,27 @@ export async function enqueueWalkthroughResultAsk(
   const owner = await ownerContactId(sb, job.location_id);
   if (!owner) return false;
 
+  // WHEN to ask: at the walkthrough window's start (the job's stored time slot, morning
+  // default) — a date set to today before the appointment must not fire APPROVE/PUNCH
+  // early. Past-window or dateless entries ask now.
+  const [{ data: slotRow }, { data: locRow }] = await Promise.all([
+    sb.from("jobs").select("walkthrough_date, walkthrough_slot").eq("id", job.id).maybeSingle(),
+    sb.from("locations").select("timezone").eq("id", job.location_id).maybeSingle(),
+  ]);
+  let scheduledFor = new Date().toISOString();
+  const wtDate = slotRow?.walkthrough_date ? String(slotRow.walkthrough_date).slice(0, 10) : null;
+  if (wtDate) {
+    const slot = slotRow?.walkthrough_slot === "1pm" ? "1pm" as const : "9am" as const;
+    const start = new Date(appointmentTimesWithZone(wtDate, slot, (locRow?.timezone as string | null) ?? null).start);
+    if (Number.isFinite(start.getTime()) && start.getTime() > Date.now()) scheduledFor = start.toISOString();
+  }
+
   const payload = { address: job.address ?? null };
-  const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload });
-  const punch = await mintActionToken(sb, { action: "walkthrough_punch_list", jobId: job.id, contactId: null, payload });
-  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload });
+  // The three options are one text: share a batch so answering one burns the rest.
+  const batchId = crypto.randomUUID();
+  const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload, batchId });
+  const punch = await mintActionToken(sb, { action: "walkthrough_punch_list", jobId: job.id, contactId: null, payload, batchId });
+  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload, batchId });
 
   const { error } = await sb.from("scheduled_notifications").insert({
     location_id: job.location_id,
@@ -97,7 +115,7 @@ export async function enqueueWalkthroughResultAsk(
       punch_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, punch.token),
       reschedule_link: buildActionLink(opts.appBaseUrl, DECISION_PATH, reschedule.token),
     },
-    scheduled_for: new Date().toISOString(),
+    scheduled_for: scheduledFor,
     dedupe_key: `notif:walkthrough_ask:${job.id}:${opts.cycleKey}`,
   });
   if (error && !String(error.message ?? error).toLowerCase().includes("duplicate")) throw error;
@@ -132,9 +150,11 @@ export async function enqueueWalkthroughReask(
   if (!owner) return false;
 
   const payload = { address: job.address ?? null };
-  const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload });
-  const still = await mintActionToken(sb, { action: "walkthrough_still_issues", jobId: job.id, contactId: null, payload });
-  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload });
+  // One text, one batch: answering any option burns the other two.
+  const batchId = crypto.randomUUID();
+  const approve = await mintActionToken(sb, { action: "walkthrough_approve", jobId: job.id, contactId: null, payload, batchId });
+  const still = await mintActionToken(sb, { action: "walkthrough_still_issues", jobId: job.id, contactId: null, payload, batchId });
+  const reschedule = await mintActionToken(sb, { action: "walkthrough_reschedule", jobId: job.id, contactId: null, payload, batchId });
 
   const { error } = await sb.from("scheduled_notifications").insert({
     location_id: job.location_id,

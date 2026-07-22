@@ -43,6 +43,11 @@ export interface MintActionTokenOptions {
   contactId?: string | null;
   ttlSeconds?: number;
   secret?: string;
+  // Groups the options of ONE multi-link text (PASS+FAIL, APPROVE+PUNCH+RESCHEDULE, YES+NO).
+  // Consuming any token of a batch burns its unused siblings (see action-decision), so a
+  // leftover link from an answered text reads "already used" instead of acting later.
+  // Single-link mints leave it null.
+  batchId?: string | null;
 }
 
 export interface MintedActionToken {
@@ -67,6 +72,7 @@ export async function mintActionToken(sb: any, opts: MintActionTokenOptions): Pr
     job_id: opts.jobId ?? null,
     contact_id: opts.contactId ?? null,
     expires_at: expiresAt,
+    batch_id: opts.batchId ?? null,
   };
 
   const { data, error } = await sb.from("action_tokens").insert(row).select("id").single();

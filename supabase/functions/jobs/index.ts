@@ -3,7 +3,7 @@ import { json, preflight, serviceClient, verifySession, logEvent } from "../_sha
 import { markJobPaid } from "../_shared/job-payments.ts";
 import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
-import { resolveDecision } from "../_shared/decisions.ts";
+import { decisionAllowedForState, resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
 import { syncInspectionAppointment, cancelInspectionAppointment, type InspectionCalendarResult } from "../_shared/inspection-calendar.ts";
 import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
@@ -33,22 +33,6 @@ function nullableNumber(value: unknown) {
 
 function canWrite(role: unknown) {
   return ADMIN_ROLES.has(String(role ?? ""));
-}
-
-// A fired decision must match the job's current state kind — mirrors the JobDetail button
-// gating, enforced server-side so a crafted request can't fire e.g. a walkthrough punch-list
-// SMS against a dirt-work job. State-advancing decisions are also implicitly guarded by
-// applyTransition (no matching transition = no-op), but the acknowledge-only walkthrough
-// decisions (trigger: null) enqueue regardless of state, so this is the real guard for those.
-function decisionAllowedForState(
-  action: string,
-  state: { is_inspection?: boolean; is_walkthrough?: boolean; slug?: string } | null,
-): boolean {
-  if (!state) return false;
-  if (action === "inspection_pass" || action === "inspection_fail") return state.is_inspection === true;
-  if (action.startsWith("walkthrough_")) return state.is_walkthrough === true;
-  if (action === "finish_walkthrough_yes" || action === "finish_walkthrough_no") return state.slug === "finish_work";
-  return false;
 }
 
 function errorStatus(message: string) {
@@ -312,7 +296,9 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   // Appointment time windows — only the two known slots are accepted; anything else is ignored
   // (never nulls a stored slot). The calendar sync below re-times the Uptiq event on a change.
   if (body.inspection_slot === "9am" || body.inspection_slot === "1pm") patch.inspection_slot = body.inspection_slot;
+  else if ("inspection_slot" in body && (body.inspection_slot === null || body.inspection_slot === "")) patch.inspection_slot = null;
   if (body.walkthrough_slot === "9am" || body.walkthrough_slot === "1pm") patch.walkthrough_slot = body.walkthrough_slot;
+  else if ("walkthrough_slot" in body && (body.walkthrough_slot === null || body.walkthrough_slot === "")) patch.walkthrough_slot = null;
   if ("scope_of_work" in body) patch.scope_of_work = cleanText(body.scope_of_work);
   if ("notes" in body) patch.notes = cleanText(body.notes);
   if ("active" in body) patch.active = body.active !== false;

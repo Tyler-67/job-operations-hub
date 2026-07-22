@@ -9,10 +9,11 @@ const JOB = {
   address: "1220 Juniper Bay Drive",
 };
 
-// Mock sb answering the three tables the enqueuer touches. `hasTransition` decides whether
+// Mock sb answering the tables the enqueuer touches. `hasTransition` decides whether
 // job_state_transitions returns a matching walkthrough_approved row; `owner` is the
-// configured owner contact; `inserts` captures every scheduled_notifications row.
-function makeSb(opts: { hasTransition?: boolean; owner?: string | null }) {
+// configured owner contact; `walkthroughDate`/`walkthroughSlot` feed the ask-scheduling
+// lookup; `inserts` captures every scheduled_notifications row.
+function makeSb(opts: { hasTransition?: boolean; owner?: string | null; walkthroughDate?: string | null; walkthroughSlot?: string | null }) {
   const inserts: Record<string, unknown>[] = [];
   const mintedTokens: Record<string, unknown>[] = [];
   const sb = {
@@ -22,6 +23,12 @@ function makeSb(opts: { hasTransition?: boolean; owner?: string | null }) {
       }
       if (table === "company_settings") {
         return chain({ owner_contact_id: opts.owner ?? null });
+      }
+      if (table === "jobs") {
+        return chain({ walkthrough_date: opts.walkthroughDate ?? null, walkthrough_slot: opts.walkthroughSlot ?? null });
+      }
+      if (table === "locations") {
+        return chain({ timezone: "America/Boise" });
       }
       if (table === "scheduled_notifications") {
         return {
@@ -73,6 +80,23 @@ describe("enqueueWalkthroughResultAsk", () => {
     expect(String((row.payload as any).approve_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).punch_link)).toContain("https://app.example.com/action/decision?token=");
     expect(String((row.payload as any).reschedule_link)).toContain("https://app.example.com/action/decision?token=");
+  });
+
+  it("shares one batch id across the ask's three tokens so answering one can burn the rest", async () => {
+    const { sb, mintedTokens } = makeSb({ hasTransition: true, owner: "demo-owner-cj" });
+    await enqueueWalkthroughResultAsk(sb, JOB, opts);
+    const batches = new Set(mintedTokens.map((t) => t.batch_id));
+    expect(batches.size).toBe(1);
+    expect([...batches][0]).toBeTruthy();
+  });
+
+  it("schedules the ask for the walkthrough window start when it is still ahead", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { sb, inserts } = makeSb({ hasTransition: true, owner: "demo-owner-cj", walkthroughDate: tomorrow, walkthroughSlot: "1pm" });
+    await enqueueWalkthroughResultAsk(sb, JOB, opts);
+    const at = new Date(String(inserts[0].scheduled_for)).getTime();
+    // Not "now": the APPROVE/PUNCH ask waits for the 1pm window instead of firing on date-set.
+    expect(at).toBeGreaterThan(Date.now() + 60 * 60 * 1000);
   });
 
   it("no-ops without an appBaseUrl (no link to build)", async () => {

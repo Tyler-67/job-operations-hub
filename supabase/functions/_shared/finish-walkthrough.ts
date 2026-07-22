@@ -79,8 +79,10 @@ export async function enqueueFinishWalkthroughAsk(
   if (!owner) return false;
 
   const payload = { address: job.address ?? null };
-  const yes = await mintActionToken(sb, { action: "finish_walkthrough_yes", jobId: job.id, contactId: null, payload });
-  const no = await mintActionToken(sb, { action: "finish_walkthrough_no", jobId: job.id, contactId: null, payload });
+  // YES and NO are one text: share a batch so answering one burns the other.
+  const batchId = crypto.randomUUID();
+  const yes = await mintActionToken(sb, { action: "finish_walkthrough_yes", jobId: job.id, contactId: null, payload, batchId });
+  const no = await mintActionToken(sb, { action: "finish_walkthrough_no", jobId: job.id, contactId: null, payload, batchId });
 
   const { error } = await sb.from("scheduled_notifications").insert({
     location_id: job.location_id,

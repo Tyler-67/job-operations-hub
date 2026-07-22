@@ -127,3 +127,21 @@ export function resolveDecision(action: string): DecisionSpec | null {
 export function followupDedupeKey(action: string, jobId: string, audience: FollowupAudience): string {
   return `decision_followup:${action}:${jobId}:${audience}`;
 }
+
+// Which decision families make sense in which state KIND — the guard that keeps a stale or
+// crafted decision from acting outside its phase (e.g. a leftover inspection FAIL link tapped
+// after PASS already advanced the job into walkthrough, where the shared `fail` trigger would
+// otherwise match the punch-revert edge). State-advancing decisions are also implicitly
+// guarded by applyTransition (no matching transition = no-op), but acknowledge-only decisions
+// and cross-kind trigger collisions need this explicit check. Shared by the office
+// fire_decision path (jobs) and the SMS tap path (action-decision).
+export function decisionAllowedForState(
+  action: string,
+  state: { is_inspection?: boolean; is_walkthrough?: boolean; slug?: string } | null,
+): boolean {
+  if (!state) return false;
+  if (action === "inspection_pass" || action === "inspection_fail") return state.is_inspection === true;
+  if (action.startsWith("walkthrough_")) return state.is_walkthrough === true;
+  if (action === "finish_walkthrough_yes" || action === "finish_walkthrough_no") return state.slug === "finish_work";
+  return false;
+}
