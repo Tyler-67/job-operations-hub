@@ -11,8 +11,11 @@ Deno.serve(async (req) => {
     .eq("id", claims.sub as string).maybeSingle();
   if (!user || !user.active) return json({ error: "inactive" }, 403);
 
+  // The ACTIVE instance is the session's `loc` claim, not the user's home row — a dev_super
+  // may have switched instances (auth-session action:"switch"). Identical for normal
+  // sessions, where loc always equals the home location_id.
   const { data: location } = await sb.from("locations").select("id, company_name, timezone")
-    .eq("id", user.location_id).maybeSingle();
+    .eq("id", (claims.loc as string) ?? user.location_id).maybeSingle();
 
   return json({ user, location });
 });

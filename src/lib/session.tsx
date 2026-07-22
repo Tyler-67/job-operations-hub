@@ -178,3 +178,21 @@ export function useSession() { return useContext(Ctx); }
 export { callEdge, saveSessionToken };
 // keep supabase available for direct queries
 export { supabase };
+
+// ---- Instances (dev_super only) ----------------------------------------------------------
+// A dev_super account is app-wide: one home row, one email+password, and access to every
+// instance (tenant) by RE-MINTING the session with a different `loc` claim server-side.
+export interface AppInstance { id: string; company_name: string | null; current: boolean }
+
+export async function listInstances(): Promise<AppInstance[]> {
+  const out = await callEdge("auth-session", { body: { action: "instances" } }) as { instances?: AppInstance[] };
+  return out.instances ?? [];
+}
+
+// Switch the session to another instance, then hard-reload so every page re-bootstraps
+// against the new tenant (React Query caches, list pages, and the me() context all reset).
+export async function switchInstance(locationId: string): Promise<void> {
+  const out = await callEdge("auth-session", { body: { action: "switch", location_id: locationId } });
+  saveSessionToken(out.session);
+  window.location.assign("/");
+}

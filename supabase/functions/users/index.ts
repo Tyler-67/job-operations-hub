@@ -95,6 +95,17 @@ async function emailOwnership(sb: any, locationId: string, email: string, except
   return null;
 }
 
+// Cross-instance guard (two-instance era): a primary email that already exists in ANOTHER
+// tenant would brick that email's standalone login (resolveAppUser -> ambiguous_account),
+// so block creating the collision from this side. Secondary aliases are already globally
+// unique at the DB level; this covers the per-location-unique PRIMARY column.
+async function emailUsedInOtherInstance(sb: any, locationId: string, email: string): Promise<boolean> {
+  const { data, error } = await sb
+    .from("app_users").select("id").eq("email", email).neq("location_id", locationId).limit(1);
+  if (error) throw error;
+  return Boolean(data && data.length);
+}
+
 async function loadUser(sb: any, locationId: string, id: string | null) {
   if (!id) return null;
   const { data, error } = await sb
@@ -121,7 +132,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
   return count ?? 0;
 }
 
-async function usersPayload(sb: any, locationId: string, includePassword = false) {
+async function usersPayload(sb: any, locationId: string, includePassword = false, hideDevSuper = false) {
   // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
   // credential managers (WRITE roles); office_manager reads the list without it.
   const cols = "id, location_id, email, name, phone, role, active, debug_tools, uptiq_contact_id, last_seen_at, created_at, updated_at"
@@ -136,7 +147,9 @@ async function usersPayload(sb: any, locationId: string, includePassword = false
     .order("email");
   if (error) throw error;
 
-  const users = data ?? [];
+  // dev_super accounts are app-wide dev identities, invisible to every other role: filtered
+  // BEFORE the alias attach and metrics so no trace (counts included) reaches the response.
+  const users = (data ?? []).filter((user: any) => !hideDevSuper || user.role !== "dev_super");
 
   // Attach each user's SECONDARY login emails (aliases). The primary is app_users.email.
   const ids = users.map((user: any) => user.id);
@@ -180,8 +193,10 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
   if (!APP_ROLES.has(role)) throw new Error("invalid_role");
   if (!canManageRole(actorRole, role)) throw new Error("role_forbidden");
 
-  // The email must not already be a login identity in this location (primary or alias).
+  // The email must not already be a login identity in this location (primary or alias)...
   if (await emailOwnership(sb, locationId, email, null)) throw new Error("email_in_use");
+  // ...nor the primary of a user in ANOTHER instance (would break standalone login for both).
+  if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
 
   const password = cleanText(body.password); // BETA: stored plaintext for admin viewing
 
@@ -213,6 +228,7 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     const email = cleanEmail(body.email);
     if (!email) throw new Error("invalid_email");
     if ((await emailOwnership(sb, locationId, email, user.id)) === "other") throw new Error("email_in_use");
+    if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
     patch.email = email;
   }
   if ("name" in body) patch.name = cleanText(body.name);
@@ -274,6 +290,7 @@ async function addUserEmail(sb: any, locationId: string, actorRole: string, body
   const owner = await emailOwnership(sb, locationId, email, user.id);
   if (owner === "self") throw new Error("email_already_added");
   if (owner === "other") throw new Error("email_in_use");
+  if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
 
   const { error } = await sb.from("app_user_emails").insert({ app_user_id: user.id, email });
   if (error) {
@@ -335,9 +352,12 @@ Deno.serve(async (req) => {
 
   const sb = serviceClient();
 
+  // dev_super rows are invisible (list AND metrics) to everyone below dev_super.
+  const hideDevSuper = actorRole !== "dev_super";
+
   try {
     if (req.method === "GET") {
-      return json(await usersPayload(sb, locationId, canWrite(actorRole)));
+      return json(await usersPayload(sb, locationId, canWrite(actorRole), hideDevSuper));
     }
 
     if (!canWrite(actorRole)) return json({ error: "forbidden" }, 403);
@@ -347,23 +367,23 @@ Deno.serve(async (req) => {
       const action = cleanText(body.action);
       if (action === "add_email") {
         await addUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true), 201);
+        return json(await usersPayload(sb, locationId, true, hideDevSuper), 201);
       }
       if (action === "remove_email") {
         await removeUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true));
+        return json(await usersPayload(sb, locationId, true, hideDevSuper));
       }
       if (action === "set_password") {
         await setUserPassword(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true));
+        return json(await usersPayload(sb, locationId, true, hideDevSuper));
       }
       await createUser(sb, locationId, actorRole, body);
-      return json(await usersPayload(sb, locationId, true), 201);
+      return json(await usersPayload(sb, locationId, true, hideDevSuper), 201);
     }
 
     if (req.method === "PATCH") {
       await updateUser(sb, locationId, actorId, actorRole, body);
-      return json(await usersPayload(sb, locationId, true));
+      return json(await usersPayload(sb, locationId, true, hideDevSuper));
     }
 
     return json({ error: "method_not_allowed" }, 405);
@@ -383,7 +403,8 @@ Deno.serve(async (req) => {
       ? 400
       : message === "user_not_found" || message === "email_not_found"
         ? 404
-        : message === "last_owner_admin" || message === "email_in_use" || message === "email_already_added"
+        : message === "last_owner_admin" || message === "email_in_use" ||
+            message === "email_already_added" || message === "email_in_use_other_instance"
           ? 409
           : 500;
     return json({ error: message }, status);

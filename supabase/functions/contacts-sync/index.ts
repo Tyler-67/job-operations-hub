@@ -8,6 +8,7 @@
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { uptiq } from "../_shared/uptiq.ts";
+import { uptiqApiLocationId } from "../_shared/instances.ts";
 
 const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
 const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
@@ -401,10 +402,15 @@ Deno.serve(async (req) => {
     return json({ ok: true, deleted: contactId });
   }
   const { data: loc, error: locErr } = await sb
-    .from("locations").select("id, uptiq_location_id, company_name").eq("id", locId).maybeSingle();
+    .from("locations").select("id, uptiq_location_id, uptiq_sync_location_id, company_name").eq("id", locId).maybeSingle();
   if (locErr) return json({ error: locErr.message }, 500);
   if (!loc?.uptiq_location_id) return json({ error: "no_uptiq_location" }, 400);
+  // RAW binding — the conversation debug tools below stay on the tenant's own GHL id (a
+  // Development instance's synthetic id finds nothing there: deliberate blast-radius limit).
   const uptiqLoc = String(loc.uptiq_location_id);
+  // BRIDGE — contact pull/link may target a different GHL location (Development -> the real
+  // staging location) so "Sync with Uptiq" works on demand from any instance.
+  const syncLoc = uptiqApiLocationId(loc) ?? uptiqLoc;
 
   // DEBUG: back up a contact's Uptiq conversation (contact snapshot + messages) then delete the
   // conversation THREAD in Uptiq — the contact is never deleted. dry_run previews (search + counts)
@@ -553,7 +559,7 @@ Deno.serve(async (req) => {
 
   // Uptiq -> app PULL only (sync step 1, standalone for targeted debugging via the API).
   if (body.mode === "pull_contacts") {
-    const r = await runPullContacts(sb, locId, loc.company_name, uptiqLoc, dryRun, limit, claims.email);
+    const r = await runPullContacts(sb, locId, loc.company_name, syncLoc, dryRun, limit, claims.email);
     return json(r.body, r.status);
   }
 
@@ -564,15 +570,15 @@ Deno.serve(async (req) => {
   // On a step failure the response carries `step` (plus step 1's summary once it completed) —
   // both steps are additive + idempotent, so re-running the sync continues where it left off.
   if (body.mode === "sync") {
-    const pull = await runPullContacts(sb, locId, loc.company_name, uptiqLoc, dryRun, limit, claims.email);
+    const pull = await runPullContacts(sb, locId, loc.company_name, syncLoc, dryRun, limit, claims.email);
     if (pull.status !== 200) return json({ ...pull.body, mode: "sync", step: "pull_contacts" }, pull.status);
-    const link = await runLinkSync(sb, locId, loc.company_name, uptiqLoc, "link", dryRun, limit, claims.email);
+    const link = await runLinkSync(sb, locId, loc.company_name, syncLoc, "link", dryRun, limit, claims.email);
     if (link.status !== 200) return json({ ...link.body, mode: "sync", step: "link", pull: pull.body }, link.status);
     return json({ location: loc.company_name, mode: "sync", dry_run: dryRun, pull: pull.body, link: link.body });
   }
 
   // "link" (default): READ existing Uptiq contacts + attach their id (needs Contacts read scope
   // only). "upsert": create/update in Uptiq (needs Contacts write scope — enable later).
-  const r = await runLinkSync(sb, locId, loc.company_name, uptiqLoc, body.mode === "upsert" ? "upsert" : "link", dryRun, limit, claims.email);
+  const r = await runLinkSync(sb, locId, loc.company_name, syncLoc, body.mode === "upsert" ? "upsert" : "link", dryRun, limit, claims.email);
   return json(r.body, r.status);
 });

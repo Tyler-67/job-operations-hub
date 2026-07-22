@@ -6,6 +6,7 @@
 // approve — so each step layers its specifics onto this same flow rather than
 // re-implementing consume + transition + notify.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { resolveAppBaseUrl } from "../_shared/instances.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { decisionAllowedForState, resolveDecision } from "../_shared/decisions.ts";
 import { applyDecision } from "../_shared/apply-decision.ts";
@@ -75,7 +76,7 @@ Deno.serve(async (req) => {
   // actor is the tapping contact and the follow-up cycle key is the consumed token id.
   // suppressOwnerFormSms: the owner is in the browser, so hand the fix-details / punch-list
   // form token back for the tap page to render INLINE instead of texting a redundant link.
-  const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+  const appBaseUrl = (await resolveAppBaseUrl(sb, job.location_id)) || undefined;
   const result = await applyDecision(sb, decision, job, {
     actorContactId: tok.contact_id ?? null,
     appBaseUrl,

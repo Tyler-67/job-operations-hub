@@ -9,6 +9,7 @@
 // consumed FIRST: a replayed submit returns 410, which also makes the purchase-order
 // and notification writes below safe without their own dedupe keys.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { appBaseUrlFor, resolveAppBaseUrl } from "../_shared/instances.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { applyTransition } from "../_shared/state-machine.ts";
 import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
@@ -123,7 +124,6 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
   address: string;
   toStateId: string | null;
 }) {
-  const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
   const [{ data: settings, error: settingsErr }, phaseRes, { data: locRow }] = await Promise.all([
     sb.from("company_settings")
       .select("owner_contact_id, office_contact_id")
@@ -132,10 +132,12 @@ async function queueInspectionRequestedNotice(sb: any, opts: {
     opts.toStateId
       ? sb.from("job_states").select("label").eq("id", opts.toStateId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
-    sb.from("locations").select("timezone").eq("id", opts.locationId).maybeSingle(),
+    sb.from("locations").select("timezone, app_base_url").eq("id", opts.locationId).maybeSingle(),
   ]);
   if (settingsErr) throw settingsErr;
   if (phaseRes.error) throw phaseRes.error;
+  // Links open THIS tenant's app (two-instance era); null column = the env default.
+  const appBaseUrl = appBaseUrlFor(locRow);
 
   const ownerContactId = typeof settings?.owner_contact_id === "string" ? settings.owner_contact_id.trim() : "";
   const officeContactId = typeof settings?.office_contact_id === "string" ? settings.office_contact_id.trim() : "";
@@ -456,7 +458,7 @@ Deno.serve(async (req) => {
     // 4. Inspection request advances the job through the configurable state engine, and —
     //    when it actually moves — immediately texts owner + office so they hear right away
     //    instead of waiting for the next daily inspection-reminder cron.
-    const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+    const appBaseUrl = (await resolveAppBaseUrl(sb, job.location_id)) || undefined;
     let transition = null;
     let walkthroughReasked = false;
     if (input.inspectionRequested) {

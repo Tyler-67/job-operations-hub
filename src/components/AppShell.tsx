@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet } from "react-router-dom";
-import { callEdge, useSession } from "@/lib/session";
+import { callEdge, listInstances, switchInstance, useSession, type AppInstance } from "@/lib/session";
 import { roleLabel } from "@/lib/users";
+import { InlineSelect } from "@/components/InlineSelect";
 import {
   BarChart3,
   BookOpen,
@@ -43,6 +44,17 @@ export default function AppShell() {
   const [pw2, setPw2] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [instances, setInstances] = useState<AppInstance[] | null>(null);
+  const [switching, setSwitching] = useState(false);
+
+  // Instance switcher data (dev_super only): app-wide accounts hop tenants by re-minting
+  // the session server-side; every other role never even requests the list.
+  useEffect(() => {
+    if (user?.role !== "dev_super") return;
+    let active = true;
+    listInstances().then((list) => { if (active) setInstances(list); }).catch(() => {});
+    return () => { active = false; };
+  }, [user?.role]);
 
   if (loading) {
     return (
@@ -90,7 +102,21 @@ export default function AppShell() {
         <div className="flex items-center gap-3">
           <div className="flex h-6 w-6 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">U</div>
           <div className="text-sm font-semibold tracking-tight">Uptiq</div>
-          <div className="text-xs text-sidebar-foreground/60">- {location?.company_name}</div>
+          {user?.role === "dev_super" && instances && instances.length > 1 ? (
+            <InlineSelect
+              value={location?.id ?? ""}
+              onChange={(next) => {
+                if (!next || next === location?.id || switching) return;
+                setSwitching(true);
+                switchInstance(next).catch(() => setSwitching(false));
+              }}
+              options={instances.map((i) => ({ value: i.id, label: i.company_name ?? "(unnamed instance)" }))}
+              disabled={switching}
+              className="h-6 w-48 border-sidebar-accent bg-transparent text-xs text-sidebar-foreground/80"
+            />
+          ) : (
+            <div className="text-xs text-sidebar-foreground/60">- {location?.company_name}</div>
+          )}
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="hidden text-sidebar-foreground/60 md:inline">{user?.email}</span>

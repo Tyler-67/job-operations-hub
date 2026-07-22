@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { appBaseUrlFor, resolveAppBaseUrl } from "../_shared/instances.ts";
 import { markJobPaid } from "../_shared/job-payments.ts";
 import { maybeBuildCompletionReport } from "../_shared/completion-report.ts";
 import { maybeEnqueueReviewRequest } from "../_shared/review-request.ts";
@@ -360,13 +361,14 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   //    cycle just began: void any prior cycle's stale date and text the owner the date-picker
   //    link immediately — the office state dropdown must notify like the crew's request does.
   if ((dateChanged || stateChanged || wtDateChanged) && effectiveStateId) {
-    const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
     const [{ data: state }, { data: jobRow }, { data: loc }, { data: cs }] = await Promise.all([
       sb.from("job_states").select("is_inspection").eq("id", effectiveStateId).maybeSingle(),
       sb.from("jobs").select("address").eq("id", jobId).maybeSingle(),
-      sb.from("locations").select("timezone").eq("id", locationId).maybeSingle(),
+      sb.from("locations").select("timezone, app_base_url").eq("id", locationId).maybeSingle(),
       sb.from("company_settings").select("owner_contact_id, office_contact_id").eq("location_id", locationId).maybeSingle(),
     ]);
+    // Links open THIS tenant's app (two-instance era); null column = the env default.
+    const appBaseUrl = appBaseUrlFor(loc);
     const isInspection = state?.is_inspection === true;
     const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
     const { date: localToday } = localContext(tz, new Date());
@@ -568,7 +570,7 @@ Deno.serve(async (req) => {
           return json({ error: "decision_not_allowed_for_state", decision_action: decision.action }, 409);
         }
 
-        const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
+        const appBaseUrl = (await resolveAppBaseUrl(sb, locationId)) || undefined;
         const result = await applyDecision(sb, decision, job, {
           actorAppUserId: cleanText(claims.sub),
           appBaseUrl,

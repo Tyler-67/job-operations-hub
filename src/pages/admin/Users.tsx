@@ -279,7 +279,10 @@ export default function AdminUsers() {
           className="h-8 w-40"
           options={[
             { value: "all", label: "All roles" },
-            ...APP_ROLES.map((role) => ({ value: role, label: roleLabel(role) })),
+            // dev_super accounts are invisible below dev_super (the server filters the rows;
+            // don't advertise the tier in the filter either).
+            ...APP_ROLES.filter((role) => role !== "dev_super" || user?.role === "dev_super")
+              .map((role) => ({ value: role, label: roleLabel(role) })),
           ]}
         />
         <InlineSelect

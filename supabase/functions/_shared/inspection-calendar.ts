@@ -9,6 +9,7 @@
 // so a later date change UPDATEs the same event instead of duplicating it.
 import { appointmentTimesWithZone, slotLabel, type InspectionSlot } from "./inspection.ts";
 import { uptiq } from "./uptiq.ts";
+import { uptiqApiLocationId } from "./instances.ts";
 
 export interface InspectionCalendarResult {
   ok: boolean;
@@ -72,12 +73,13 @@ export async function syncInspectionAppointment(
 
   const [{ data: settings }, { data: loc }] = await Promise.all([
     sb.from("company_settings").select("inspections_calendar_id, owner_contact_id").eq("location_id", job.location_id).maybeSingle(),
-    sb.from("locations").select("uptiq_location_id, timezone").eq("id", job.location_id).maybeSingle(),
+    sb.from("locations").select("uptiq_location_id, uptiq_sync_location_id, timezone").eq("id", job.location_id).maybeSingle(),
   ]);
   const calendarId = (settings?.inspections_calendar_id as string | null)?.trim() || null;
   const ownerContactId = (settings?.owner_contact_id as string | null)?.trim() || null;
-  // LeadConnector expects the GHL location id, NOT our internal Supabase UUID.
-  const uptiqLocationId = (loc?.uptiq_location_id as string | null)?.trim() || null;
+  // LeadConnector expects the GHL location id, NOT our internal Supabase UUID. The sync
+  // bridge lets the Development instance book on the real staging location's calendar.
+  const uptiqLocationId = uptiqApiLocationId(loc);
   if (!calendarId || !ownerContactId || !uptiqLocationId) return await logResult({ ok: false, action: "skipped_no_calendar" });
 
   const { start, end } = appointmentTimesWithZone(dateStr, slot, loc?.timezone as string | null);

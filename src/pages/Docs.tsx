@@ -465,7 +465,22 @@ const TABS: DocTab[] = [
         <P>
           Running a scheduled send manually near its real send time can double-text — the real run doesn&apos;t know
           about the forced one. Expected; that&apos;s the price of the testing buttons never suppressing real sends.
+          Forced runs only fire for <em>your own</em> instance (see below) — never anyone else&apos;s.
         </P>
+
+        <H2>Instances &amp; release channels (dev/support)</H2>
+        <P>
+          The product runs two builds against one shared database. <strong>Production</strong> (the app inside Uptiq)
+          serves the <K>stable</K> release; the separate <strong>Development</strong> app serves <K>latest</K> — the
+          newest build. Each app pairs with its own <em>instance</em> (company workspace): production data lives in the
+          production instance, and the Development instance is a sandbox that starts empty (run the Uptiq sync there to
+          pull the contacts on demand).
+        </P>
+        <Bullets items={[
+          <>Dev accounts are <strong>app-wide</strong>: one email + password works on both apps, and a picker in the header hops between instances. That picker only exists for the dev role — everyone else lives in exactly one instance and never sees it.</>,
+          <>Texts minted by a tenant open <em>that tenant&apos;s</em> app: production links go to the production app, Development links to the Development app.</>,
+          <>When a <K>latest</K> build is blessed as <K>stable</K>, production gets it — so the two apps briefly run the same build until development moves on.</>,
+        ]} />
 
         <H2>Quick answers</H2>
         <Bullets items={[

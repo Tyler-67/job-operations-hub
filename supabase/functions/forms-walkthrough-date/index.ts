@@ -11,6 +11,7 @@
 // owner from recording the date. Picking TODAY fires the APPROVE / PUNCH-LIST ask
 // immediately (the reminder cron's today-check may already be past for the day).
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { normalizeInspectionDateInput } from "../_shared/inspection.ts";
 import { syncInspectionAppointment } from "../_shared/inspection-calendar.ts";
@@ -87,8 +88,9 @@ Deno.serve(async (req) => {
     //     (the consumed token id) — the single-use token blocks replays.
     let resultAsked = false;
     if (chosenDate !== oldDate && job.current_state_id) {
-      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
-      const { data: loc } = await sb.from("locations").select("timezone").eq("id", job.location_id).maybeSingle();
+      const { data: loc } = await sb.from("locations").select("timezone, app_base_url").eq("id", job.location_id).maybeSingle();
+      // Links open THIS tenant's app (two-instance era); null column = the env default.
+      const appBaseUrl = appBaseUrlFor(loc);
       const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
       const { date: localToday } = localContext(tz, new Date());
       if (chosenDate === localToday && appBaseUrl &&

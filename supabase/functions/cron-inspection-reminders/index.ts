@@ -14,6 +14,7 @@ import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
 import { queueInspectionDateAsk, queueInspectionResultAsk } from "../_shared/inspection-notify.ts";
 import { queueWalkthroughDateAsk } from "../_shared/walkthrough-notify.ts";
 import { enqueueWalkthroughResultAsk } from "../_shared/walkthrough.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 
 function isDuplicate(error: unknown): boolean {
   return String((error as { message?: unknown })?.message ?? error).toLowerCase().includes("duplicate");
@@ -25,7 +26,10 @@ Deno.serve(async (req) => {
   const guard = requireCronSecret(req); if (guard) return guard;
 
   // Testing: ?force=1 (Settings "run cron" button) fires now, ignoring the local reminder-hour gate.
-  const force = new URL(req.url).searchParams.get("force") === "1";
+  // ?location_id=<id> (also Settings-only) scopes the run to ONE tenant; pg_cron sends neither.
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1";
+  const onlyLocation = (url.searchParams.get("location_id") ?? "").trim();
 
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
   if (!appBaseUrl) {
@@ -38,7 +42,7 @@ Deno.serve(async (req) => {
 
   const { data: companies, error: cErr } = await sb
     .from("company_settings")
-    .select("location_id, owner_contact_id, office_contact_id, inspection_reminder_time, locations(timezone)");
+    .select("location_id, owner_contact_id, office_contact_id, inspection_reminder_time, locations(timezone, app_base_url)");
   if (cErr) return json({ error: cErr.message }, 500);
 
   // Inspection-phase state ids, flagged in the configurable state set. Labels ride along so
@@ -64,8 +68,11 @@ Deno.serve(async (req) => {
 
   for (const company of companies ?? []) {
     const loc = company.location_id as string;
-    const location = (company.locations ?? {}) as { timezone?: string };
+    if (onlyLocation && loc !== onlyLocation) continue;
+    const location = (company.locations ?? {}) as { timezone?: string; app_base_url?: string | null };
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
+    // Links open THIS tenant's app (two-instance era); null column = the env default.
+    const companyBaseUrl = appBaseUrlFor(location, appBaseUrl);
 
     const reminderHour = sendHourOf(company.inspection_reminder_time);
     if (reminderHour === null && !force) continue;
@@ -95,7 +102,7 @@ Deno.serve(async (req) => {
         // Branch A: the owner still needs to pick a date (shared with the check-in immediate send).
         const sent = await queueInspectionDateAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
-          ownerContactId, appBaseUrl, localDate: date, force, phaseLabel,
+          ownerContactId, appBaseUrl: companyBaseUrl, localDate: date, force, phaseLabel,
         });
         if (!sent) { skipped++; continue; }
         dateNudges++;
@@ -114,7 +121,7 @@ Deno.serve(async (req) => {
         // immediate send; same per-job+date dedupe, so both paths collapse to one ask).
         const sent = await queueInspectionResultAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
-          inspectionDate, ownerContactId, officeContactId, appBaseUrl, force, phaseLabel,
+          inspectionDate, ownerContactId, officeContactId, appBaseUrl: companyBaseUrl, force, phaseLabel,
         });
         if (!sent) { skipped++; continue; }
         resultAsks++;
@@ -132,14 +139,14 @@ Deno.serve(async (req) => {
       if (!walkthroughDate) {
         const sent = await queueWalkthroughDateAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
-          ownerContactId, appBaseUrl, localDate: date, force,
+          ownerContactId, appBaseUrl: companyBaseUrl, localDate: date, force,
         });
         if (!sent) { skipped++; continue; }
         wtDateNudges++;
       } else if (walkthroughDate === date) {
         const sent = await enqueueWalkthroughResultAsk(sb, {
           id: job.id, location_id: loc, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null,
-        }, { appBaseUrl, cycleKey: force ? `force:${crypto.randomUUID()}` : `day:${walkthroughDate}` });
+        }, { appBaseUrl: companyBaseUrl, cycleKey: force ? `force:${crypto.randomUUID()}` : `day:${walkthroughDate}` });
         if (!sent) { skipped++; continue; }
         wtResultAsks++;
       }

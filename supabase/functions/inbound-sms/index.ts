@@ -3,6 +3,7 @@
 // On the LOG keyword it replies (via the drain cron) with a single-use quick-log link
 // bound to the texting crew member; other keywords are still logged as stubs for now.
 import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 import { parseInboundSms, isQuickLogKeyword, quickLogLinkDedupeKey } from "../_shared/quick-log.ts";
@@ -81,12 +82,6 @@ async function enqueueReply(sb: any, opts: {
 }
 
 async function handleQuickLog(sb: any, parsed: ReturnType<typeof parseInboundSms>) {
-  const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
-  if (!appBaseUrl) {
-    await logEvent({ source: "webhook", kind: "inbound_sms.quick_log.misconfigured", payload: { reason: "APP_BASE_URL_unset" } });
-    return;
-  }
-
   const sender = await resolveSender(sb, parsed.fromContactId, parsed.fromPhone);
   if (!sender) {
     await logEvent({ source: "webhook", kind: "inbound_sms.quick_log.unknown_sender",
@@ -98,8 +93,15 @@ async function handleQuickLog(sb: any, parsed: ReturnType<typeof parseInboundSms
   const uptiqId = (sender.uptiq_contact_id ?? "").trim();
   if (!uptiqId) return; // can't reply without an Uptiq contact id
 
-  const { data: location } = await sb.from("locations").select("company_name").eq("id", sender.location_id).maybeSingle();
+  const { data: location } = await sb.from("locations").select("company_name, app_base_url").eq("id", sender.location_id).maybeSingle();
   const companyName = (location?.company_name as string | null) ?? "";
+
+  // Links open THIS tenant's app (two-instance era); null column = the env default.
+  const appBaseUrl = appBaseUrlFor(location);
+  if (!appBaseUrl) {
+    await logEvent({ source: "webhook", kind: "inbound_sms.quick_log.misconfigured", payload: { reason: "APP_BASE_URL_unset" } });
+    return;
+  }
 
   const jobs = await activeJobsForContact(sb, sender.id, sender.location_id);
   if (!jobs.length) {

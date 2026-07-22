@@ -9,6 +9,7 @@
 // authoritative effect; the Uptiq calendar appointment is best-effort so an unconfigured
 // or unreachable calendar can never block the owner from recording the date.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
 import { normalizeInspectionDateInput } from "../_shared/inspection.ts";
 import { syncInspectionAppointment } from "../_shared/inspection-calendar.ts";
@@ -86,12 +87,13 @@ Deno.serve(async (req) => {
     //     PASS/FAIL links are no-ops anywhere else).
     let resultAsked = false;
     if (input.inspectionDate !== oldDate && job.current_state_id) {
-      const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
       const [{ data: state }, { data: loc }, { data: cs }] = await Promise.all([
         sb.from("job_states").select("is_inspection").eq("id", job.current_state_id).maybeSingle(),
-        sb.from("locations").select("timezone").eq("id", job.location_id).maybeSingle(),
+        sb.from("locations").select("timezone, app_base_url").eq("id", job.location_id).maybeSingle(),
         sb.from("company_settings").select("owner_contact_id, office_contact_id").eq("location_id", job.location_id).maybeSingle(),
       ]);
+      // Links open THIS tenant's app (two-instance era); null column = the env default.
+      const appBaseUrl = appBaseUrlFor(loc);
       const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
       const { date: localToday } = localContext(tz, new Date());
       const ownerContactId = (cs?.owner_contact_id ?? "").trim();

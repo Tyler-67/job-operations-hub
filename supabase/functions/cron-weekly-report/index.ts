@@ -11,13 +11,17 @@
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
 import { weeklyReportPeriod, generateWeeklyReport } from "../_shared/weekly-report.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req); if (pre) return pre;
   const guard = requireCronSecret(req); if (guard) return guard;
 
   // Testing: ?force=1 (Settings "run cron" button) fires now, ignoring the local day/hour gate.
-  const force = new URL(req.url).searchParams.get("force") === "1";
+  // ?location_id=<id> (Settings-only, like ?force=1) scopes the run to ONE tenant; pg_cron sends neither.
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1";
+  const onlyLocation = (url.searchParams.get("location_id") ?? "").trim();
 
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim() || undefined;
   const sb = serviceClient();
@@ -25,15 +29,17 @@ Deno.serve(async (req) => {
 
   const { data: companies, error: cErr } = await sb
     .from("company_settings")
-    .select("location_id, weekly_report_day, weekly_report_time, owner_contact_id, locations(company_name, timezone)");
+    .select("location_id, weekly_report_day, weekly_report_time, owner_contact_id, locations(company_name, timezone, app_base_url)");
   if (cErr) return json({ error: cErr.message }, 500);
 
   let companiesFired = 0, generated = 0;
 
   for (const company of companies ?? []) {
     const loc = company.location_id as string;
-    const location = (company.locations ?? {}) as { company_name?: string; timezone?: string };
+    if (onlyLocation && loc !== onlyLocation) continue;
+    const location = (company.locations ?? {}) as { company_name?: string; timezone?: string; app_base_url?: string | null };
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
+    const companyBaseUrl = appBaseUrlFor(location, appBaseUrl) || undefined;
 
     const sendHour = sendHourOf(company.weekly_report_time);
     if (sendHour === null && !force) continue;
@@ -49,7 +55,7 @@ Deno.serve(async (req) => {
       periodEnd,
       now,
       ownerContactId: (company.owner_contact_id as string | null) ?? null,
-      appBaseUrl,
+      appBaseUrl: companyBaseUrl,
       companyName: location.company_name ?? "",
     });
     generated++;

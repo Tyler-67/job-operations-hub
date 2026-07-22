@@ -12,6 +12,7 @@
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
 import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { localContext, sendHourOf } from "../_shared/check-in-schedule.ts";
+import { appBaseUrlFor } from "../_shared/instances.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
 const CHECK_IN_FORM_PATH = "/forms/daily-check-in";
@@ -22,7 +23,11 @@ Deno.serve(async (req) => {
 
   // Testing: ?force=1 (from the Settings "run cron" button) fires every company now, ignoring
   // the local send-hour/weekday gate. The real pg_cron schedule never sets it, so cadence is unchanged.
-  const force = new URL(req.url).searchParams.get("force") === "1";
+  // ?location_id=<id> (also Settings-only) scopes a run to ONE tenant so a debug click on the
+  // Development instance can never fire production sends; pg_cron sends neither param.
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1";
+  const onlyLocation = (url.searchParams.get("location_id") ?? "").trim();
 
   const appBaseUrl = (Deno.env.get("APP_BASE_URL") ?? "").trim();
   if (!appBaseUrl) {
@@ -36,7 +41,7 @@ Deno.serve(async (req) => {
 
   const { data: companies, error: cErr } = await sb
     .from("company_settings")
-    .select("location_id, check_in_send_time, check_in_weekdays, brand_primary_color, brand_logo_url, default_supply_house_contact_id, locations(company_name, timezone)");
+    .select("location_id, check_in_send_time, check_in_weekdays, brand_primary_color, brand_logo_url, default_supply_house_contact_id, locations(company_name, timezone, app_base_url)");
   if (cErr) return json({ error: cErr.message }, 500);
 
   // States that accept check-ins (id -> label). State ids are globally unique, so this
@@ -50,8 +55,11 @@ Deno.serve(async (req) => {
 
   for (const company of companies ?? []) {
     const loc = company.location_id as string;
-    const location = (company.locations ?? {}) as { company_name?: string; timezone?: string };
+    if (onlyLocation && loc !== onlyLocation) continue;
+    const location = (company.locations ?? {}) as { company_name?: string; timezone?: string; app_base_url?: string | null };
     const tz = (location.timezone ?? "").trim() || "America/Chicago";
+    // Links open THIS tenant's app (two-instance era); null column = the env default.
+    const companyBaseUrl = appBaseUrlFor(location, appBaseUrl);
 
     const sendHour = sendHourOf(company.check_in_send_time);
     if (sendHour === null && !force) continue;
@@ -116,7 +124,7 @@ Deno.serve(async (req) => {
             default_supply_house_id: defaultSupplyHouseId,
           },
         });
-        const link = buildActionLink(appBaseUrl, CHECK_IN_FORM_PATH, minted.token);
+        const link = buildActionLink(companyBaseUrl, CHECK_IN_FORM_PATH, minted.token);
 
         const { error: insErr } = await sb.from("scheduled_notifications").insert({
           location_id: loc,

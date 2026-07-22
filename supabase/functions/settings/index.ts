@@ -254,7 +254,7 @@ const CRON_FUNCTIONS: Record<string, string> = {
   "weekly-report": "cron-weekly-report",
 };
 
-async function fireCron(fn: string) {
+async function fireCron(fn: string, locationId: string) {
   const base = (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
   const secret = (Deno.env.get("CRON_SECRET") ?? "").trim();
   if (!base || !secret) throw new Error("cron_runner_misconfigured");
@@ -267,7 +267,10 @@ async function fireCron(fn: string) {
     return { ok: res.ok, status: res.status, result: await res.json().catch(() => ({})) };
   };
 
-  const primary = await invoke(fn, fn === "cron-drain-notifications" ? "" : "?force=1");
+  // Force-runs are scoped to the CALLER'S tenant (two-instance era): a debug click on the
+  // Development instance must never fire production sends. Real pg_cron sends no params.
+  const scope = `?force=1&location_id=${encodeURIComponent(locationId)}`;
+  const primary = await invoke(fn, fn === "cron-drain-notifications" ? "" : scope);
   // The enqueueing crons (check-ins / inspection reminders / weekly report) only QUEUE messages;
   // the drain is what actually sends. Chain a drain so the button sends end-to-end ("on press"),
   // instead of leaving rows pending until the next 15-min drain tick.
@@ -282,7 +285,7 @@ async function fireCron(fn: string) {
 // schedule gate, then run a SINGLE drain to send everything they queued (one drain, not one per
 // cron). Selecting the drain alone just drains. One drain claims <=100 due rows, so a very large
 // queue may need another drain tick — the UI notes this. Same server-side secret as fireCron.
-async function fireCrons(keys: string[]) {
+async function fireCrons(keys: string[], locationId: string) {
   const base = (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
   const secret = (Deno.env.get("CRON_SECRET") ?? "").trim();
   if (!base || !secret) throw new Error("cron_runner_misconfigured");
@@ -299,9 +302,11 @@ async function fireCrons(keys: string[]) {
   const queueing = fns.filter((fn) => fn !== "cron-drain-notifications");
   const drainSelected = fns.includes("cron-drain-notifications");
 
+  // Same tenant scoping as fireCron: force-runs only fire the caller's own instance.
+  const scope = `?force=1&location_id=${encodeURIComponent(locationId)}`;
   const crons: Array<{ cron: string; ok: boolean; status: number; result: unknown }> = [];
   for (const fn of queueing) {
-    const r = await invoke(fn, "?force=1");
+    const r = await invoke(fn, scope);
     crons.push({ cron: fn, ok: r.ok, status: r.status, result: r.result });
   }
   let drain: { ok: boolean; status: number; result: unknown } | null = null;
@@ -430,11 +435,11 @@ Deno.serve(async (req) => {
       if (action === "run_cron") {
         const fn = CRON_FUNCTIONS[String(body.cron ?? "").trim()];
         if (!fn) return json({ error: "invalid_cron" }, 400);
-        return json(await fireCron(fn));
+        return json(await fireCron(fn, locationId));
       }
       if (action === "run_crons") {
         const keys = Array.isArray(body.crons) ? body.crons.map((k: unknown) => String(k ?? "").trim()).filter(Boolean) : [];
-        return json(await fireCrons(keys));
+        return json(await fireCrons(keys, locationId));
       }
       if (action === "clear_data") {
         if (!(await canUseDebugTool(sb, claims, "data_reset"))) return json({ error: "forbidden" }, 403);
