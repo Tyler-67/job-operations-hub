@@ -47,14 +47,16 @@ export default function AppShell() {
   const [instances, setInstances] = useState<AppInstance[] | null>(null);
   const [switching, setSwitching] = useState(false);
 
-  // Instance switcher data (dev_super only): app-wide accounts hop tenants by re-minting
-  // the session server-side; every other role never even requests the list.
+  // Instance switcher data: ANY account may belong to several instances (same email, a row
+  // per instance; dev_super sees every instance). The endpoint returns only the caller's own
+  // memberships, and the picker renders only when there's more than one — single-instance
+  // users (almost everyone) keep the plain company-name label.
   useEffect(() => {
-    if (user?.role !== "dev_super") return;
+    if (!user) return;
     let active = true;
     listInstances().then((list) => { if (active) setInstances(list); }).catch(() => {});
     return () => { active = false; };
-  }, [user?.role]);
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -102,7 +104,7 @@ export default function AppShell() {
         <div className="flex items-center gap-3">
           <div className="flex h-6 w-6 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">U</div>
           <div className="text-sm font-semibold tracking-tight">Uptiq</div>
-          {user?.role === "dev_super" && instances && instances.length > 1 ? (
+          {instances && instances.length > 1 ? (
             <InlineSelect
               value={location?.id ?? ""}
               onChange={(next) => {

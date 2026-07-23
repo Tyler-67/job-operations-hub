@@ -95,17 +95,6 @@ async function emailOwnership(sb: any, locationId: string, email: string, except
   return null;
 }
 
-// Cross-instance guard (two-instance era): a primary email that already exists in ANOTHER
-// tenant would brick that email's standalone login (resolveAppUser -> ambiguous_account),
-// so block creating the collision from this side. Secondary aliases are already globally
-// unique at the DB level; this covers the per-location-unique PRIMARY column.
-async function emailUsedInOtherInstance(sb: any, locationId: string, email: string): Promise<boolean> {
-  const { data, error } = await sb
-    .from("app_users").select("id").eq("email", email).neq("location_id", locationId).limit(1);
-  if (error) throw error;
-  return Boolean(data && data.length);
-}
-
 async function loadUser(sb: any, locationId: string, id: string | null) {
   if (!id) return null;
   const { data, error } = await sb
@@ -193,10 +182,10 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
   if (!APP_ROLES.has(role)) throw new Error("invalid_role");
   if (!canManageRole(actorRole, role)) throw new Error("role_forbidden");
 
-  // The email must not already be a login identity in this location (primary or alias)...
+  // The email must not already be a login identity IN THIS location (primary or alias).
+  // The same email in ANOTHER instance is fine — that's multi-instance membership: this
+  // create grants the person a row (and role) here, and the instance switcher does the rest.
   if (await emailOwnership(sb, locationId, email, null)) throw new Error("email_in_use");
-  // ...nor the primary of a user in ANOTHER instance (would break standalone login for both).
-  if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
 
   const password = cleanText(body.password); // BETA: stored plaintext for admin viewing
 
@@ -214,6 +203,11 @@ async function createUser(sb: any, locationId: string, actorRole: string, body: 
 
   // Enable the standalone login door for the new user (+ set the password if provided).
   await provisionAuthUser(sb, email, password);
+  // Auth passwords are email-global: if this email also lives in another instance, setting a
+  // password here just changed the ONE real credential — sync the plaintext mirror everywhere.
+  if (password) {
+    await sb.from("app_users").update({ login_password: password }).eq("email", email);
+  }
 }
 
 async function updateUser(sb: any, locationId: string, actorId: string, actorRole: string, body: Record<string, unknown>) {
@@ -228,7 +222,6 @@ async function updateUser(sb: any, locationId: string, actorId: string, actorRol
     const email = cleanEmail(body.email);
     if (!email) throw new Error("invalid_email");
     if ((await emailOwnership(sb, locationId, email, user.id)) === "other") throw new Error("email_in_use");
-    if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
     patch.email = email;
   }
   if ("name" in body) patch.name = cleanText(body.name);
@@ -290,7 +283,6 @@ async function addUserEmail(sb: any, locationId: string, actorRole: string, body
   const owner = await emailOwnership(sb, locationId, email, user.id);
   if (owner === "self") throw new Error("email_already_added");
   if (owner === "other") throw new Error("email_in_use");
-  if (await emailUsedInOtherInstance(sb, locationId, email)) throw new Error("email_in_use_other_instance");
 
   const { error } = await sb.from("app_user_emails").insert({ app_user_id: user.id, email });
   if (error) {
@@ -333,8 +325,10 @@ async function setUserPassword(sb: any, locationId: string, actorRole: string, b
   if (!password) throw new Error("password_required");
 
   await setAuthPassword(sb, String(user.email).toLowerCase(), password);
+  // The Supabase Auth credential is EMAIL-GLOBAL, so keep the admin-viewable mirror truthful
+  // on every membership row of this email (multi-instance accounts share one real password).
   const { error } = await sb.from("app_users")
-    .update({ login_password: password }).eq("id", user.id).eq("location_id", locationId);
+    .update({ login_password: password }).eq("email", user.email);
   if (error) throw error;
 }
 
@@ -403,8 +397,7 @@ Deno.serve(async (req) => {
       ? 400
       : message === "user_not_found" || message === "email_not_found"
         ? 404
-        : message === "last_owner_admin" || message === "email_in_use" ||
-            message === "email_already_added" || message === "email_in_use_other_instance"
+        : message === "last_owner_admin" || message === "email_in_use" || message === "email_already_added"
           ? 409
           : 500;
     return json({ error: message }, status);

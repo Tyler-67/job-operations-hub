@@ -9,12 +9,14 @@
 import { json, preflight, serviceClient, signSession, verifySession, logEvent } from "../_shared/util.ts";
 import { RESERVED_DEMO_EMAIL, resolveAppUser } from "../_shared/app-user.ts";
 
-// Instance actions (two-instance era): dev_super users are app-wide — one home row, one
-// email+password — and enter other instances by RE-MINTING their session with a different
-// `loc` claim. Gated on the FRESH role from the DB (not the token) so a demotion takes
-// effect immediately. Both actions require a currently-valid x-app-session.
-//   { action: "instances" }                  -> list of tenants + the session's current one
-//   { action: "switch", location_id: <id> }  -> new session token scoped to that tenant
+// Instance actions (generalized 2026-07-23): ANY account may belong to several instances —
+// membership = an ACTIVE app_users row with the same primary email in another location, with
+// a per-instance id/role/debug grants. dev_super stays app-wide (one home row, every
+// instance). Switching RE-MINTS the session for the target instance: dev_super keeps their
+// one identity, everyone else becomes their row IN that instance. Gated on FRESH DB state
+// (not token claims) so demotions/deactivations take effect immediately.
+//   { action: "instances" }                  -> the caller's instances + the current one
+//   { action: "switch", location_id: <id> }  -> new session token scoped to that instance
 async function handleInstanceAction(req: Request, action: string, body: Record<string, unknown>) {
   const claims = await verifySession(req.headers.get("x-app-session"));
   if (!claims) return json({ error: "unauthorized" }, 401);
@@ -24,30 +26,46 @@ async function handleInstanceAction(req: Request, action: string, body: Record<s
     .from("app_users").select("id, email, name, role, active, debug_tools")
     .eq("id", claims.sub as string).maybeSingle();
   if (!user || !user.active) return json({ error: "inactive" }, 403);
-  if (user.role !== "dev_super") return json({ error: "forbidden" }, 403);
 
+  const isSuper = user.role === "dev_super";
   const { data: locations } = await sb
     .from("locations").select("id, company_name").order("created_at");
-  const instances = (locations ?? []).map((l: { id: string; company_name: string | null }) => ({
-    id: l.id, company_name: l.company_name, current: l.id === (claims.loc as string),
-  }));
+
+  // Rows this account can act as, keyed by location. dev_super: the home row everywhere.
+  type MemberRow = { id: string; location_id: string; email: string; name: string | null; role: string; debug_tools: string[] };
+  let members = new Map<string, MemberRow>();
+  if (isSuper) {
+    for (const l of locations ?? []) members.set(l.id as string, { ...user, location_id: l.id as string });
+  } else {
+    const { data: rows } = await sb
+      .from("app_users").select("id, location_id, email, name, role, debug_tools")
+      .eq("email", user.email).eq("active", true);
+    members = new Map((rows ?? []).map((r: MemberRow) => [r.location_id, r]));
+  }
+
+  const instances = (locations ?? [])
+    .filter((l: { id: string }) => members.has(l.id))
+    .map((l: { id: string; company_name: string | null }) => ({
+      id: l.id, company_name: l.company_name, current: l.id === (claims.loc as string),
+    }));
 
   if (action === "instances") return json({ instances });
 
   const targetId = typeof body?.location_id === "string" ? body.location_id.trim() : "";
   const target = (locations ?? []).find((l: { id: string }) => l.id === targetId);
-  if (!target) return json({ error: "unknown_instance" }, 404);
+  const identity = target ? members.get(targetId) : undefined;
+  if (!target || !identity) return json({ error: "unknown_instance" }, 404);
 
-  const session = await signSession({ sub: user.id, loc: target.id, email: user.email, role: user.role });
-  await sb.from("app_users").update({ last_seen_at: new Date().toISOString() }).eq("id", user.id);
+  const session = await signSession({ sub: identity.id, loc: target.id, email: identity.email, role: identity.role });
+  await sb.from("app_users").update({ last_seen_at: new Date().toISOString() }).eq("id", identity.id);
   await logEvent({
     source: "auth", kind: "auth_session_switched", location_id: target.id,
-    payload: { email: user.email, from: claims.loc, to: target.id },
+    payload: { email: identity.email, from: claims.loc, to: target.id },
   });
 
   return json({
     session,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, debug_tools: user.debug_tools },
+    user: { id: identity.id, email: identity.email, name: identity.name, role: identity.role, debug_tools: identity.debug_tools },
     location: { id: target.id, company_name: target.company_name },
     instances,
   });
@@ -97,7 +115,6 @@ Deno.serve(async (req) => {
   try {
     resolved = await resolveAppUser(sb, verifiedEmail);
   } catch (e) {
-    if (e instanceof Error && e.message === "ambiguous_account") return json({ error: "ambiguous_account" }, 409);
     return json({ error: e instanceof Error ? e.message : "lookup_failed" }, 500);
   }
 

@@ -34,6 +34,25 @@ export interface ResolvedAppUser {
   location: { id: string; company_name: string | null };
 }
 
+// Multi-instance membership (2026-07-23): the SAME primary email may own an app_users row in
+// more than one location — that's how a person belongs to several instances (per-location
+// UNIQUE allows it; roles can differ per instance). A bare-email login has to land somewhere:
+// prefer ACTIVE rows, then the most recently seen (so login lands where the person last
+// worked — and the instance switcher keeps last_seen fresh), then the newest row. An
+// inactive-only set returns a row anyway so callers' active checks 403 as "inactive"
+// rather than misreporting "not provisioned".
+export function pickMembershipRow<T extends {
+  active?: boolean | null; last_seen_at?: string | null; created_at?: string | null;
+}>(rows: T[]): T | null {
+  if (!rows.length) return null;
+  const activeRank = (r: T) => (r.active ? 1 : 0);
+  return [...rows].sort((a, b) =>
+    activeRank(b) - activeRank(a) ||
+    (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "") ||
+    (b.created_at ?? "").localeCompare(a.created_at ?? "")
+  )[0];
+}
+
 // Map a known login email -> its app_users row (joined with the location).
 //
 // Resolution order is PRIMARY-FIRST: app_users.email is authoritative and resolved first,
@@ -41,19 +60,19 @@ export interface ResolvedAppUser {
 // a secondary alias planted on another account. Only when no primary matches do we consult
 // the app_user_emails alias table (global-unique on lower(email)). Pure lookup — does NOT
 // enforce `active` or mint anything; callers apply that policy so the two doors can differ.
-// Returns null when unknown; throws on a real DB error, or "ambiguous_account" if the same
-// email is the primary of more than one app_users row (per-location UNIQUE allows this).
+// Returns null when unknown; throws on a real DB error. An email owning rows in multiple
+// instances resolves via pickMembershipRow (see above) — the instance switcher covers the rest.
 export async function resolveAppUser(sb: any, rawEmail: unknown): Promise<ResolvedAppUser | null> {
   const email = normalizeEmail(rawEmail);
   if (!email) return null;
 
   // Primary email first (authoritative).
   const { data: primaries, error: primErr } = await sb
-    .from("app_users").select("id").eq("email", email);
+    .from("app_users").select("id, active, last_seen_at, created_at").eq("email", email);
   if (primErr) throw primErr;
-  let appUserId: string | null = null;
-  if (primaries && primaries.length > 1) throw new Error("ambiguous_account");
-  if (primaries && primaries.length === 1) appUserId = primaries[0].id as string;
+  let appUserId: string | null = primaries?.length
+    ? (pickMembershipRow(primaries)! as { id: string }).id
+    : null;
 
   // Otherwise, a secondary login alias.
   if (!appUserId) {

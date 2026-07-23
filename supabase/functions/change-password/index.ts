@@ -47,14 +47,20 @@ Deno.serve(async (req) => {
 
   const sb = serviceClient();
   try {
+    // Look the row up by id ALONE: a switched session (instance switcher) carries a `loc`
+    // that differs from the home row's location, and the password isn't location-scoped
+    // anyway. The row's CURRENT email is authoritative (claims.email could predate a rename).
     const { data: user, error } = await sb
-      .from("app_users").select("id, active").eq("id", sub).eq("location_id", loc).maybeSingle();
+      .from("app_users").select("id, email, active").eq("id", sub).maybeSingle();
     if (error) throw error;
     if (!user || !user.active) return json({ error: "inactive" }, 403);
 
-    await setAuthPassword(sb, email, password);
+    const authEmail = String(user.email ?? email).toLowerCase();
+    await setAuthPassword(sb, authEmail, password);
+    // Auth passwords are email-global; keep the admin-viewable mirror truthful on every
+    // membership row of this email (multi-instance accounts share one real password).
     const { error: updErr } = await sb
-      .from("app_users").update({ login_password: password }).eq("id", sub).eq("location_id", loc);
+      .from("app_users").update({ login_password: password }).eq("email", user.email);
     if (updErr) throw updErr;
 
     return json({ ok: true });

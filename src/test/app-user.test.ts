@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeEmail, resolveAppUser } from "../../supabase/functions/_shared/app-user";
+import { normalizeEmail, pickMembershipRow, resolveAppUser } from "../../supabase/functions/_shared/app-user";
 
 describe("normalizeEmail", () => {
   it("trims + lowercases a valid email", () => {
@@ -89,11 +89,53 @@ describe("resolveAppUser", () => {
     expect(await resolveAppUser(sb, "nobody@example.com")).toBeNull();
   });
 
-  it("throws ambiguous_account when the same email is the primary of more than one user", async () => {
+  it("multi-instance email resolves to the most recently seen ACTIVE row (membership model)", async () => {
+    const rows = [
+      { id: "u-stale", active: true, last_seen_at: "2026-07-01T00:00:00Z", created_at: "2026-06-01T00:00:00Z" },
+      { id: "u-fresh", active: true, last_seen_at: "2026-07-20T00:00:00Z", created_at: "2026-06-02T00:00:00Z" },
+      { id: "u-dead", active: false, last_seen_at: "2026-07-22T00:00:00Z", created_at: "2026-06-03T00:00:00Z" },
+    ];
     const sb = stubClient((table, col, _val, single) => {
-      if (table === "app_users" && col === "email" && !single) return { data: [{ id: "u1" }, { id: "u2" }] };
+      if (table === "app_users" && col === "email" && !single) return { data: rows };
+      if (table === "app_users" && col === "id" && single) return { data: { ...USER, id: "u-fresh" } };
+      if (table === "locations") return { data: LOC };
       return { data: null };
     });
-    await expect(resolveAppUser(sb, "dupe@example.com")).rejects.toThrow("ambiguous_account");
+    const resolved = await resolveAppUser(sb, "multi@example.com");
+    expect(resolved!.id).toBe("u-fresh"); // active beats inactive; recency breaks the tie
+  });
+});
+
+// The membership picker itself (used by resolveAppUser and reasoned about by the instance
+// switcher): active first, then most recently seen, then newest row; inactive-only sets
+// still return a row so the caller's active check 403s as "inactive", not "not provisioned".
+describe("pickMembershipRow", () => {
+  it("prefers active rows over a more recently seen inactive row", () => {
+    const picked = pickMembershipRow([
+      { id: "a", active: false, last_seen_at: "2026-07-22T00:00:00Z", created_at: "2026-01-01T00:00:00Z" },
+      { id: "b", active: true, last_seen_at: "2026-07-01T00:00:00Z", created_at: "2026-01-02T00:00:00Z" },
+    ] as { id: string; active: boolean; last_seen_at: string; created_at: string }[]);
+    expect(picked!.id).toBe("b");
+  });
+
+  it("breaks active ties by last_seen_at, treating never-seen as oldest", () => {
+    const picked = pickMembershipRow([
+      { id: "never", active: true, last_seen_at: null, created_at: "2026-01-05T00:00:00Z" },
+      { id: "seen", active: true, last_seen_at: "2026-07-10T00:00:00Z", created_at: "2026-01-01T00:00:00Z" },
+    ]);
+    expect(picked!.id).toBe("seen");
+  });
+
+  it("falls back to newest created_at when nothing else differs", () => {
+    const picked = pickMembershipRow([
+      { id: "old", active: true, last_seen_at: null, created_at: "2026-01-01T00:00:00Z" },
+      { id: "new", active: true, last_seen_at: null, created_at: "2026-02-01T00:00:00Z" },
+    ]);
+    expect(picked!.id).toBe("new");
+  });
+
+  it("returns an inactive row when that's all there is, and null for none", () => {
+    expect(pickMembershipRow([{ id: "x", active: false }])!.id).toBe("x");
+    expect(pickMembershipRow([])).toBeNull();
   });
 });
