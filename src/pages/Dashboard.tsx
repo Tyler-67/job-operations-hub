@@ -111,7 +111,12 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {activeJobs.length === 0 && (
-                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No active jobs yet.</td></tr>
+                  <tr>
+                    {/* Span only the cells the message needs; the rest stay real (empty)
+                        cells so their column gridlines keep running. */}
+                    <td colSpan={2} className="px-3 py-8 text-muted-foreground">No active jobs yet.</td>
+                    {Array.from({ length: 6 }, (_, i) => <td key={i} />)}
+                  </tr>
                 )}
                 {activeJobs.map((job) => {
                   const pendingPoCount = job.purchase_orders.filter((po) => po.status === "pending_value").length;

@@ -125,9 +125,12 @@ export default function JobsList() {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                  {/* Span only the cells the message needs; the rest stay real (empty)
+                      cells so their column gridlines keep running. */}
+                  <td colSpan={2} className="px-3 py-8 text-muted-foreground">
                     No jobs match the current filters.
                   </td>
+                  {Array.from({ length: 7 }, (_, i) => <td key={i} />)}
                 </tr>
               )}
               {filtered.map((job) => {
