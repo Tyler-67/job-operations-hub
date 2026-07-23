@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { callEdge, listInstances, switchInstance, useSession, type AppInstance } from "@/lib/session";
 import { roleLabel } from "@/lib/users";
@@ -6,6 +6,7 @@ import { InlineSelect } from "@/components/InlineSelect";
 import {
   BarChart3,
   BookOpen,
+  CalendarDays,
   Gauge,
   BriefcaseBusiness,
   Contact,
@@ -22,20 +23,37 @@ import {
 import { cn } from "@/lib/utils";
 import { DialogProvider } from "@/components/dialogs";
 
-const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
-  { to: "/search", label: "Search", icon: Search },
-  { to: "/reports/completion", label: "Reports", icon: BarChart3 },
-];
-
-const adminNav = [
-  { to: "/admin/settings", label: "Settings", icon: Settings2 },
-  { to: "/admin/job-states", label: "Job States", icon: Wrench },
-  { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse },
-  { to: "/admin/contacts", label: "Contacts", icon: Contact },
-  { to: "/admin/expenses", label: "Expenses", icon: ReceiptText },
-  { to: "/admin/users", label: "Users", icon: Users },
+// Sidebar schema (2026-07-23, per Tyler): divider groups by TEMPO — daily work up top,
+// money weekly, one-time setup last. Dividers only, no tabs. `adminOnly` gates per item so
+// mixed groups (Reports for everyone, Expenses for managers) render correctly per role.
+interface NavItem { to: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }
+const navGroups: { label: string | null; items: NavItem[] }[] = [
+  {
+    label: null,
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
+      { to: "/search", label: "Search", icon: Search },
+    ],
+  },
+  {
+    label: "Money",
+    items: [
+      { to: "/admin/expenses", label: "Expenses & POs", icon: ReceiptText, adminOnly: true },
+      { to: "/reports/completion", label: "Reports", icon: BarChart3 },
+      { to: "/reports/weekly-preview", label: "Weekly Report", icon: CalendarDays },
+    ],
+  },
+  {
+    label: "Setup",
+    items: [
+      { to: "/admin/settings", label: "Settings", icon: Settings2, adminOnly: true },
+      { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
+      { to: "/admin/contacts", label: "Contacts", icon: Contact, adminOnly: true },
+      { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse, adminOnly: true },
+      { to: "/admin/job-states", label: "Job States", icon: Wrench, adminOnly: true },
+    ],
+  },
 ];
 
 export default function AppShell() {
@@ -132,41 +150,32 @@ export default function AppShell() {
       </header>
       <aside className="row-start-2 border-r border-border bg-sidebar text-sidebar-foreground">
         <nav className="flex h-full flex-col gap-px p-2">
-          {nav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => cn(
-                "flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-primary"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-          {isAdmin && (
-            <>
-              <div className="mt-3 px-2 text-2xs uppercase tracking-wider text-sidebar-foreground/40">Admin</div>
-              {adminNav.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) => cn(
-                    "flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-primary"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{label}</span>
-                </NavLink>
-              ))}
-            </>
-          )}
+          {navGroups.map((group) => {
+            const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+            if (!items.length) return null;
+            return (
+              <Fragment key={group.label ?? "work"}>
+                {group.label && (
+                  <div className="mt-3 px-2 text-2xs uppercase tracking-wider text-sidebar-foreground/40">{group.label}</div>
+                )}
+                {items.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) => cn(
+                      "flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs transition-colors",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-primary"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{label}</span>
+                  </NavLink>
+                ))}
+              </Fragment>
+            );
+          })}
           <div className="mt-auto">
             {user?.role === "dev_super" && (
               <NavLink
