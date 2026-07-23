@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DialogProvider } from "@/components/dialogs";
+import SearchOverlay from "@/components/SearchOverlay";
 
 // Sidebar schema (2026-07-23, per Tyler): divider groups by TEMPO — daily work up top,
 // money weekly, one-time setup last. Dividers only, no tabs. `adminOnly` gates per item so
@@ -39,7 +40,6 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     label: "Jobs",
     items: [
       { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
-      { to: "/search", label: "Search", icon: Search },
       { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse, adminOnly: true },
       { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
     ],
@@ -71,6 +71,7 @@ export default function AppShell() {
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [instances, setInstances] = useState<AppInstance[] | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Instance switcher data: ANY account may belong to several instances (same email, a row
   // per instance; dev_super sees every instance). The endpoint returns only the caller's own
@@ -156,6 +157,18 @@ export default function AppShell() {
       </header>
       <aside className="row-start-2 border-r border-border bg-sidebar text-sidebar-foreground">
         <nav className="flex h-full flex-col gap-px p-2">
+          {/* Top-of-sidebar global search: typing here opens a live results overlay centered
+              over the working area (see SearchOverlay). Replaced the old /search nav entry. */}
+          <div className="relative mb-1">
+            <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-sidebar-foreground/50" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search..."
+              aria-label="Search jobs, contacts, POs, expenses"
+              className="h-8 w-full rounded-sm border border-sidebar-border bg-sidebar-accent/40 pl-7 pr-2 text-xs text-sidebar-foreground outline-none placeholder:text-sidebar-foreground/40 focus:ring-1 focus:ring-ring"
+            />
+          </div>
           {navGroups.map((group) => {
             const items = group.items.filter((item) => !item.adminOnly || isAdmin);
             if (!items.length) return null;
@@ -215,6 +228,8 @@ export default function AppShell() {
       <main className="row-start-2 col-start-2 overflow-auto">
         <Outlet />
       </main>
+
+      {searchQuery.trim() && <SearchOverlay query={searchQuery} onClose={() => setSearchQuery("")} />}
 
       {pwOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!pwBusy) setPwOpen(false); }}>
