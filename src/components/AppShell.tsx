@@ -29,15 +29,23 @@ import { DialogProvider } from "@/components/dialogs";
 interface NavItem { to: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }
 const navGroups: { label: string | null; items: NavItem[] }[] = [
   {
+    // Dashboard stands alone at the top — it's the index.
     label: null,
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
-      { to: "/search", label: "Search", icon: Search },
     ],
   },
   {
-    label: "Money",
+    label: "Jobs",
+    items: [
+      { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
+      { to: "/search", label: "Search", icon: Search },
+      { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse, adminOnly: true },
+      { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
+    ],
+  },
+  {
+    label: "Billing",
     items: [
       { to: "/admin/expenses", label: "Expenses & POs", icon: ReceiptText, adminOnly: true },
       { to: "/reports/completion", label: "Reports", icon: BarChart3 },
@@ -48,9 +56,7 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     label: "Setup",
     items: [
       { to: "/admin/settings", label: "Settings", icon: Settings2, adminOnly: true },
-      { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/admin/contacts", label: "Contacts", icon: Contact, adminOnly: true },
-      { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse, adminOnly: true },
       { to: "/admin/job-states", label: "Job States", icon: Wrench, adminOnly: true },
     ],
   },
