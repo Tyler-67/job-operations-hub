@@ -99,8 +99,10 @@ export default function Dashboard() {
             {/* Centered like the old full-width row, but as an overlay so the column
                 gridlines underneath keep running to the base of the page. */}
             {activeJobs.length === 0 && (
-              <div className="pointer-events-none absolute inset-x-0 top-28 text-center text-xs text-muted-foreground">
-                No active jobs yet.
+              <div className="pointer-events-none absolute inset-x-0 top-28 z-10 flex justify-center">
+                <span className="rounded-md bg-background px-6 py-2 text-xs text-muted-foreground shadow-sm">
+                  No active jobs yet.
+                </span>
               </div>
             )}
             <table className="ops-grid ops-grid-full w-full table-fixed border-collapse text-xs">
