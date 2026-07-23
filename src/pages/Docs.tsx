@@ -113,14 +113,16 @@ const TABS: DocTab[] = [
         </P>
 
         <H2>The Dashboard</H2>
-        <Bullets items={[
-          <><strong>Active jobs</strong> — jobs not archived and not in a terminal state.</>,
-          <><strong>Overdue check-ins</strong> — active jobs whose crew hasn&apos;t checked in today (in a check-in phase).</>,
-          <><strong>Inspections due</strong> — jobs sitting in an inspection or walkthrough phase awaiting a result.</>,
-          <><strong>POs need value</strong> — purchase orders waiting for the office to enter the real cost (see Purchasing).</>,
-          <><strong>Office queue</strong> — the jobs that need an office action right now, with a chip naming it.</>,
-          <><strong>Jobs by state / Completion pulse</strong> — where the active work sits, and what&apos;s ready for billing follow-up.</>,
-        ]} />
+        <P>
+          Three columns: the <strong>Active jobs</strong> table, a <strong>Search</strong> panel (jobs, contacts, POs,
+          expenses — same search as the Search page), and the <strong>Office queue</strong>. The counts live in the
+          headers: <strong>Active jobs (n)</strong>; <strong>Inspection (due/scheduled)</strong>;
+          <strong> Check-in (overdue/eligible)</strong> — crews that haven&apos;t checked in today out of those in a
+          check-in phase; <strong>Action (n)</strong> — jobs needing any office action (overdue check-in, inspection
+          phase, or a PO waiting for its real cost); <strong>Office queue (n)</strong> — those same jobs listed with a
+          chip naming the action. <strong>Jobs by state / Completion pulse</strong> show where active work sits and
+          what&apos;s ready for billing follow-up.
+        </P>
       </>
     ),
   },
@@ -208,7 +210,8 @@ const TABS: DocTab[] = [
         <P>
           A second same-day check-in <strong>updates</strong> that day&apos;s entry (hours add; other fields take the
           latest values) and sends its messages again — the office always hears about real activity. Crew who logged
-          nothing show under Overdue check-ins on the Dashboard and in the weekly report&apos;s coverage gaps.
+          nothing count toward the Dashboard&apos;s Check-in (overdue/eligible) header and the weekly report&apos;s
+          coverage gaps.
         </P>
       </>
     ),
