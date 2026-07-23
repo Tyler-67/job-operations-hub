@@ -104,6 +104,10 @@
 @layer components {
   .ops-row { @apply border-b border-border hover:bg-[hsl(var(--row-hover))] transition-colors; }
   .ops-row:nth-child(even) { background-color: hsl(var(--row-stripe)); }
+  /* Subtle vertical column gridlines for data tables (Jobs, Dashboard, admin lists). Applied
+     on the <table>; half-strength border so columns read without the grid shouting. */
+  .ops-grid th + th,
+  .ops-grid td + td { border-left: 1px solid hsl(var(--border) / 0.55); }
   .pill {
     @apply inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide;
   }

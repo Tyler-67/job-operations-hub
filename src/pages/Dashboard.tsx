@@ -96,7 +96,7 @@ export default function Dashboard() {
             <div className="border-b border-border px-4 py-3">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active jobs ({activeJobs.length})</h2>
             </div>
-            <table className="w-full table-fixed border-collapse text-xs">
+            <table className="ops-grid w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="w-[30%] border-b border-border px-3 py-2 text-left font-medium">Address</th>

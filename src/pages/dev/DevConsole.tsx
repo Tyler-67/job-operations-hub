@@ -166,7 +166,7 @@ export default function DevConsole() {
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border bg-card">
-        <table className="w-full text-xs">
+        <table className="ops-grid w-full text-xs">
           <thead>
             <tr className="border-b border-border text-left text-2xs uppercase tracking-wider text-muted-foreground">
               <th className="px-3 py-2">Instance</th>

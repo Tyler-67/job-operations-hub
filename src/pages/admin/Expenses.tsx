@@ -458,7 +458,7 @@ function PurchaseOrdersTable({ rows, canManage, saving, onValue, showStatus }: {
   showStatus: boolean;
 }) {
   return (
-    <table className="w-full table-fixed border-collapse text-xs">
+    <table className="ops-grid w-full table-fixed border-collapse text-xs">
       <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
         <tr>
           <th className="w-[25%] border-b border-border px-3 py-2 text-left font-medium">Job</th>
@@ -533,7 +533,7 @@ function ExpensesTable({ rows, canManage, saving, photoUrls, onEdit, onDelete }:
   onDelete: (expense: JobExpenseWithDetails) => void;
 }) {
   return (
-    <table className="w-full table-fixed border-collapse text-xs">
+    <table className="ops-grid w-full table-fixed border-collapse text-xs">
       <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
         <tr>
           <th className="w-[25%] border-b border-border px-3 py-2 text-left font-medium">Job</th>

@@ -156,7 +156,7 @@ export default function AdminSupplyHouses() {
       {!loading && (
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_380px]">
           <main className="overflow-auto">
-            <table className="w-full table-fixed border-collapse text-xs">
+            <table className="ops-grid w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="w-[24%] border-b border-border px-3 py-2 text-left font-medium">Name</th>

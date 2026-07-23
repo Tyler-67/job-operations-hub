@@ -104,7 +104,7 @@ export default function JobsList() {
 
       {!loading && (
         <div className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-xs">
+          <table className="ops-grid w-full border-collapse text-xs">
             <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 {[

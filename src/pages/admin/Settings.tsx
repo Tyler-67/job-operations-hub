@@ -996,7 +996,7 @@ function ContactsPullSummary({ result }: { result: ContactsPullResult }) {
       )}
       {rows.length > 0 && (
         <div className="max-h-56 overflow-auto rounded-sm border border-border">
-          <table className="w-full text-2xs">
+          <table className="ops-grid w-full text-2xs">
             <tbody>
               {rows.map((row, i) => (
                 <tr key={i} className="border-b border-border/60 last:border-0">
@@ -1042,7 +1042,7 @@ function ContactsSyncSummary({ result }: { result: ContactsSyncResult }) {
       <div className="text-xs font-medium">{summary}</div>
       {rows.length > 0 && (
         <div className="max-h-56 overflow-auto rounded-sm border border-border">
-          <table className="w-full text-2xs">
+          <table className="ops-grid w-full text-2xs">
             <tbody>
               {rows.map((row, i) => (
                 <tr key={i} className="border-b border-border/60 last:border-0">
