@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CalendarClock, CheckCircle2, ClipboardList, ReceiptText } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import GlobalSearch from "@/components/GlobalSearch";
 
 // Parse a date-only string ("YYYY-MM-DD") as a LOCAL calendar date at midnight. last_log_date is
 // date-only; new Date() reads it as UTC midnight, which is the PRIOR day in US timezones — that
@@ -43,31 +44,6 @@ function inspectionDue(job: JobSummary) {
   return due >= now - 24 * 60 * 60 * 1000 && due <= now + 7 * 24 * 60 * 60 * 1000;
 }
 
-function Stat({ icon: Icon, label, value, tone = "default" }: {
-  icon: typeof ClipboardList;
-  label: string;
-  value: string | number;
-  tone?: "default" | "warning" | "danger" | "success";
-}) {
-  const toneClass = {
-    default: "text-foreground",
-    warning: "text-warning",
-    danger: "text-destructive",
-    success: "text-success",
-  }[tone];
-  return (
-    <div className="flex min-h-20 items-center gap-3 border-b border-r border-border bg-card px-4 py-3">
-      <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-muted">
-        <Icon className={`h-4 w-4 ${toneClass}`} />
-      </div>
-      <div>
-        <div className={`font-mono-num text-lg font-semibold leading-none ${toneClass}`}>{value}</div>
-        <div className="mt-1 text-2xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard() {
   const [data, setData] = useState<JobsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,9 +62,15 @@ export default function Dashboard() {
   const activeJobs = jobs.filter((job) => !job.current_state?.is_terminal);
   const overdue = activeJobs.filter(needsCheckIn);
   const inspections = activeJobs.filter(inspectionDue);
-  const pendingPos = activeJobs.reduce((sum, job) =>
-    sum + job.purchase_orders.filter((po) => po.status === "pending_value").length, 0);
   const completeThisWeek = jobs.filter((job) => job.current_state?.slug === "complete").length;
+
+  // The old stat-tile bar's numbers, relocated to the column heads (per Tyler: "(00/00)").
+  const checkInEligible = activeJobs.filter((job) => job.current_state?.allow_check_ins && !job.current_state?.is_terminal).length;
+  const inspectionsScheduled = activeJobs.filter((job) => job.inspection_date).length;
+  const actionCount = activeJobs.filter((job) =>
+    needsCheckIn(job) ||
+    job.current_state?.is_inspection ||
+    job.purchase_orders.some((po) => po.status === "pending_value")).length;
 
   const stateCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -105,30 +87,14 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-border bg-card px-4 py-2">
-        <div>
-          <h1 className="text-sm font-semibold">Dashboard</h1>
-          <p className="text-xs text-muted-foreground">Fast overview of active jobs and office follow-up.</p>
-        </div>
-        <div className="flex-1" />
-        <Link to="/jobs" className="rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted">Open Jobs</Link>
-      </div>
-
-      <div className="grid grid-cols-4 border-b border-border">
-        <Stat icon={ClipboardList} label="Active jobs" value={activeJobs.length} />
-        <Stat icon={AlertTriangle} label="Overdue check-ins" value={overdue.length} tone={overdue.length ? "danger" : "success"} />
-        <Stat icon={CalendarClock} label="Inspections due" value={inspections.length} tone={inspections.length ? "warning" : "default"} />
-        <Stat icon={ReceiptText} label="PO values needed" value={pendingPos} tone={pendingPos ? "warning" : "default"} />
-      </div>
-
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading dashboard...</div>}
 
       {!loading && (
-        <div className="grid flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden">
+        <div className="grid flex-1 grid-cols-[minmax(0,1fr)_300px_340px] overflow-hidden">
           <div className="overflow-auto">
             <div className="border-b border-border px-4 py-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active jobs</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active jobs ({activeJobs.length})</h2>
             </div>
             <table className="w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
@@ -138,9 +104,9 @@ export default function Dashboard() {
                   <th className="w-[14%] border-b border-border px-3 py-2 text-left font-medium">State</th>
                   <th className="w-[7%] border-b border-border px-3 py-2 text-left font-medium">State %</th>
                   <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Expenses</th>
-                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Inspection</th>
-                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Check-in</th>
-                  <th className="w-[10%] border-b border-border px-3 py-2 text-left font-medium">Action</th>
+                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Inspection ({inspections.length}/{inspectionsScheduled})</th>
+                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Check-in ({overdue.length}/{checkInEligible})</th>
+                  <th className="w-[10%] border-b border-border px-3 py-2 text-left font-medium">Action ({actionCount})</th>
                 </tr>
               </thead>
               <tbody>
@@ -188,9 +154,18 @@ export default function Dashboard() {
             </table>
           </div>
 
+          <aside className="flex flex-col overflow-hidden border-l border-border bg-card">
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Search</h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <GlobalSearch compact />
+            </div>
+          </aside>
+
           <aside className="overflow-auto border-l border-border bg-card">
             <section className="border-b border-border p-4">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Office queue</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Office queue ({officeQueue.length})</h2>
               <div className="mt-3 divide-y divide-border text-xs">
                 {officeQueue.map((job) => (
                   <Link key={job.id} to={`/jobs/${job.id}`} className="block py-2 hover:text-accent">
