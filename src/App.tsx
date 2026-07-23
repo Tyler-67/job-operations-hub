@@ -15,6 +15,7 @@ import AdminSettings from "@/pages/admin/Settings";
 import AdminSupplyHouses from "@/pages/admin/SupplyHouses";
 import AdminContacts from "@/pages/admin/Contacts";
 import AdminUsers from "@/pages/admin/Users";
+import DevConsole from "@/pages/dev/DevConsole";
 import Docs from "@/pages/Docs";
 import TokenForm from "@/pages/forms/TokenForm";
 import DailyCheckInForm from "@/pages/forms/DailyCheckInForm";
@@ -94,6 +95,7 @@ const App = () => (
               <Route path="/admin/contacts" element={<AdminContacts />} />
               <Route path="/admin/expenses" element={<AdminExpenses />} />
               <Route path="/admin/users" element={<AdminUsers />} />
+              <Route path="/dev" element={<DevConsole />} />
               <Route path="/docs" element={<Docs />} />
             </Route>
 

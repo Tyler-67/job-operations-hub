@@ -6,6 +6,7 @@ import { InlineSelect } from "@/components/InlineSelect";
 import {
   BarChart3,
   BookOpen,
+  Gauge,
   BriefcaseBusiness,
   Contact,
   KeyRound,
@@ -167,6 +168,18 @@ export default function AppShell() {
             </>
           )}
           <div className="mt-auto">
+            {user?.role === "dev_super" && (
+              <NavLink
+                to="/dev"
+                className={({ isActive }) => cn(
+                  "flex items-center gap-2 rounded-sm px-2 py-1.5 text-2xs",
+                  isActive ? "bg-sidebar-accent text-sidebar-primary" : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                )}
+              >
+                <Gauge className="h-3 w-3" />
+                Developer
+              </NavLink>
+            )}
             <NavLink
               to="/docs"
               className={({ isActive }) => cn(
