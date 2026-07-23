@@ -100,7 +100,7 @@ export default function Dashboard() {
                 gridlines underneath keep running to the base of the page. */}
             {activeJobs.length === 0 && (
               <div className="pointer-events-none absolute inset-x-0 top-28 z-10 flex justify-center">
-                <span className="rounded-md bg-background px-6 py-2 text-xs text-muted-foreground">
+                <span className="rounded-md bg-background px-3 py-2 text-xs text-muted-foreground">
                   No active jobs yet.
                 </span>
               </div>
