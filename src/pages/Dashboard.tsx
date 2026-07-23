@@ -92,10 +92,17 @@ export default function Dashboard() {
 
       {!loading && (
         <div className="grid flex-1 grid-cols-[minmax(0,1fr)_300px_340px] overflow-hidden">
-          <div className="overflow-auto">
+          <div className="relative overflow-auto">
             <div className="border-b border-border px-4 py-3">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active jobs ({activeJobs.length})</h2>
             </div>
+            {/* Centered like the old full-width row, but as an overlay so the column
+                gridlines underneath keep running to the base of the page. */}
+            {activeJobs.length === 0 && (
+              <div className="pointer-events-none absolute inset-x-0 top-28 text-center text-xs text-muted-foreground">
+                No active jobs yet.
+              </div>
+            )}
             <table className="ops-grid ops-grid-full w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
@@ -110,14 +117,6 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {activeJobs.length === 0 && (
-                  <tr>
-                    {/* Span only the cells the message needs; the rest stay real (empty)
-                        cells so their column gridlines keep running. */}
-                    <td colSpan={2} className="px-3 py-8 text-muted-foreground">No active jobs yet.</td>
-                    {Array.from({ length: 6 }, (_, i) => <td key={i} />)}
-                  </tr>
-                )}
                 {activeJobs.map((job) => {
                   const pendingPoCount = job.purchase_orders.filter((po) => po.status === "pending_value").length;
                   return (

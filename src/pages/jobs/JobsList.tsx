@@ -103,7 +103,14 @@ export default function JobsList() {
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading jobs...</div>}
 
       {!loading && (
-        <div className="flex-1 overflow-auto">
+        <div className="relative flex-1 overflow-auto">
+          {/* Centered like the old full-width row, but as an overlay so the column
+              gridlines underneath keep running to the base of the page. */}
+          {filtered.length === 0 && (
+            <div className="pointer-events-none absolute inset-x-0 top-20 text-center text-xs text-muted-foreground">
+              No jobs match the current filters.
+            </div>
+          )}
           <table className="ops-grid ops-grid-full w-full border-collapse text-xs">
             <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -123,16 +130,6 @@ export default function JobsList() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  {/* Span only the cells the message needs; the rest stay real (empty)
-                      cells so their column gridlines keep running. */}
-                  <td colSpan={2} className="px-3 py-8 text-muted-foreground">
-                    No jobs match the current filters.
-                  </td>
-                  {Array.from({ length: 7 }, (_, i) => <td key={i} />)}
-                </tr>
-              )}
               {filtered.map((job) => {
                 const overdue = isOverdue(job);
                 const pending = job.purchase_orders.filter((po) => po.status === "pending_value").length;
