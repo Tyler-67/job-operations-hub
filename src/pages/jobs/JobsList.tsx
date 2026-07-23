@@ -104,7 +104,7 @@ export default function JobsList() {
 
       {!loading && (
         <div className="flex-1 overflow-auto">
-          <table className="ops-grid w-full border-collapse text-xs">
+          <table className="ops-grid ops-grid-full w-full border-collapse text-xs">
             <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 {[
@@ -170,6 +170,10 @@ export default function JobsList() {
                   </tr>
                 );
               })}
+              {/* Stretch row: keeps the column gridlines running to the base of the page. */}
+              <tr aria-hidden className="ops-grid-fill">
+                {Array.from({ length: 9 }, (_, i) => <td key={i} />)}
+              </tr>
             </tbody>
           </table>
         </div>
