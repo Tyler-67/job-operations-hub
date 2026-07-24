@@ -6,10 +6,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarRange, ChevronDown, ChevronRight, Search } from "lucide-react";
-import { currency, fetchJobs, shortDate, type CompletionReport, type JobsResponse } from "@/lib/jobs";
+import { currency, fetchJobs, shortDate, type CompletionReport, type JobExpense, type JobsResponse } from "@/lib/jobs";
 import { fetchWeeklyReports, type WeeklyReportRow } from "@/lib/weekly-reports";
 
-interface Completion { jobId: string; report: CompletionReport }
+interface Completion { jobId: string; report: CompletionReport; expenses: JobExpense[] }
+
+const EXPENSE_KIND: Record<string, string> = { field_purchase: "Field", po: "PO", adjustment: "Adjustment" };
 interface WeekBucket {
   key: string;                 // window-end iso — the grouping key
   start: string;
@@ -77,18 +79,38 @@ function WeeklyRow({ bucket, collapsed, onToggle }: { bucket: WeekBucket; collap
   );
 }
 
-function JobRow({ jobId, report }: Completion) {
+function JobRow({ completion, expanded, onToggle }: { completion: Completion; expanded: boolean; onToggle: () => void }) {
+  const { jobId, report, expenses } = completion;
+  const Chevron = expanded ? ChevronDown : ChevronRight;
   return (
-    <div className="ops-row flex items-center gap-3 py-1.5 pl-9 pr-4 text-xs">
-      <span className="pill shrink-0 bg-success/10 text-success">{report.final_state.label}</span>
-      <Link to={`/jobs/${jobId}`} className="min-w-0 flex-1 truncate font-medium hover:text-accent">
-        {report.address}
-        {report.customer?.name && <span className="font-normal text-muted-foreground"> · {report.customer.name}</span>}
-      </Link>
-      <span className="shrink-0 font-mono-num text-muted-foreground">
-        {report.totals.hours}h · {currency(report.totals.expenses)} of {currency(report.totals.original_estimate)}
-      </span>
-    </div>
+    <>
+      <div className="ops-row flex items-center gap-2 py-1.5 pl-6 pr-4 text-xs">
+        <button type="button" onClick={onToggle} className="shrink-0 text-muted-foreground hover:text-foreground" title={expanded ? "Hide expenses" : "Show expenses"}>
+          <Chevron className="h-3.5 w-3.5" />
+        </button>
+        <span className="pill shrink-0 bg-success/10 text-success">{report.final_state.label}</span>
+        <Link to={`/jobs/${jobId}`} className="min-w-0 flex-1 truncate font-medium hover:text-accent">
+          {report.address}
+          {report.customer?.name && <span className="font-normal text-muted-foreground"> · {report.customer.name}</span>}
+        </Link>
+        <span className="shrink-0 font-mono-num text-muted-foreground">
+          {report.totals.hours}h · {currency(report.totals.expenses)} of {currency(report.totals.original_estimate)}
+        </span>
+      </div>
+      {expanded && (
+        expenses.length > 0 ? (
+          expenses.map((e) => (
+            <div key={e.id} className="flex items-center gap-2 border-b border-border/60 bg-muted/20 py-1 pl-14 pr-4 text-2xs">
+              <span className="pill shrink-0 bg-muted text-muted-foreground">{EXPENSE_KIND[e.kind] ?? e.kind}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{e.vendor || e.description || "—"}</span>
+              <span className="shrink-0 font-mono-num">{currency(Number(e.amount))}</span>
+            </div>
+          ))
+        ) : (
+          <div className="border-b border-border/60 bg-muted/20 py-1 pl-14 pr-4 text-2xs text-muted-foreground/70">No expenses recorded.</div>
+        )
+      )}
+    </>
   );
 }
 
@@ -99,6 +121,7 @@ export default function Reports() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -114,7 +137,7 @@ export default function Reports() {
   const completions = useMemo<Completion[]>(() =>
     (jobsData?.jobs ?? [])
       .filter((job): job is typeof job & { completion_report: CompletionReport } => !!job.completion_report)
-      .map((job) => ({ jobId: job.id, report: job.completion_report })),
+      .map((job) => ({ jobId: job.id, report: job.completion_report, expenses: job.expenses ?? [] })),
     [jobsData?.jobs]);
 
   const buckets = useMemo(() => buildBuckets(weeklies ?? [], completions), [weeklies, completions]);
@@ -136,6 +159,11 @@ export default function Reports() {
   const toggle = (key: string) => setCollapsed((prev) => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+  const toggleJob = (jobId: string) => setExpandedJobs((prev) => {
+    const next = new Set(prev);
+    next.has(jobId) ? next.delete(jobId) : next.add(jobId);
     return next;
   });
 
@@ -189,7 +217,9 @@ export default function Reports() {
               <WeeklyRow bucket={bucket} collapsed={isCollapsed} onToggle={() => toggle(bucket.key)} />
               {!isCollapsed && (
                 bucket.completions.length > 0
-                  ? bucket.completions.map((c) => <JobRow key={c.jobId} {...c} />)
+                  ? bucket.completions.map((c) => (
+                    <JobRow key={c.jobId} completion={c} expanded={expandedJobs.has(c.jobId)} onToggle={() => toggleJob(c.jobId)} />
+                  ))
                   : <div className="py-1.5 pl-9 pr-4 text-xs text-muted-foreground/70">No jobs completed this week.</div>
               )}
             </div>
