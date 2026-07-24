@@ -71,7 +71,11 @@ export default function JobsList() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
-        {/* Controls right-aligned to match the Users / Supply Houses header format. */}
+        {/* Title left, controls right — matches the Users / Supply Houses header format. */}
+        <div>
+          <h1 className="text-sm font-semibold">Jobs</h1>
+          <p className="text-xs text-muted-foreground">Create, track, and move work through the configured job states.</p>
+        </div>
         <div className="flex-1" />
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
