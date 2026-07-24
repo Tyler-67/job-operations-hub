@@ -503,7 +503,7 @@ function PurchaseOrdersTable({ rows, canManage, saving, onEdit, showStatus }: {
             <td className="px-3 py-2 text-right font-mono-num">{money(po.estimated_amount)}</td>
             <td className="px-3 py-2 text-right font-mono-num">{money(po.final_amount)}</td>
             <td className="px-3 py-2 text-muted-foreground">{dateLabel(po.sent_at)}</td>
-            <td className="px-3 py-2 text-right" style="text-align: center;">
+            <button type="button" title="Edit PO" class="icon-btn" style="display: flex;justify-self: center;">
               <button type="button" title="Edit PO" disabled={!canManage || saving} onClick={() => onEdit(po)} className="icon-btn ml-auto">
                 <FileText className="h-3.5 w-3.5" />
               </button>
