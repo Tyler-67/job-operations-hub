@@ -468,7 +468,7 @@ function PurchaseOrdersTable({ rows, canManage, saving, onValue, showStatus }: {
           <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Estimate</th>
           <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Final</th>
           <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">Sent</th>
-          <th className="w-20 border-b border-border px-3 py-2 text-right font-medium">Action</th>
+          <th className="w-20 border-b border-border px-3 py-2 font-medium">Action</th>
         </tr>
       </thead>
       <tbody>
