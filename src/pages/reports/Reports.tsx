@@ -59,6 +59,9 @@ function buildBuckets(weeklies: WeeklyReportRow[], completions: Completion[]): W
 function WeeklyRow({ bucket, collapsed, onToggle }: { bucket: WeekBucket; collapsed: boolean; onToggle: () => void }) {
   const Chevron = collapsed ? ChevronRight : ChevronDown;
   const t = bucket.weekly?.snapshot.totals;
+  // Sum of the week's completed-job expenses (matches the figure on each job row). Derived
+  // from the completions, so it shows even for weeks with no weekly snapshot.
+  const weekExpenses = bucket.completions.reduce((sum, c) => sum + Number(c.report.totals.expenses ?? 0), 0);
   return (
     <button
       type="button"
@@ -69,10 +72,12 @@ function WeeklyRow({ bucket, collapsed, onToggle }: { bucket: WeekBucket; collap
       <span className="pill shrink-0 bg-accent/15 text-accent">Weekly report</span>
       {t ? (
         <span className="font-mono-num text-2xs text-muted-foreground">
-          {t.active_jobs} active · {t.completed_jobs} completed · {t.stalled_jobs} stalled · {t.hours_logged}h · {currency(t.completed_estimate_total)} est
+          {t.active_jobs} active · {t.completed_jobs} completed · {t.stalled_jobs} stalled · {t.hours_logged}h · {currency(t.completed_estimate_total)} est · {currency(weekExpenses)} expenses
         </span>
       ) : (
-        <span className="text-2xs italic text-muted-foreground/70">not captured for this week</span>
+        <span className="font-mono-num text-2xs text-muted-foreground">
+          <span className="italic text-muted-foreground/70">not captured</span> · {currency(weekExpenses)} expenses
+        </span>
       )}
       <span className="ml-auto shrink-0 text-2xs text-muted-foreground">{bucket.completions.length} job{bucket.completions.length === 1 ? "" : "s"}</span>
     </button>
