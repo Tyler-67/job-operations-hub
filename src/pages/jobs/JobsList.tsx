@@ -71,6 +71,8 @@ export default function JobsList() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
+        {/* Controls right-aligned to match the Users / Supply Houses header format. */}
+        <div className="flex-1" />
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -90,7 +92,6 @@ export default function JobsList() {
           <input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} />
           Archived
         </label>
-        <div className="flex-1" />
         {canManage && (
           <Link to="/jobs/new" className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
             <Plus className="h-3.5 w-3.5" />

@@ -40,8 +40,8 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     label: "Jobs",
     items: [
       { to: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
+      { to: "/admin/contacts", label: "Contacts", icon: Contact, adminOnly: true },
       { to: "/admin/supply-houses", label: "Supply Houses", icon: Warehouse, adminOnly: true },
-      { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
     ],
   },
   {
@@ -53,10 +53,10 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     ],
   },
   {
-    label: "Setup",
+    label: "Configuration",
     items: [
       { to: "/admin/settings", label: "Settings", icon: Settings2, adminOnly: true },
-      { to: "/admin/contacts", label: "Contacts", icon: Contact, adminOnly: true },
+      { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/admin/job-states", label: "Job States", icon: Wrench, adminOnly: true },
     ],
   },
