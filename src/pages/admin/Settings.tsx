@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { CalendarClock, Clock3, DollarSign, Palette, Save, Settings2, ShieldCheck, Truck, Users } from "lucide-react";
+import { Save } from "lucide-react";
 import {
   COMMON_TIMEZONES,
   WEEKDAYS,
   WEEKLY_REPORT_DAYS,
   canManageSettings,
   fetchSettings,
-  moneyLabel,
   runCrons,
   saveSettings,
   syncWithUptiq,
@@ -54,6 +53,15 @@ const CRON_LABEL_BY_FN: Record<string, string> = {
   "cron-weekly-report": "Weekly report",
   "cron-drain-notifications": "Drain queue",
 };
+
+// Config tabs + a debug tab (the debug tab only renders for users who hold a debug tool).
+type SettingsTab = "company" | "notifications" | "supply" | "branding" | "debug";
+const CONFIG_TABS: { key: SettingsTab; label: string }[] = [
+  { key: "company", label: "Company" },
+  { key: "notifications", label: "Notifications" },
+  { key: "supply", label: "Supply & Costs" },
+  { key: "branding", label: "Branding & IDs" },
+];
 
 interface SettingsForm {
   company_name: string;
@@ -132,31 +140,6 @@ function nullable(value: string) {
   return value.trim() || null;
 }
 
-function Metric({ icon: Icon, label, value, tone = "default" }: {
-  icon: typeof Settings2;
-  label: string;
-  value: string | number;
-  tone?: "default" | "warning" | "success";
-}) {
-  const toneClass = {
-    default: "text-foreground",
-    warning: "text-warning",
-    success: "text-success",
-  }[tone];
-
-  return (
-    <div className="flex min-h-20 items-center gap-3 border-b border-r border-border bg-card px-4 py-3">
-      <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-muted">
-        <Icon className={`h-4 w-4 ${toneClass}`} />
-      </div>
-      <div>
-        <div className={`font-mono-num text-lg font-semibold leading-none ${toneClass}`}>{value}</div>
-        <div className="mt-1 text-2xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-}
-
 export default function AdminSettings() {
   const { user } = useSession();
   const canManage = canManageSettings(user?.role);
@@ -168,6 +151,7 @@ export default function AdminSettings() {
   const canDebugAny = user?.role === "dev_super" || user?.role === "support_admin"
     || (user?.role === "owner_admin" && (user?.debug_tools ?? []).length > 0);
   const confirm = useConfirm();
+  const [tab, setTab] = useState<SettingsTab>("company");
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
   const [loading, setLoading] = useState(true);
@@ -236,7 +220,6 @@ export default function AdminSettings() {
   }, [user?.role, user?.debug_tools]);
 
   const supplyHouses = useMemo(() => data?.supply_houses ?? [], [data?.supply_houses]);
-  const weekdayLabel = WEEKDAYS.filter((day) => form.check_in_weekdays.includes(day.value)).map((day) => day.label).join(", ");
   const officeReady = Boolean(form.office_contact_id.trim());
   const ownerReady = Boolean(form.owner_contact_id.trim());
   const supplyReady = Boolean(form.default_supply_house_contact_id || supplyHouses.length);
@@ -622,12 +605,16 @@ export default function AdminSettings() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 border-b border-border lg:grid-cols-5">
-        <Metric icon={Clock3} label="Check-in send" value={form.check_in_send_time || "-"} />
-        <Metric icon={CalendarClock} label="Check-in days" value={weekdayLabel || "-"} />
-        <Metric icon={DollarSign} label="Parts ceiling" value={moneyLabel(Number(form.parts_cost_ceiling))} />
-        <Metric icon={Truck} label="Supply houses" value={supplyHouses.length} tone={supplyReady ? "success" : "warning"} />
-        <Metric icon={ShieldCheck} label="Office contact" value={officeReady ? "Set" : "Missing"} tone={officeReady ? "success" : "warning"} />
+      {/* Setup health — compact strip, visible on every tab (replaces the old side panel + stat row). */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/40 px-4 py-1.5">
+        <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Setup health</span>
+        <HealthPill label="Owner" ok={ownerReady} />
+        <HealthPill label="Office" ok={officeReady} />
+        <HealthPill label="Check-in" ok={Boolean(form.check_in_send_time && form.check_in_weekdays.length)} />
+        <HealthPill label="Supply" ok={supplyReady && Boolean(form.supply_house_pickup_time)} />
+        <HealthPill label="Company ID" ok={companyIdReady} />
+        <HealthPill label="Calendar" ok={Boolean(form.inspections_calendar_id)} />
+        <HealthPill label="Brand" ok={Boolean(form.brand_primary_color && form.brand_secondary_color && form.brand_font)} />
       </div>
 
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
@@ -635,8 +622,15 @@ export default function AdminSettings() {
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading settings...</div>}
 
       {!loading && (
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] overflow-hidden">
-          <main className="overflow-auto">
+        <>
+          <div className="flex flex-wrap gap-1 border-b border-border bg-card px-4 pt-2">
+            {CONFIG_TABS.map((t) => (
+              <TabButton key={t.key} active={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</TabButton>
+            ))}
+            {canDebugAny && <TabButton active={tab === "debug"} onClick={() => setTab("debug")}>Debug</TabButton>}
+          </div>
+          <div className="flex-1 overflow-auto">
+            {tab === "company" && (
             <SettingsSection title="Company">
               <TextField label="Company name" value={form.company_name} disabled={!canManage || saving} onChange={(value) => updateForm({ company_name: value })} />
               <SelectField
@@ -650,7 +644,9 @@ export default function AdminSettings() {
                 ]}
               />
             </SettingsSection>
+            )}
 
+            {tab === "notifications" && (
             <SettingsSection title="Notification Timing">
               <TimeField label="Crew check-in send time" value={form.check_in_send_time} disabled={!canManage || saving} onChange={(value) => updateForm({ check_in_send_time: value })} />
               <WeekdayField values={form.check_in_weekdays} disabled={!canManage || saving} onToggle={toggleWeekday} />
@@ -665,12 +661,16 @@ export default function AdminSettings() {
               <TimeField label="Weekly report time" value={form.weekly_report_time} disabled={!canManage || saving} onChange={(value) => updateForm({ weekly_report_time: value })} />
               <NumberField label="Review delay days" value={form.review_request_delay_days} disabled={!canManage || saving} onChange={(value) => updateForm({ review_request_delay_days: value })} min={0} step="1" />
             </SettingsSection>
+            )}
 
+            {tab === "company" && (
             <SettingsSection title="Owner & Office">
               <SelectField label="Owner (gets owner texts)" value={form.owner_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ owner_contact_id: value })} options={ownerContactOptions} />
               <SelectField label="Office (gets office texts)" value={form.office_contact_id} disabled={!canManage || saving} onChange={(value) => updateForm({ office_contact_id: value })} options={officeContactOptions} />
             </SettingsSection>
+            )}
 
+            {tab === "supply" && (
             <SettingsSection title="Supply & Costs">
               <SelectField
                 label="Default supply house"
@@ -682,22 +682,27 @@ export default function AdminSettings() {
               <NumberField label="Parts cost ceiling" value={form.parts_cost_ceiling} disabled={!canManage || saving} onChange={(value) => updateForm({ parts_cost_ceiling: value })} min={0} step="0.01" />
               <TextField label="Supply pickup time" value={form.supply_house_pickup_time} disabled={!canManage || saving} onChange={(value) => updateForm({ supply_house_pickup_time: value })} />
             </SettingsSection>
+            )}
 
+            {tab === "branding" && (
             <SettingsSection title="Brand">
               <ColorField label="Primary color" value={form.brand_primary_color} disabled={!canManage || saving} onChange={(value) => updateForm({ brand_primary_color: value })} />
               <ColorField label="Secondary color" value={form.brand_secondary_color} disabled={!canManage || saving} onChange={(value) => updateForm({ brand_secondary_color: value })} />
               <TextField label="Brand font" value={form.brand_font} disabled={!canManage || saving} onChange={(value) => updateForm({ brand_font: value })} />
               <TextField label="Logo URL" value={form.brand_logo_url} disabled={!canManage || saving} onChange={(value) => updateForm({ brand_logo_url: value })} />
             </SettingsSection>
+            )}
 
+            {tab === "branding" && (
             <SettingsSection title="External IDs">
               <TextField label="Uptiq company ID" value={form.uptiq_company_id} disabled={!canManage || saving} onChange={(value) => updateForm({ uptiq_company_id: value })} />
               <TextField label="Inspections calendar ID" value={form.inspections_calendar_id} disabled={!canManage || saving} onChange={(value) => updateForm({ inspections_calendar_id: value })} />
             </SettingsSection>
+            )}
 
-            {canDebugAny && (
+            {tab === "debug" && canDebugAny && (
               <section className="border-b border-border">
-                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Debug</div>
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Debug mode</div>
                 <div className="px-4 py-4">
                   <label className="flex items-start gap-2 text-xs">
                     <input type="checkbox" className="mt-0.5" checked={form.debug_mode} disabled={!canManage || saving} onChange={(event) => updateForm({ debug_mode: event.target.checked })} />
@@ -711,7 +716,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("run_crons") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("run_crons") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Run crons</div>
                 <div className="space-y-3 px-4 py-4">
@@ -742,7 +747,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("contacts_sync") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("contacts_sync") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Uptiq contacts</div>
                 <div className="space-y-3 px-4 py-4">
@@ -770,7 +775,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("send_test") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("send_test") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Send a test message</div>
                 <div className="space-y-3 px-4 py-4">
@@ -813,7 +818,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("conversations") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("conversations") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Conversations (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -860,7 +865,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("jobs_clear") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("jobs_clear") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Jobs (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -898,7 +903,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {hasDebugTool("data_reset") && form.debug_mode && (
+            {tab === "debug" && hasDebugTool("data_reset") && form.debug_mode && (
               <section className="border-b border-border">
                 <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Data reset (debug)</div>
                 <div className="space-y-3 px-4 py-4">
@@ -934,29 +939,11 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
-          </main>
-
-          <aside className="overflow-auto border-l border-border bg-card">
-            <div className="space-y-4 p-4">
-              <div>
-                <h2 className="text-sm font-semibold">Setup Health</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Variables needed before activation.</p>
-              </div>
-              <HealthRow label="Owner contact" ok={ownerReady} />
-              <HealthRow label="Office contact" ok={officeReady} />
-              <HealthRow label="Check-in schedule" ok={Boolean(form.check_in_send_time && form.check_in_weekdays.length)} />
-              <HealthRow label="Supply settings" ok={supplyReady && Boolean(form.supply_house_pickup_time)} />
-              <HealthRow label="Uptiq company ID" ok={companyIdReady} />
-              <HealthRow label="Inspection calendar" ok={Boolean(form.inspections_calendar_id)} />
-              <HealthRow label="Brand theme" ok={Boolean(form.brand_primary_color && form.brand_secondary_color && form.brand_font)} />
-              {!canManage && (
-                <div className="border-t border-border pt-3 text-xs text-muted-foreground">
-                  View-only role.
-                </div>
-              )}
-            </div>
-          </aside>
-        </div>
+            {!canManage && (
+              <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">View-only role.</div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1059,12 +1046,38 @@ function ContactsSyncSummary({ result }: { result: ContactsSyncResult }) {
   );
 }
 
+// One tab sub-group: a small header, then its fields stacked in a single column (no
+// side-by-side branching), width-constrained so inputs stay readable.
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-border">
       <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">{title}</div>
-      <div className="grid gap-3 px-4 py-4 md:grid-cols-2 xl:grid-cols-3">{children}</div>
+      <div className="grid max-w-xl gap-3 px-4 py-4">{children}</div>
     </section>
+  );
+}
+
+function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "rounded-t-sm border border-b-0 border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground"
+          : "rounded-t-sm border border-transparent px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function HealthPill({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className={`pill ${ok ? "bg-success/10 text-success" : "bg-warning/20 text-warning"}`}>
+      {label} {ok ? "✓" : "•"}
+    </span>
   );
 }
 
@@ -1173,11 +1186,3 @@ function WeekdayField({ values, disabled, onToggle }: {
   );
 }
 
-function HealthRow({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border py-2 text-xs">
-      <span>{label}</span>
-      <span className={`pill ${ok ? "bg-success/10 text-success" : "bg-warning/20 text-warning"}`}>{ok ? "ready" : "missing"}</span>
-    </div>
-  );
-}
