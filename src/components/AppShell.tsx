@@ -6,7 +6,6 @@ import { InlineSelect } from "@/components/InlineSelect";
 import {
   BarChart3,
   BookOpen,
-  CalendarDays,
   Gauge,
   BriefcaseBusiness,
   Contact,
@@ -49,7 +48,6 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     items: [
       { to: "/admin/expenses", label: "Expenses & POs", icon: ReceiptText, adminOnly: true },
       { to: "/reports/completion", label: "Reports", icon: BarChart3 },
-      { to: "/reports/weekly-preview", label: "Weekly Report", icon: CalendarDays },
     ],
   },
   {

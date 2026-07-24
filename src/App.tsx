@@ -27,8 +27,7 @@ import QuickLogForm from "@/pages/forms/QuickLogForm";
 import Login from "@/pages/auth/Login";
 import AuthCallback from "@/pages/auth/AuthCallback";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
-import CompletionReports from "@/pages/reports/CompletionReports";
-import WeeklyReport from "@/pages/reports/WeeklyReport";
+import Reports from "@/pages/reports/Reports";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -87,8 +86,9 @@ const App = () => (
               <Route path="/jobs" element={<JobsList />} />
               <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/search" element={<SearchPage />} />
-              <Route path="/reports/completion" element={<CompletionReports />} />
-              <Route path="/reports/weekly-preview" element={<WeeklyReport />} />
+              <Route path="/reports/completion" element={<Reports />} />
+              {/* Weekly reports merged into the single Reports page (2026-07-23). */}
+              <Route path="/reports/weekly-preview" element={<Navigate to="/reports/completion" replace />} />
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/job-states" element={<AdminJobStates />} />
               <Route path="/admin/supply-houses" element={<AdminSupplyHouses />} />

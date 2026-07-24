@@ -356,19 +356,18 @@ const TABS: DocTab[] = [
     label: "Reports",
     body: (
       <>
-        <H2>Completion reports</H2>
+        <H2>The Reports page</H2>
         <P>
-          The moment a job reaches a billing state (Complete), a snapshot is generated no matter which path completed
-          it: customer, crew, dates, hours, expenses, POs, and the check-in trail — the invoice-prep package.
-          <strong> Reports → Completion</strong> lists every snapshot; the newest also renders on the job page.
+          One page, grouped by week (newest first). Each week shows a divider with its date range, a <strong>weekly
+          report</strong> row — the snapshot aggregate (active / completed / stalled / hours / estimate) — and, nested
+          under it, a <strong>row per job completed that week</strong>. Click the weekly row to collapse or expand its
+          jobs; the header has Collapse&nbsp;all / Expand&nbsp;all and a search.
         </P>
-        <H2>Weekly report</H2>
-        <P>
-          An owner + office email digest at the configured day/time (Settings): week totals (hours, expenses, jobs
-          completed), active jobs by phase, completed jobs, stalled jobs, crew coverage gaps (crew who logged nothing
-          all week), and unlinked work, with a link to the full preview (<strong>Reports → Weekly</strong>). One digest
-          per period — it won&apos;t double-send within the same week.
-        </P>
+        <Bullets items={[
+          <><strong>Weekly report</strong> — the same digest emailed to owner + office at the configured day/time (Settings): totals, active-by-phase, stalled jobs, crew coverage gaps, unlinked work. One per period; captured automatically.</>,
+          <><strong>Completion rows</strong> — the moment a job reaches Complete, a closeout snapshot is generated (customer, crew, dates, hours, expenses vs estimate, scope, punch list) — the invoice-prep package. Each row links to the job for the full record.</>,
+          <>A week with no snapshot still lists its completions (the weekly row reads &quot;not captured&quot;); a week with a snapshot but no completions shows the digest alone.</>,
+        ]} />
         <H2>Customer review requests</H2>
         <P>
           A configurable number of days after completion (Settings → review delay), the customer&apos;s Uptiq contact is
