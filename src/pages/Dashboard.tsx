@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
-import GlobalSearch from "@/components/GlobalSearch";
 
 // Parse a date-only string ("YYYY-MM-DD") as a LOCAL calendar date at midnight. last_log_date is
 // date-only; new Date() reads it as UTC midnight, which is the PRIOR day in US timezones — that
@@ -91,7 +90,7 @@ export default function Dashboard() {
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading dashboard...</div>}
 
       {!loading && (
-        <div className="grid flex-1 grid-cols-[minmax(0,1fr)_300px_340px] overflow-hidden">
+        <div className="grid flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden">
           <div className="relative overflow-auto">
             <div className="border-b border-border px-4 py-3">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active jobs ({activeJobs.length})</h2>
@@ -163,15 +162,6 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-
-          <aside className="flex flex-col overflow-hidden border-l border-border bg-card">
-            <div className="border-b border-border px-4 py-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Search</h2>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto">
-              <GlobalSearch compact />
-            </div>
-          </aside>
 
           <aside className="overflow-auto border-l border-border bg-card">
             <section className="border-b border-border p-4">
