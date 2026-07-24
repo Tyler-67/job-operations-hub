@@ -28,6 +28,7 @@ import Login from "@/pages/auth/Login";
 import AuthCallback from "@/pages/auth/AuthCallback";
 import DecisionConfirm from "@/pages/actions/DecisionConfirm";
 import Reports from "@/pages/reports/Reports";
+import Billing from "@/pages/billing/Billing";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -86,6 +87,7 @@ const App = () => (
               <Route path="/jobs" element={<JobsList />} />
               <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/search" element={<SearchPage />} />
+              <Route path="/billing" element={<Billing />} />
               <Route path="/reports/completion" element={<Reports />} />
               {/* Weekly reports merged into the single Reports page (2026-07-23). */}
               <Route path="/reports/weekly-preview" element={<Navigate to="/reports/completion" replace />} />

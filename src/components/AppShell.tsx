@@ -9,6 +9,7 @@ import {
   Gauge,
   BriefcaseBusiness,
   Contact,
+  CreditCard,
   KeyRound,
   LayoutDashboard,
   ReceiptText,
@@ -47,6 +48,7 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
     label: "Billing",
     items: [
       { to: "/admin/expenses", label: "Expenses & POs", icon: ReceiptText, adminOnly: true },
+      { to: "/billing", label: "Billing", icon: CreditCard, adminOnly: true },
       { to: "/reports/completion", label: "Reports", icon: BarChart3 },
     ],
   },
