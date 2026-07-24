@@ -3,7 +3,10 @@ import { json, preflight, serviceClient, verifySession } from "../_shared/util.t
 
 const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const EXPENSE_KINDS = new Set(["field_purchase", "adjustment"]);
+// Create accepts every status except the value-workflow terminal `valued`; update_po also
+// allows `valued` (it's the natural result of setting a final amount).
 const PO_STATUSES = new Set(["draft", "sent", "pending_value", "cancelled"]);
+const PO_STATUSES_ALL = new Set(["draft", "sent", "pending_value", "valued", "cancelled"]);
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -261,6 +264,43 @@ async function createPurchaseOrder(sb: any, locationId: string, body: Record<str
   if (error) throw error;
 }
 
+// Keep the PO's linked job_expense (kind='po') in sync with its final amount, then recalc
+// the job totals. amount === null removes the linked expense (the PO no longer counts toward
+// job cost). Shared by value_po and update_po so both paths stay identical.
+async function writePoExpense(sb: any, po: any, amount: number | null, vendor: string | null, description: string | null) {
+  const { data: existing, error: existingErr } = await sb
+    .from("job_expenses")
+    .select("id")
+    .eq("purchase_order_id", po.id)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  if (amount === null) {
+    if (existing) {
+      const { error } = await sb.from("job_expenses").delete().eq("id", existing.id);
+      if (error) throw error;
+    }
+  } else if (existing) {
+    const { error } = await sb
+      .from("job_expenses")
+      .update({ job_id: po.job_id, kind: "po", amount, vendor, description })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from("job_expenses").insert({
+      job_id: po.job_id,
+      purchase_order_id: po.id,
+      kind: "po",
+      amount,
+      vendor,
+      description,
+    });
+    if (error) throw error;
+  }
+
+  await recalcJobTotals(sb, po.job_id);
+}
+
 async function valuePurchaseOrder(sb: any, locationId: string, appUserId: string, body: Record<string, unknown>) {
   const po = await loadPurchaseOrder(sb, locationId, cleanText(body.id));
   if (!po) throw new Error("po_not_found");
@@ -285,32 +325,69 @@ async function valuePurchaseOrder(sb: any, locationId: string, appUserId: string
 
   const vendor = supplyHouse?.name ?? cleanText(body.vendor);
   const description = cleanText(body.description) ?? po.description;
-  const { data: existing, error: existingErr } = await sb
-    .from("job_expenses")
-    .select("id")
-    .eq("purchase_order_id", po.id)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
+  await writePoExpense(sb, po, amount, vendor, description);
+}
 
-  if (existing) {
-    const { error } = await sb
-      .from("job_expenses")
-      .update({ job_id: po.job_id, kind: "po", amount, vendor, description })
-      .eq("id", existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await sb.from("job_expenses").insert({
-      job_id: po.job_id,
-      purchase_order_id: po.id,
-      kind: "po",
-      amount,
-      vendor,
-      description,
-    });
+// General PO edit — the field-level counterpart to value_po. Every field is independently
+// settable (and omittable), so this is also the API surface for piped-in PO data:
+//   { action: "update_po", id, estimated_amount?, final_amount?, sent?, status?, description? }
+// - estimated_amount / description: plain column writes (null clears).
+// - sent (bool): toggles the sent_at timestamp shown in the table; `sent_at` (string) is the
+//   explicit escape hatch for imported timestamps.
+// - final_amount: the valuation. A number flows into the linked job_expense + job totals and
+//   marks the PO `valued`; clearing it removes the expense and re-opens the PO to
+//   `pending_value` — unless `status` is passed explicitly, which always wins.
+async function updatePurchaseOrder(sb: any, locationId: string, appUserId: string, body: Record<string, unknown>) {
+  const po = await loadPurchaseOrder(sb, locationId, cleanText(body.id));
+  if (!po) throw new Error("po_not_found");
+
+  const patch: Record<string, unknown> = {};
+  if ("estimated_amount" in body) patch.estimated_amount = nullableNumber(body.estimated_amount);
+  if ("description" in body) patch.description = cleanText(body.description);
+
+  if ("sent" in body) {
+    patch.sent_at = body.sent ? (po.sent_at ?? new Date().toISOString()) : null;
+  } else if ("sent_at" in body) {
+    patch.sent_at = cleanText(body.sent_at);
+  }
+
+  const statusGiven = "status" in body;
+  if (statusGiven) {
+    const status = cleanText(body.status);
+    if (!status || !PO_STATUSES_ALL.has(status)) throw new Error("invalid_po_status");
+    patch.status = status;
+  }
+
+  let finalTouched = false;
+  let finalAmount: number | null = po.final_amount;
+  if ("final_amount" in body) {
+    finalTouched = true;
+    finalAmount = nullableNumber(body.final_amount);
+    if (finalAmount !== null) {
+      finalAmount = Math.round(finalAmount * 100) / 100;
+      if (finalAmount < 0) throw new Error("amount_must_be_positive");
+      if (!statusGiven) patch.status = "valued";
+      patch.valued_at = new Date().toISOString();
+      patch.valued_by_app_user_id = appUserId;
+    } else {
+      if (!statusGiven && po.status === "valued") patch.status = "pending_value";
+      patch.valued_at = null;
+      patch.valued_by_app_user_id = null;
+    }
+    patch.final_amount = finalAmount;
+  }
+
+  if (Object.keys(patch).length) {
+    const { error } = await sb.from("purchase_orders").update(patch).eq("id", po.id);
     if (error) throw error;
   }
 
-  await recalcJobTotals(sb, po.job_id);
+  if (finalTouched) {
+    const supplyHouse = po.supply_house_id ? await loadSupplyHouse(sb, locationId, po.supply_house_id) : null;
+    const vendor = supplyHouse?.name ?? null;
+    const description = ("description" in patch ? (patch.description as string | null) : po.description) ?? null;
+    await writePoExpense(sb, po, finalAmount, vendor, description);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -347,6 +424,7 @@ Deno.serve(async (req) => {
 
     if (req.method === "PATCH") {
       if (body.action === "value_po") await valuePurchaseOrder(sb, locationId, String(claims.sub ?? ""), body);
+      else if (body.action === "update_po") await updatePurchaseOrder(sb, locationId, String(claims.sub ?? ""), body);
       else if (body.action === "update_expense") await updateExpense(sb, locationId, body);
       else if (body.action === "delete_expense") await deleteExpense(sb, locationId, body);
       else return json({ error: "unknown_action" }, 400);

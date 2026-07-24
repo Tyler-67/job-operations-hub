@@ -60,6 +60,17 @@ export interface SavePurchaseOrderPayload {
   description?: string | null;
 }
 
+// Field-level PO edit (update_po). Every field is optional; omitted fields are left as-is.
+// Also the API shape for piped-in PO data.
+export interface UpdatePurchaseOrderPayload {
+  id: string;
+  estimated_amount?: number | null;
+  final_amount?: number | null;
+  sent?: boolean;
+  status?: PoStatus;
+  description?: string | null;
+}
+
 export function canManageExpenses(role?: string | null) {
   return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
 }
@@ -89,6 +100,10 @@ export function valuePurchaseOrder(id: string, finalAmount: number, description?
     method: "PATCH",
     body: { action: "value_po", id, final_amount: finalAmount, description },
   }) as Promise<ExpensesResponse>;
+}
+
+export function updatePurchaseOrder(payload: UpdatePurchaseOrderPayload) {
+  return callEdge("expenses", { method: "PATCH", body: { action: "update_po", ...payload } }) as Promise<ExpensesResponse>;
 }
 
 export function money(value: number | null | undefined) {

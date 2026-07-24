@@ -9,7 +9,7 @@ import {
   fetchExpenses,
   money,
   updateExpense,
-  valuePurchaseOrder,
+  updatePurchaseOrder,
   type ExpensesResponse,
   type JobExpenseWithDetails,
   type PurchaseOrderWithDetails,
@@ -21,7 +21,7 @@ import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
 
 type Tab = "po_queue" | "expenses" | "purchase_orders";
-type Panel = "expense" | "po" | "value_po";
+type Panel = "expense" | "po" | "edit_po";
 
 interface ExpenseForm {
   id?: string;
@@ -43,8 +43,10 @@ interface PoForm {
   description: string;
 }
 
-interface ValueForm {
+interface PoEditForm {
+  estimated_amount: string;
   final_amount: string;
+  sent: boolean;
   description: string;
 }
 
@@ -137,8 +139,8 @@ export default function AdminExpenses() {
   const [panel, setPanel] = useState<Panel>("expense");
   const [expenseForm, setExpenseForm] = useState<ExpenseForm>(blankExpense());
   const [poForm, setPoForm] = useState<PoForm>(blankPo());
-  const [valueTarget, setValueTarget] = useState<PurchaseOrderWithDetails | null>(null);
-  const [valueForm, setValueForm] = useState<ValueForm>({ final_amount: "", description: "" });
+  const [editTarget, setEditTarget] = useState<PurchaseOrderWithDetails | null>(null);
+  const [editForm, setEditForm] = useState<PoEditForm>({ estimated_amount: "", final_amount: "", sent: false, description: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,20 +215,20 @@ export default function AdminExpenses() {
 
   function resetExpenseForm(nextData = data) {
     setPanel("expense");
-    setValueTarget(null);
+    setEditTarget(null);
     setExpenseForm(blankExpense(nextData?.jobs[0]?.id ?? ""));
   }
 
   function resetPoForm(nextData = data) {
     setPanel("po");
-    setValueTarget(null);
+    setEditTarget(null);
     setPoForm(blankPo(nextData?.jobs[0]?.id ?? ""));
   }
 
   function editExpense(expense: JobExpenseWithDetails) {
     if (expense.purchase_order_id) return;
     setPanel("expense");
-    setValueTarget(null);
+    setEditTarget(null);
     setExpenseForm({
       id: expense.id,
       job_id: expense.job_id,
@@ -240,11 +242,13 @@ export default function AdminExpenses() {
     });
   }
 
-  function startValuePo(po: PurchaseOrderWithDetails) {
-    setPanel("value_po");
-    setValueTarget(po);
-    setValueForm({
-      final_amount: amountInput(po.final_amount ?? po.estimated_amount),
+  function startEditPo(po: PurchaseOrderWithDetails) {
+    setPanel("edit_po");
+    setEditTarget(po);
+    setEditForm({
+      estimated_amount: amountInput(po.estimated_amount),
+      final_amount: amountInput(po.final_amount),
+      sent: Boolean(po.sent_at),
       description: po.description ?? "",
     });
   }
@@ -319,23 +323,24 @@ export default function AdminExpenses() {
     }
   }
 
-  async function savePoValue() {
-    if (!canManage || !valueTarget) return;
-    const amount = parseAmount(valueForm.final_amount);
-    if (amount === null) {
-      setError("amount_required");
-      return;
-    }
+  async function savePoEdit() {
+    if (!canManage || !editTarget) return;
     setSaving(true);
     setError(null);
     try {
-      const next = await valuePurchaseOrder(valueTarget.id, amount, valueForm.description.trim() || null);
+      const next = await updatePurchaseOrder({
+        id: editTarget.id,
+        estimated_amount: parseAmount(editForm.estimated_amount),
+        final_amount: parseAmount(editForm.final_amount),
+        sent: editForm.sent,
+        description: editForm.description.trim() || null,
+      });
       setData(includeArchived ? await fetchExpenses(true) : next);
-      setValueTarget(null);
-      setValueForm({ final_amount: "", description: "" });
+      setEditTarget(null);
+      setEditForm({ estimated_amount: "", final_amount: "", sent: false, description: "" });
       setPanel("expense");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not value PO");
+      setError(err instanceof Error ? err.message : "Could not update PO");
     } finally {
       setSaving(false);
     }
@@ -399,7 +404,7 @@ export default function AdminExpenses() {
             {tab === "expenses" ? (
               <ExpensesTable rows={filteredExpenses} canManage={canManage} saving={saving} photoUrls={photoUrls} onEdit={editExpense} onDelete={removeExpense} />
             ) : (
-              <PurchaseOrdersTable rows={filteredPurchaseOrders} canManage={canManage} saving={saving} onValue={startValuePo} showStatus={tab === "purchase_orders"} />
+              <PurchaseOrdersTable rows={filteredPurchaseOrders} canManage={canManage} saving={saving} onEdit={startEditPo} showStatus={tab === "purchase_orders"} />
             )}
           </main>
 
@@ -415,15 +420,15 @@ export default function AdminExpenses() {
                 onSave={savePo}
                 onCancel={() => resetPoForm()}
               />
-            ) : panel === "value_po" && valueTarget ? (
-              <ValuePoPanel
+            ) : panel === "edit_po" && editTarget ? (
+              <EditPoPanel
                 canManage={canManage}
-                po={valueTarget}
-                form={valueForm}
+                po={editTarget}
+                form={editForm}
                 saving={saving}
-                onChange={(patch) => setValueForm((current) => ({ ...current, ...patch }))}
-                onSave={savePoValue}
-                onCancel={() => { setValueTarget(null); setPanel("expense"); }}
+                onChange={(patch) => setEditForm((current) => ({ ...current, ...patch }))}
+                onSave={savePoEdit}
+                onCancel={() => { setEditTarget(null); setPanel("expense"); }}
               />
             ) : (
               <ExpensePanel
@@ -450,11 +455,11 @@ export default function AdminExpenses() {
   );
 }
 
-function PurchaseOrdersTable({ rows, canManage, saving, onValue, showStatus }: {
+function PurchaseOrdersTable({ rows, canManage, saving, onEdit, showStatus }: {
   rows: PurchaseOrderWithDetails[];
   canManage: boolean;
   saving: boolean;
-  onValue: (po: PurchaseOrderWithDetails) => void;
+  onEdit: (po: PurchaseOrderWithDetails) => void;
   showStatus: boolean;
 }) {
   return (
@@ -499,8 +504,8 @@ function PurchaseOrdersTable({ rows, canManage, saving, onValue, showStatus }: {
             <td className="px-3 py-2 text-right font-mono-num">{money(po.final_amount)}</td>
             <td className="px-3 py-2 text-muted-foreground">{dateLabel(po.sent_at)}</td>
             <td className="px-3 py-2 text-right">
-              <button type="button" title="Set final value" disabled={!canManage || saving || po.status === "cancelled"} onClick={() => onValue(po)} className="icon-btn ml-auto">
-                <DollarSign className="h-3.5 w-3.5" />
+              <button type="button" title="Edit PO" disabled={!canManage || saving} onClick={() => onEdit(po)} className="icon-btn ml-auto">
+                <FileText className="h-3.5 w-3.5" />
               </button>
             </td>
           </tr>
@@ -765,36 +770,36 @@ function PoPanel({ canManage, jobs, supplyHouses, form, saving, onChange, onSave
   );
 }
 
-function ValuePoPanel({ canManage, po, form, saving, onChange, onSave, onCancel }: {
+function EditPoPanel({ canManage, po, form, saving, onChange, onSave, onCancel }: {
   canManage: boolean;
   po: PurchaseOrderWithDetails;
-  form: ValueForm;
+  form: PoEditForm;
   saving: boolean;
-  onChange: (patch: Partial<ValueForm>) => void;
+  onChange: (patch: Partial<PoEditForm>) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
   return (
     <div className="space-y-4 p-4">
       <div>
-        <h2 className="text-sm font-semibold">PO Value</h2>
+        <h2 className="text-sm font-semibold">Edit PO</h2>
         <p className="mt-1 text-xs text-muted-foreground">{po.job?.address ?? "-"} · {po.supply_house?.name ?? "No supply house"}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-sm border border-border bg-background px-3 py-2">
-          <div className="text-2xs uppercase tracking-wider text-muted-foreground">Estimate</div>
-          <div className="mt-1 font-mono-num font-semibold">{money(po.estimated_amount)}</div>
-        </div>
-        <div className="rounded-sm border border-border bg-background px-3 py-2">
-          <div className="text-2xs uppercase tracking-wider text-muted-foreground">Current final</div>
-          <div className="mt-1 font-mono-num font-semibold">{money(po.final_amount)}</div>
-        </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-xs">
+          <span className="mb-1 block text-muted-foreground">Estimate</span>
+          <input type="number" step="0.01" value={form.estimated_amount} onChange={(event) => onChange({ estimated_amount: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-muted-foreground">Final amount</span>
+          <input type="number" step="0.01" value={form.final_amount} onChange={(event) => onChange({ final_amount: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+        </label>
       </div>
 
-      <label className="block text-xs">
-        <span className="mb-1 block text-muted-foreground">Final amount</span>
-        <input type="number" step="0.01" value={form.final_amount} onChange={(event) => onChange({ final_amount: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={form.sent} onChange={(event) => onChange({ sent: event.target.checked })} disabled={!canManage || saving} />
+        <span className="text-muted-foreground">Sent to supply house</span>
       </label>
 
       <label className="block text-xs">
@@ -802,8 +807,10 @@ function ValuePoPanel({ canManage, po, form, saving, onChange, onSave, onCancel 
         <textarea value={form.description} onChange={(event) => onChange({ description: event.target.value })} disabled={!canManage || saving} className="min-h-24 w-full resize-none rounded-sm border border-input bg-background px-2 py-2 text-xs" />
       </label>
 
+      <p className="text-2xs text-muted-foreground">A final amount records against the job cost and marks the PO valued; clearing it re-opens the PO to pending.</p>
+
       <div className="flex gap-2 border-t border-border pt-4">
-        <button type="button" disabled={!canManage || saving || !form.final_amount.trim()} onClick={onSave} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
+        <button type="button" disabled={!canManage || saving} onClick={onSave} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
           <Save className="h-3.5 w-3.5" />
           Save
         </button>
