@@ -38,9 +38,12 @@ export default function SearchOverlay({ query, onClose }: { query: string; onClo
     // Covers the working screen only (sidebar = 220px, header = 44px), so the search input
     // stays visible and usable while results show. Backdrop click closes.
     <div
-      className="fixed bottom-0 left-[220px] right-0 top-[44px] z-40 flex items-center justify-center bg-black/20 p-6"
+      className="fixed bottom-0 left-[220px] right-0 top-[44px] z-40 flex items-start justify-center bg-black/20 p-6"
       onClick={onClose}
     >
+      {/* items-start anchors the card's top a fixed distance below the header, so the typing
+          window stays put while results populate/shrink beneath it (it grows downward and
+          scrolls internally rather than re-centering). */}
       <div
         className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-md border border-border bg-card shadow-lg"
         onClick={(e) => e.stopPropagation()}
