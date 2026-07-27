@@ -5,6 +5,7 @@ import {
   canManageJobStates,
   createJobState,
   createTransition,
+  deleteJobState,
   deleteTransition,
   fetchJobStates,
   reorderJobStates,
@@ -113,6 +114,7 @@ export default function AdminJobStates() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -129,6 +131,8 @@ export default function AdminJobStates() {
 
   const states = useMemo(() => [...(data?.states ?? [])].sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label)), [data?.states]);
   const activeStates = states.filter((state) => state.active);
+  // Archived stages are hidden by default; the "Show archived" toggle reveals them (where Delete lives).
+  const visibleStates = showArchived ? states : activeStates;
   const byId = useMemo(() => Object.fromEntries(states.map((state) => [state.id, state])), [states]);
   const activeJobCounts = data?.active_job_counts ?? {};
   const editing = Boolean(form.id);
@@ -247,6 +251,30 @@ export default function AdminJobStates() {
     }
   }
 
+  // Permanent delete — only reachable for an already-archived stage (State → Archive → Delete).
+  // The server refuses if any job still points at the stage; surface that as a clear message.
+  async function deleteState(state: JobState) {
+    if (!canManage) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await deleteJobState(state.id);
+      setData(next);
+      resetForm(next);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setError(
+        msg.includes("state_in_use")
+          ? "This stage still has jobs assigned — reassign them first (archive with a reassignment), then delete."
+          : msg.includes("must_archive_first")
+            ? "Archive the stage before deleting it."
+            : "Could not delete state.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveTransition() {
     if (!canManage) return;
     setSaving(true);
@@ -304,6 +332,10 @@ export default function AdminJobStates() {
           <p className="text-xs text-muted-foreground">Company workflow stages and transition rules.</p>
         </div>
         <div className="flex-1" />
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
+          Show archived
+        </label>
         {canManage && (
           <button
             type="button"
@@ -335,7 +367,7 @@ export default function AdminJobStates() {
                   </tr>
                 </thead>
                 <tbody>
-                  {states.map((state) => {
+                  {visibleStates.map((state) => {
                     const activeJobs = activeJobCounts[state.id] ?? 0;
                     return (
                       <tr
@@ -388,9 +420,25 @@ export default function AdminJobStates() {
                                 <Archive className="h-3.5 w-3.5" />
                               </button>
                             ) : (
-                              <button type="button" title="Restore" disabled={!canManage || saving} onClick={(event) => { event.stopPropagation(); restoreState(state); }} className="icon-btn">
-                                <RotateCcw className="h-3.5 w-3.5" />
-                              </button>
+                              <>
+                                <button type="button" title="Restore" disabled={!canManage || saving} onClick={(event) => { event.stopPropagation(); restoreState(state); }} className="icon-btn">
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Delete permanently"
+                                  disabled={!canManage || saving}
+                                  onClick={async (event) => {
+                                    event.stopPropagation();
+                                    if (await confirm({ title: `Delete "${state.label}" permanently?`, confirmLabel: "Delete", destructive: true })) {
+                                      void deleteState(state);
+                                    }
+                                  }}
+                                  className="icon-btn text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </>
                             )}
                           </div>
                         </td>

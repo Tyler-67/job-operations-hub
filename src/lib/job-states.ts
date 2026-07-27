@@ -57,6 +57,12 @@ export function archiveJobState(id: string, reassignStateId?: string | null) {
   return callEdge("job-states", { method: "PATCH", body: { action: "archive", id, reassign_state_id: reassignStateId } }) as Promise<JobStatesResponse>;
 }
 
+// Permanently delete a stage. Server-gated: the stage must already be archived (inactive) and
+// have no jobs pointing at it. State → Archive → Delete.
+export function deleteJobState(id: string) {
+  return callEdge("job-states", { method: "PATCH", body: { action: "delete_state", id } }) as Promise<JobStatesResponse>;
+}
+
 export function createTransition(payload: SaveTransitionPayload) {
   return callEdge("job-states", { method: "POST", body: { action: "transition", ...payload } }) as Promise<JobStatesResponse>;
 }

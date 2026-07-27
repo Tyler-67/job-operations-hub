@@ -255,6 +255,27 @@ Deno.serve(async (req) => {
         return json(await statePayload(sb, locationId));
       }
 
+      if (body.action === "delete_state") {
+        const state = await loadState(sb, stateSet.id, cleanText(body.id));
+        if (!state) return json({ error: "not_found" }, 404);
+        // Archive-before-delete gate (State → Archive → Delete): only an archived (inactive)
+        // stage can be permanently removed, so an active stage in use can never be hard-deleted.
+        if (state.active) return json({ error: "must_archive_first" }, 409);
+        // jobs.current_state_id is a NO ACTION FK, so ANY job (active OR archived) still pointing
+        // here would block the delete — count them all and refuse with a clear error if present.
+        const { count: jobCount, error: jobErr } = await sb
+          .from("jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("location_id", locationId)
+          .eq("current_state_id", state.id);
+        if (jobErr) throw jobErr;
+        if ((jobCount ?? 0) > 0) return json({ error: "state_in_use", job_count: jobCount }, 409);
+        // Any transitions from/to this state are FK ON DELETE CASCADE — removed with the row.
+        const { error } = await sb.from("job_states").delete().eq("id", state.id).eq("state_set_id", stateSet.id);
+        if (error) throw error;
+        return json(await statePayload(sb, locationId));
+      }
+
       if (body.action === "delete_transition") {
         const id = cleanText(body.id);
         if (!id) return json({ error: "id_required" }, 400);
