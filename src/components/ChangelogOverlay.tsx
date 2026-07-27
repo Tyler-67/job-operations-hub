@@ -32,7 +32,7 @@ export function ChangelogOverlay() {
           <span className="text-2xs text-muted-foreground">{entry.date}</span>
         </div>
         <h2 className="text-sm font-semibold">{entry.title}</h2>
-        <ul className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+        <ul className="mt-3 max-h-[55vh] space-y-1.5 overflow-auto pr-1 text-xs text-muted-foreground">
           {entry.changes.map((change, index) => (
             <li key={index} className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
