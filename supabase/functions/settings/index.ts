@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
+import { renderNotification } from "../_shared/notifications.ts";
 
 const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
@@ -469,6 +470,57 @@ Deno.serve(async (req) => {
           });
         }
         return json({ ok: true, dry_run: dryRun, results });
+      }
+
+      if (action === "message_log") {
+        if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
+        const { data: cs } = await sb
+          .from("company_settings").select("debug_mode, owner_contact_id, office_contact_id").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+
+        const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 1000);
+        // Newest first. This is the exact queued/sent log — the recipient is the Uptiq contact id,
+        // rendered to the exact SMS/email body via the same renderer the drain sends with.
+        const { data: notifs, error: nErr } = await sb
+          .from("scheduled_notifications")
+          .select("id, recipient, channel, template_key, payload, status, scheduled_for, sent_at, last_error, attempts, job_id, created_at")
+          .eq("location_id", locationId)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (nErr) throw nErr;
+        const rows = notifs ?? [];
+
+        // Resolve recipient (Uptiq contact id) -> name/role from the app contacts, plus the company
+        // owner/office messaging ids (which often have no contacts row).
+        const recipientIds = [...new Set(rows.map((n: any) => String(n.recipient ?? "")).filter(Boolean))];
+        const nameByUptiqId = new Map<string, { name: string | null; role: string | null }>();
+        if (recipientIds.length) {
+          const { data: contacts } = await sb
+            .from("contacts").select("name, role, uptiq_contact_id").eq("location_id", locationId).in("uptiq_contact_id", recipientIds);
+          for (const c of contacts ?? []) {
+            if (c.uptiq_contact_id) nameByUptiqId.set(String(c.uptiq_contact_id), { name: c.name ?? null, role: c.role ?? null });
+          }
+        }
+        const ownerId = String(cs.owner_contact_id ?? "").trim();
+        const officeId = String(cs.office_contact_id ?? "").trim();
+
+        const messages = rows.map((n: any) => {
+          let rendered: { subject: string | null; body: string };
+          try { rendered = renderNotification(String(n.template_key), (n.payload ?? {}) as Record<string, unknown>); }
+          catch { rendered = { subject: null, body: "(template not rendered)" }; }
+          const rid = String(n.recipient ?? "");
+          let who = nameByUptiqId.get(rid) ?? null;
+          if (!who && rid && rid === ownerId) who = { name: "Owner (company messaging)", role: "owner" };
+          else if (!who && rid && rid === officeId) who = { name: "Office (company messaging)", role: "office" };
+          return {
+            id: n.id, recipient: rid,
+            contact_name: who?.name ?? null, contact_role: who?.role ?? null,
+            channel: n.channel, template_key: n.template_key, status: n.status,
+            scheduled_for: n.scheduled_for, sent_at: n.sent_at, last_error: n.last_error, attempts: n.attempts,
+            job_id: n.job_id, subject: rendered.subject, body: rendered.body,
+          };
+        });
+        return json({ ok: true, messages, total: messages.length });
       }
       return json({ error: "unknown_action" }, 400);
     }

@@ -12,6 +12,7 @@ export const DEBUG_TOOLS = [
   "conversations",  // Settings: conversation list/backup/clear (contacts-sync debug modes)
   "jobs_clear",     // Settings: hard-delete jobs (jobs delete_job)
   "data_reset",     // Settings: clear data categories (settings clear_data)
+  "message_log",    // Settings: sent-message log grouped by contact (settings message_log)
 ] as const;
 export type DebugTool = (typeof DEBUG_TOOLS)[number];
 

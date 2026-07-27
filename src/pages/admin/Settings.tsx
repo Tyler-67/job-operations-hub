@@ -12,9 +12,11 @@ import {
   syncWithUptiq,
   timeForInput,
   clearData,
+  fetchMessageLog,
   CLEAR_DATA_CATEGORIES,
   type ClearDataCategory,
   type ClearDataResult,
+  type MessageLogEntry,
   type ContactsSyncResult,
   type ContactsPullResult,
   type CronKey,
@@ -183,6 +185,32 @@ export default function AdminSettings() {
   const [resetCategories, setResetCategories] = useState<ClearDataCategory[]>([]);
   const [resetBusy, setResetBusy] = useState<"preview" | "clear" | null>(null);
   const [resetResult, setResetResult] = useState<ClearDataResult | null>(null);
+  const [messageLog, setMessageLog] = useState<MessageLogEntry[] | null>(null);
+  const [messageBusy, setMessageBusy] = useState(false);
+  // Sent/queued message log grouped by contact (debug). Server returns newest-first; group by
+  // recipient contact and sort the groups by name.
+  const messageGroups = useMemo(() => {
+    const map = new Map<string, { name: string; role: string | null; recipient: string; items: MessageLogEntry[] }>();
+    for (const m of messageLog ?? []) {
+      const key = m.contact_name ?? m.recipient ?? "(unknown)";
+      const group = map.get(key) ?? { name: m.contact_name ?? m.recipient ?? "(unknown)", role: m.contact_role, recipient: m.recipient, items: [] };
+      group.items.push(m);
+      map.set(key, group);
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [messageLog]);
+  async function handleLoadMessageLog() {
+    setMessageBusy(true);
+    setError(null);
+    try {
+      const res = await fetchMessageLog(300);
+      setMessageLog(res.messages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load message log");
+    } finally {
+      setMessageBusy(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -939,6 +967,54 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
+            {tab === "debug" && hasDebugTool("message_log") && form.debug_mode && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Message log (debug)</div>
+                <div className="space-y-3 px-4 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    Every message this tenant queued or sent, grouped by contact &mdash; the exact SMS/email body
+                    (rendered from its template), channel, status, and time. Newest first; latest 300.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <CronButton label={messageLog ? "Reload" : "Load message log"} busy={messageBusy} disabled={messageBusy} onClick={handleLoadMessageLog} />
+                    {messageLog && (
+                      <span className="text-2xs text-muted-foreground">
+                        {messageLog.length} message{messageLog.length === 1 ? "" : "s"} · {messageGroups.length} contact{messageGroups.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                  {messageLog && messageLog.length === 0 && (
+                    <div className="text-2xs text-muted-foreground">No messages logged yet.</div>
+                  )}
+                  {messageGroups.map((group) => (
+                    <div key={group.recipient || group.name} className="rounded-sm border border-border">
+                      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
+                        <span className="text-xs font-medium text-foreground">
+                          {group.name}
+                          {group.role ? <span className="ml-1 text-2xs font-normal text-muted-foreground">({group.role})</span> : null}
+                        </span>
+                        <span className="font-mono text-2xs text-muted-foreground">{group.items.length}</span>
+                      </div>
+                      <div className="divide-y divide-border">
+                        {group.items.map((m) => (
+                          <div key={m.id} className="px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2 text-2xs">
+                              <span className="pill bg-muted text-muted-foreground">{m.channel}</span>
+                              <span className={`pill ${m.status === "sent" ? "bg-success/10 text-success" : m.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-warning/20 text-warning"}`}>{m.status}</span>
+                              <span className="font-mono text-muted-foreground">{m.template_key}</span>
+                              <span className="ml-auto text-muted-foreground">{formatWhen(m.sent_at ?? m.scheduled_for)}</span>
+                            </div>
+                            {m.subject && <div className="mt-1 text-2xs font-medium text-foreground">{m.subject}</div>}
+                            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(m.body)}</pre>
+                            {m.last_error && <div className="mt-1 text-2xs text-destructive">error: {m.last_error}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
             {!canManage && (
               <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">View-only role.</div>
             )}
@@ -947,6 +1023,27 @@ export default function AdminSettings() {
       )}
     </div>
   );
+}
+
+// Local timestamp for the message log; falls back to the raw value if unparseable.
+function formatWhen(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+}
+
+// Email bodies are simple HTML; flatten to readable text for the debug log (SMS passes through).
+function stripHtml(body: string): string {
+  return body
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function CronButton({ label, busy, disabled, onClick }: { label: string; busy: boolean; disabled: boolean; onClick: () => void }) {

@@ -151,6 +151,30 @@ export function clearData(categories: ClearDataCategory[], dryRun: boolean) {
   }) as Promise<ClearDataResult>;
 }
 
+// DEBUG: one row per scheduled_notifications entry — the exact message sent (or queued), rendered
+// via the same template renderer the drain uses. recipient is the Uptiq contact id; contact_name
+// resolves it. Newest first; group by contact on the FE. debug tool "message_log" + debug_mode.
+export interface MessageLogEntry {
+  id: string;
+  recipient: string;
+  contact_name: string | null;
+  contact_role: string | null;
+  channel: string;
+  template_key: string;
+  status: string;
+  scheduled_for: string;
+  sent_at: string | null;
+  last_error: string | null;
+  attempts: number;
+  job_id: string | null;
+  subject: string | null;
+  body: string;
+}
+export interface MessageLogResult { ok: boolean; messages: MessageLogEntry[]; total: number }
+export function fetchMessageLog(limit = 300) {
+  return callEdge("settings", { method: "POST", body: { action: "message_log", limit } }) as Promise<MessageLogResult>;
+}
+
 export interface ContactsSyncResult {
   location: string;
   mode: string;
