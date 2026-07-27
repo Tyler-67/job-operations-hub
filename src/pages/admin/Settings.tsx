@@ -297,9 +297,8 @@ export default function AdminSettings() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       setFormError(
-        msg.includes("no_job") ? "No job yet — create a job first (the test token binds to one)."
-          : msg.includes("no_crew") ? "No active crew contact — this form binds to a crew member."
-            : "Could not open a test copy.",
+        msg.includes("no_state_set") ? "This tenant has no job states configured yet."
+          : "Could not open a test copy.",
       );
     } finally {
       setFormBusy(null);
@@ -1169,8 +1168,9 @@ export default function AdminSettings() {
                 <div className="mb-2">
                   <h3 className="text-xs font-semibold">Forms</h3>
                   <p className="text-2xs text-muted-foreground">
-                    Open a live test copy of a token-gated form. Each mints a single-use token bound to this
-                    company&rsquo;s most recent job (crew forms also bind a crew contact), so <strong>submitting the test form writes to that job</strong>. Opens in a new tab; the token expires in 1 hour.
+                    Open a live test copy of a token-gated form. Each mints a single-use token bound to a hidden
+                    <strong> ghost job</strong> (auto-created; crew forms also use a ghost crew contact), so submitting a
+                    test form writes to the ghost, never a real job. Opens in a new tab; the token expires in 1 hour.
                   </p>
                 </div>
                 {formError && <div className="mb-2 text-2xs text-destructive">{formError}</div>}

@@ -604,22 +604,49 @@ Deno.serve(async (req) => {
         };
         const spec = FORM_TEST_SPECS[typeof body.form === "string" ? body.form : ""];
         if (!spec) return json({ error: "invalid_form" }, 400);
-        // Bind the test token to the location's most recent job (+ a crew contact for the crew forms).
-        // Submitting the test form WRITES to that job — surfaced in the UI. Short TTL (1h).
-        const { data: job } = await sb.from("jobs").select("id, address").eq("location_id", locationId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-        if (!job) return json({ error: "no_job" }, 409);
+
+        // A persistent per-tenant GHOST job (+ a ghost crew contact for crew forms) that every form
+        // preview binds to — so previewing needs no real job, and submitting a test form writes to
+        // the ghost, never a real job. active=false keeps it out of the live loop + the active Jobs list.
+        const GHOST_ADDRESS = "Form preview (test)";
+        const GHOST_CREW = "Form preview crew (test)";
+        let ghostId: string;
+        let ghostAddress: string | null;
+        const foundJob = await sb.from("jobs").select("id, address").eq("location_id", locationId).eq("address", GHOST_ADDRESS).limit(1).maybeSingle();
+        if (foundJob.data) {
+          ghostId = foundJob.data.id as string;
+          ghostAddress = (foundJob.data.address as string | null) ?? null;
+        } else {
+          const set = await sb.from("job_state_sets").select("id").eq("location_id", locationId).eq("is_default", true).limit(1).maybeSingle();
+          if (!set.data) return json({ error: "no_state_set" }, 409);
+          const firstState = await sb.from("job_states").select("id").eq("state_set_id", set.data.id).order("sort_order").limit(1).maybeSingle();
+          const createdJob = await sb.from("jobs").insert({
+            location_id: locationId, state_set_id: set.data.id, current_state_id: firstState.data?.id ?? null,
+            address: GHOST_ADDRESS, active: false,
+          }).select("id, address").single();
+          if (createdJob.error) throw createdJob.error;
+          ghostId = createdJob.data.id as string;
+          ghostAddress = (createdJob.data.address as string | null) ?? null;
+        }
         let contactId: string | null = null;
         if (spec.needsContact) {
-          const { data: crew } = await sb.from("contacts").select("id").eq("location_id", locationId).eq("role", "crew").eq("active", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
-          if (!crew) return json({ error: "no_crew" }, 409);
-          contactId = crew.id as string;
+          const foundCrew = await sb.from("contacts").select("id").eq("location_id", locationId).eq("role", "crew").eq("name", GHOST_CREW).limit(1).maybeSingle();
+          if (foundCrew.data) {
+            contactId = foundCrew.data.id as string;
+          } else {
+            const createdCrew = await sb.from("contacts").insert({
+              location_id: locationId, role: "crew", name: GHOST_CREW, active: true,
+            }).select("id").single();
+            if (createdCrew.error) throw createdCrew.error;
+            contactId = createdCrew.data.id as string;
+          }
         }
         const minted = await mintActionToken(sb, {
-          action: spec.action, jobId: job.id as string, contactId,
-          payload: { address: job.address ?? null }, ttlSeconds: 3600,
+          action: spec.action, jobId: ghostId, contactId,
+          payload: { address: ghostAddress }, ttlSeconds: 3600,
         });
-        await logEvent({ source: "admin", kind: "settings.form_test_token", location_id: locationId, payload: { form: body.form, job_id: job.id, by: claims.email } });
-        return json({ ok: true, path: spec.path, token: minted.token, job_address: job.address ?? null });
+        await logEvent({ source: "admin", kind: "settings.form_test_token", location_id: locationId, payload: { form: body.form, job_id: ghostId, ghost: true, by: claims.email } });
+        return json({ ok: true, path: spec.path, token: minted.token, job_address: ghostAddress });
       }
       return json({ error: "unknown_action" }, 400);
     }
