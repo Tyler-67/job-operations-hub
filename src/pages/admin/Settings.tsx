@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Save } from "lucide-react";
+import { ChevronDown, ChevronRight, Save } from "lucide-react";
 import {
   COMMON_TIMEZONES,
   WEEKDAYS,
@@ -187,6 +187,15 @@ export default function AdminSettings() {
   const [resetResult, setResetResult] = useState<ClearDataResult | null>(null);
   const [messageLog, setMessageLog] = useState<MessageLogEntry[] | null>(null);
   const [messageBusy, setMessageBusy] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  function toggleGroup(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
   // Sent/queued message log grouped by contact (debug). Server returns newest-first; group by
   // recipient contact and sort the groups by name.
   const messageGroups = useMemo(() => {
@@ -986,32 +995,43 @@ export default function AdminSettings() {
                   {messageLog && messageLog.length === 0 && (
                     <div className="text-2xs text-muted-foreground">No messages logged yet.</div>
                   )}
-                  {messageGroups.map((group) => (
-                    <div key={group.recipient || group.name} className="rounded-sm border border-border">
-                      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
-                        <span className="text-xs font-medium text-foreground">
+                  {messageGroups.map((group) => {
+                    const groupKey = group.recipient || group.name;
+                    const collapsed = collapsedGroups.has(groupKey);
+                    return (
+                    <div key={groupKey} className="rounded-sm border border-border">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(groupKey)}
+                        className={`flex w-full items-center justify-between bg-muted/40 px-3 py-1.5 text-left hover:bg-muted/60 ${collapsed ? "" : "border-b border-border"}`}
+                      >
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                          {collapsed ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                           {group.name}
-                          {group.role ? <span className="ml-1 text-2xs font-normal text-muted-foreground">({group.role})</span> : null}
+                          {group.role ? <span className="text-2xs font-normal text-muted-foreground">({group.role})</span> : null}
                         </span>
                         <span className="font-mono text-2xs text-muted-foreground">{group.items.length}</span>
-                      </div>
-                      <div className="divide-y divide-border">
-                        {group.items.map((m) => (
-                          <div key={m.id} className="px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-2 text-2xs">
-                              <span className="pill bg-muted text-muted-foreground">{m.channel}</span>
-                              <span className={`pill ${m.status === "sent" ? "bg-success/10 text-success" : m.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-warning/20 text-warning"}`}>{m.status}</span>
-                              <span className="font-mono text-muted-foreground">{m.template_key}</span>
-                              <span className="ml-auto text-muted-foreground">{formatWhen(m.sent_at ?? m.scheduled_for)}</span>
+                      </button>
+                      {!collapsed && (
+                        <div className="divide-y divide-border">
+                          {group.items.map((m) => (
+                            <div key={m.id} className="px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-2 text-2xs">
+                                <span className="pill bg-muted text-muted-foreground">{m.channel}</span>
+                                <span className={`pill ${m.status === "sent" ? "bg-success/10 text-success" : m.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-warning/20 text-warning"}`}>{m.status}</span>
+                                <span className="font-mono text-muted-foreground">{m.template_key}</span>
+                                <span className="ml-auto text-muted-foreground">{formatWhen(m.sent_at ?? m.scheduled_for)}</span>
+                              </div>
+                              {m.subject && <div className="mt-1 text-2xs font-medium text-foreground">{m.subject}</div>}
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(m.body)}</pre>
+                              {m.last_error && <div className="mt-1 text-2xs text-destructive">error: {m.last_error}</div>}
                             </div>
-                            {m.subject && <div className="mt-1 text-2xs font-medium text-foreground">{m.subject}</div>}
-                            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(m.body)}</pre>
-                            {m.last_error && <div className="mt-1 text-2xs text-destructive">error: {m.last_error}</div>}
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             )}
