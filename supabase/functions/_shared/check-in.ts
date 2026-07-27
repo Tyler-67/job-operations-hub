@@ -18,6 +18,7 @@ export interface CheckInInput {
   partsList: string | null;
   supplyHouseId: string | null;
   supplyHouseAction: SupplyHouseAction | null;
+  supplyHouseEstimate: number | null;
   fieldPurchaseAmount: number | null;
   fieldPurchaseVendor: string | null;
   fieldPurchaseDescription: string | null;
@@ -82,6 +83,7 @@ export function normalizeCheckInInput(
     partsList: cleanText(body.parts_list),
     supplyHouseId: partsSource === "supply_house" ? cleanText(body.supply_house_id) : null,
     supplyHouseAction: partsSource === "supply_house" ? supplyHouseActionOf(body.supply_house_action) : null,
+    supplyHouseEstimate: partsSource === "supply_house" ? nonNegativeNumber(body.estimate) : null,
     fieldPurchaseAmount: nonNegativeNumber(body.field_purchase_amount),
     fieldPurchaseVendor: cleanText(body.field_purchase_vendor),
     fieldPurchaseDescription: cleanText(body.field_purchase_description),
@@ -108,6 +110,9 @@ export interface ClassifiedPurchaseOrder {
   status: "sent" | "pending_value";
   description: string | null;
   supplyHouseId: string | null;
+  // The crew's estimated cost, if entered on the check-in — seeds purchase_orders.estimated_amount
+  // so the office starts from a number instead of valuing from scratch. null when not provided.
+  estimate: number | null;
   // true → the function must mint a PO number and email the supply-house rep.
   placeOrder: boolean;
 }
@@ -144,6 +149,7 @@ export function classifyParts(input: CheckInInput): PartsClassification {
         status: placeOrder ? "sent" : "pending_value",
         description: input.partsList,
         supplyHouseId: input.supplyHouseId,
+        estimate: input.supplyHouseEstimate,
         placeOrder,
       },
     };

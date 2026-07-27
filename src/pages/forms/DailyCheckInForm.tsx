@@ -117,6 +117,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
   const [partsList, setPartsList] = useState("");
   const [supplyAction, setSupplyAction] = useState<SupplyHouseAction>("place_order");
   const [supplyHouseId, setSupplyHouseId] = useState<string>(defaultSupplyHouseId ?? "");
+  const [estimate, setEstimate] = useState("");
   const [issues, setIssues] = useState("");
   const [inspection, setInspection] = useState(false);
   const [inspectionConfirmOpen, setInspectionConfirmOpen] = useState(false);
@@ -151,6 +152,7 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
           parts_list: partsSource === "supply_house" ? partsList : null,
           supply_house_action: partsSource === "supply_house" ? supplyAction : null,
           supply_house_id: partsSource === "supply_house" ? supplyHouseId || null : null,
+          estimate: partsSource === "supply_house" && estimate.trim() ? Number(estimate) : null,
           field_purchase_amount: partsSource === "field_purchase" ? fieldAmount : null,
           field_purchase_vendor: partsSource === "field_purchase" ? fieldVendor : null,
           receipt_photo_url: receiptPath,
@@ -305,6 +307,13 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
               placeholder={supplyAction === "place_order"
                 ? "List the parts to order — the supply house gets this list"
                 : "List the parts the office should value the PO for"} />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="po-estimate">Estimated cost (optional)</Label>
+            <Input id="po-estimate" type="number" inputMode="decimal" min="0" step="0.01" value={estimate}
+              onChange={(e) => setEstimate(e.target.value)} placeholder="Estimated total for this order, e.g. 250" />
+            <p className="text-xs text-muted-foreground">A starting estimate for the PO — the office can adjust it later.</p>
           </div>
         </div>
       )}

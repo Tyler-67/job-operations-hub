@@ -418,6 +418,7 @@ Deno.serve(async (req) => {
         status: po.status,
         description: po.description,
         supply_house_id: po.supplyHouseId,
+        estimated_amount: po.estimate,
         created_by_contact_id: crewContactId,
       };
       // place_order: the app authors the PO now — mint a human-readable number

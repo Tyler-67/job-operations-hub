@@ -69,9 +69,13 @@ describe("normalizeCheckInInput", () => {
       parts_source: "supply_house",
       supply_house_action: "place_order",
       supply_house_id: " sh-123 ",
+      estimate: "250",
     });
     expect(place.supplyHouseAction).toBe("place_order");
     expect(place.supplyHouseId).toBe("sh-123");
+    expect(place.supplyHouseEstimate).toBe(250);
+    // The estimate seeds the purchase order's estimated_amount.
+    expect(classifyParts(place).purchaseOrder?.estimate).toBe(250);
 
     const already = normalizeCheckInInput({
       parts_source: "supply_house",
@@ -79,6 +83,8 @@ describe("normalizeCheckInInput", () => {
       supply_house_id: "sh-9",
     });
     expect(already.supplyHouseAction).toBe("already_ordered");
+    // No estimate entered → null (office values it later).
+    expect(already.supplyHouseEstimate).toBeNull();
 
     // Absent/unknown action defaults to the safe already_ordered (never auto-places).
     const defaulted = normalizeCheckInInput({ parts_source: "supply_house" });
@@ -133,12 +139,14 @@ describe("classifyParts", () => {
       supply_house_action: "place_order",
       supply_house_id: "sh-42",
       parts_list: "valve package",
+      estimate: "500",
     }));
     expect(expense).toBeNull();
     expect(purchaseOrder).toEqual({
       status: "sent",
       description: "valve package",
       supplyHouseId: "sh-42",
+      estimate: 500,
       placeOrder: true,
     });
   });
@@ -155,6 +163,7 @@ describe("classifyParts", () => {
       status: "pending_value",
       description: "ordered from supply house",
       supplyHouseId: "sh-7",
+      estimate: null,
       placeOrder: false,
     });
   });
