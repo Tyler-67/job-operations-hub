@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import { useSession } from "@/lib/session";
 
 // The in-app guide, organized as TABS (one per area) each holding its sections. Pure static
 // content; the active tab syncs to the URL hash so a tab can be linked directly. Keep this in
@@ -499,9 +500,73 @@ const TABS: DocTab[] = [
       </>
     ),
   },
+  {
+    id: "developer",
+    label: "Developer",
+    body: (
+      <>
+        <H2>Developer — provisioning &amp; instances</H2>
+        <P>
+          dev_super only. An <strong>instance</strong> is one company/tenant — a <K>locations</K> row plus its
+          settings and its own state machine. There are two ways to create one.
+        </P>
+
+        <Sub>1. Developer console (interactive)</Sub>
+        <P>
+          <K>/dev</K> (Developer, in the sidebar footer) creates, edits, and deletes instances with live ops metrics.
+          Use this for hands-on, one-off creation.
+        </P>
+
+        <Sub>2. Provisioning API (machine-callable)</Sub>
+        <P>For scripts or external onboarding, a secret-authenticated endpoint creates an instance with no login:</P>
+        <pre className="mt-2 overflow-auto rounded-sm border border-border bg-muted/50 p-3 font-mono text-2xs text-muted-foreground">{`POST https://kffrgtzqwqrjfrziglby.supabase.co/functions/v1/provision-instance?secret=<SECRET>
+Content-Type: application/json
+
+{
+  "company_name": "Acme Plumbing",
+  "uptiq_location_id": "GHL-LOC-OR-SLUG",
+  "timezone": "America/Boise",
+  "app_base_url": "https://...",
+  "uptiq_sync_location_id": "...",
+  "clone_states_from": "<location_id>"
+}
+
+-> 201 { "ok": true, "location_id": "...", "company_name": "...", "cloned_states_from": "..." }`}</pre>
+        <DocTable
+          head={["Field", "Required", "Notes"]}
+          rows={[
+            [<K>company_name</K>, "yes", "Display name, up to 80 characters."],
+            [<K>uptiq_location_id</K>, "yes", <>Unique binding — a real Uptiq/GHL location id, or a distinct slug (e.g. <K>DEV-INTERNAL-2</K>) for a sandbox. Pattern <K>[A-Za-z0-9_-]{"{3,64}"}</K>.</>],
+            [<K>timezone</K>, "no", "IANA tz; default America/Chicago."],
+            [<K>app_base_url</K>, "no", "https URL — this tenant's SMS/form link origin."],
+            [<K>uptiq_sync_location_id</K>, "no", "Bridges contact/calendar sync to a real GHL location."],
+            [<K>clone_states_from</K>, "no", "location_id to clone the state machine from. Default: the oldest instance with a default state set (the canonical tenant)."],
+          ]}
+        />
+        <P>
+          <strong>Auth:</strong> the secret is the only gate (the function runs without a Supabase/app JWT). Pass it as{" "}
+          <K>?secret=</K>, or an <K>x-provision-secret</K> / <K>x-cron-secret</K> header. It checks <K>PROVISION_SECRET</K>,
+          falling back to <K>CRON_SECRET</K> — so it works today; set a dedicated <K>PROVISION_SECRET</K> to isolate
+          provisioning from the cron secret.
+        </P>
+        <P>
+          <strong>Responses:</strong> <K>201</K> created · <K>400</K> validation (e.g. <K>uptiq_location_id_invalid</K>) ·{" "}
+          <K>409</K> <K>binding_in_use</K> · <K>401</K> <K>unauthorized</K>.
+        </P>
+        <P>
+          Both paths run the same recipe, so a provisioned tenant matches the console exactly: a <K>locations</K> row, a{" "}
+          <K>company_settings</K> row (<K>debug_mode</K> on), and a clone of the source instance&apos;s default state set
+          (states + transitions).
+        </P>
+      </>
+    ),
+  },
 ];
 
 export default function Docs() {
+  const { user } = useSession();
+  // The Developer tab (provisioning + instance admin) is dev_super-only.
+  const visibleTabs = user?.role === "dev_super" ? TABS : TABS.filter((t) => t.id !== "developer");
   const [active, setActive] = useState<string>(() => {
     const hash = window.location.hash.replace("#", "");
     return TABS.some((t) => t.id === hash) ? hash : TABS[0].id;
@@ -511,7 +576,7 @@ export default function Docs() {
     window.history.replaceState(null, "", `#${active}`);
   }, [active]);
 
-  const tab = TABS.find((t) => t.id === active) ?? TABS[0];
+  const tab = visibleTabs.find((t) => t.id === active) ?? visibleTabs[0];
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -522,7 +587,7 @@ export default function Docs() {
           page does.
         </p>
         <div className="mt-2 flex flex-wrap gap-1">
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t.id}
               type="button"
