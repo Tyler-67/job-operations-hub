@@ -18,6 +18,10 @@ verify_jwt = false
 [functions.cron-weekly-report]
 verify_jwt = false
 
+# Machine-callable tenant provisioning — secret-gated (PROVISION_SECRET / CRON_SECRET), no JWT.
+[functions.provision-instance]
+verify_jwt = false
+
 [functions.action-decision]
 verify_jwt = true
 
