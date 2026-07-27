@@ -367,7 +367,7 @@ export default function AdminJobStates() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleStates.map((state) => {
+                  {visibleStates.map((state, index) => {
                     const activeJobs = activeJobCounts[state.id] ?? 0;
                     return (
                       <tr
@@ -375,7 +375,7 @@ export default function AdminJobStates() {
                         onClick={() => { if (canManage && !saving) { setArchiveTarget(null); setForm(stateToForm(state)); } }}
                         className={`ops-row ${canManage ? "cursor-pointer" : ""} ${state.active ? "" : "opacity-55"} ${form.id === state.id ? "bg-muted/60" : ""}`}
                       >
-                        <td className="px-3 py-2 font-mono-num">{state.sort_order}</td>
+                        <td className="px-3 py-2 font-mono-num">{index + 1}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             <span className="inline-block h-3 w-3 rounded-sm border border-border" style={{ backgroundColor: state.color }} />
@@ -574,11 +574,6 @@ export default function AdminJobStates() {
                     <input type="color" value={form.color} onChange={(event) => updateForm({ color: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background p-1" />
                   </label>
                 </div>
-
-                <label className="block text-xs">
-                  <span className="mb-1 block text-muted-foreground">Sort order</span>
-                  <input type="number" value={form.sort_order} onChange={(event) => updateForm({ sort_order: Number(event.target.value) })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
-                </label>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <Toggle label="Inspection" checked={form.is_inspection} disabled={!canManage || saving} onChange={(checked) => updateForm({ is_inspection: checked })} />

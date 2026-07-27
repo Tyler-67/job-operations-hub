@@ -540,7 +540,7 @@ export default function JobDetail() {
                 onChange={(value) => update("current_state_id", value)}
                 className={inputClass(readOnly)}
                 placeholder={states.length === 0 ? "No states configured" : "Select a state"}
-                options={states.map((state) => ({ value: state.id, label: `${state.sort_order}. ${state.label}` }))}
+                options={states.map((state) => ({ value: state.id, label: state.label }))}
               />
             </Field>
 
