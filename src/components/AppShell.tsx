@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { callEdge, listInstances, switchInstance, useSession, type AppInstance } from "@/lib/session";
+import { ChangelogOverlay } from "@/components/ChangelogOverlay";
 import { roleLabel } from "@/lib/users";
 import { InlineSelect } from "@/components/InlineSelect";
 import {
@@ -230,6 +231,9 @@ export default function AppShell() {
       </main>
 
       {searchQuery.trim() && <SearchOverlay query={searchQuery} onClose={() => setSearchQuery("")} />}
+
+      {/* First-boot "what's new" overlay — shows the latest changelog once per version (localStorage). */}
+      <ChangelogOverlay />
 
       {pwOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!pwBusy) setPwOpen(false); }}>
