@@ -753,7 +753,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("run_crons") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Fire selected crons now (ignores send times) &mdash; sends real SMS/email via Uptiq, for testing.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Run crons</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Fire selected crons now (ignores send times) &mdash; sends real SMS/email via Uptiq, for testing.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="grid gap-1.5">
                     {CRON_TARGETS.map((t) => (
@@ -779,7 +782,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("contacts_sync") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Import Uptiq contacts by tag, then link the rest by name/email/phone. Read-only in Uptiq; additive.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Uptiq contacts</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Import Uptiq contacts by tag, then link the rest by name/email/phone. Read-only in Uptiq; additive.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap gap-2">
                     <CronButton label="Preview (dry run)" busy={uptiqSyncBusy === "preview"} disabled={uptiqSyncBusy !== null} onClick={() => handleUptiqSync(true)} />
@@ -799,7 +805,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("send_test") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Send one SMS/email to a contact now (bypasses the queue); returns the raw provider status.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Send test message</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Send one SMS/email to a contact now (bypasses the queue); returns the raw provider status.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <InlineSelect
@@ -838,7 +847,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("conversations") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Back up then clear a contact&rsquo;s Uptiq thread so the next message starts fresh. The contact is kept.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Conversations</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Back up then clear a contact&rsquo;s Uptiq thread so the next message starts fresh. The contact is kept.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <InlineMultiSelect
@@ -880,7 +892,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("jobs_clear") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Permanently delete test jobs + all their data (logs, expenses, POs, notifications). Can&rsquo;t be undone; use Archive for real jobs.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Delete jobs</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Permanently delete test jobs + all their data (logs, expenses, POs, notifications). Can&rsquo;t be undone; use Archive for real jobs.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <InlineMultiSelect
@@ -913,7 +928,10 @@ export default function AdminSettings() {
 
             {tab === "debug" && hasDebugTool("data_reset") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Clear accumulated test data by category (history, snapshots, imported contacts…). Rows tied to job history are skipped. Can&rsquo;t be undone.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Data reset</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Clear accumulated test data by category (history, snapshots, imported contacts…). Rows tied to job history are skipped. Can&rsquo;t be undone.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <InlineMultiSelect
@@ -944,7 +962,10 @@ export default function AdminSettings() {
             )}
             {tab === "debug" && hasDebugTool("message_log") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
-                <p className="text-2xs text-muted-foreground sm:w-40 sm:shrink-0">Every message sent/queued, grouped by contact &mdash; the exact SMS/email body, status, and time. Newest first; latest 300.</p>
+                <div className="sm:w-40 sm:shrink-0">
+                  <p className="text-xs font-medium text-foreground">Message log</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">Every message sent/queued, grouped by contact &mdash; the exact SMS/email body, status, and time. Newest first; latest 300.</p>
+                </div>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex items-center gap-2">
                     <CronButton label={messageLog ? "Reload" : "Load message log"} busy={messageBusy} disabled={messageBusy} onClick={handleLoadMessageLog} />
