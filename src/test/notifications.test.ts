@@ -19,6 +19,21 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("<br>");
   });
 
+  it("applies a tenant format override with {{placeholder}} interpolation, else the built-in default", () => {
+    const overrides = {
+      supply_house_parts_order: { subject: "Order for {{address}}", body: "Pick up {{parts_list}} - PO {{po_number}}" },
+    };
+    const overridden = renderNotification("supply_house_parts_order", order, overrides);
+    expect(overridden.subject).toBe("Order for 1420 Canyon Rd");
+    expect(overridden.body).toBe("Pick up copper fittings, 3/4 valve - PO PO-20260609-01");
+    // A key with no override still renders the built-in default (unchanged behavior).
+    const untouched = renderNotification("field_purchase_notice", { address: "9 Pipe Ln" }, overrides);
+    expect(untouched.body).not.toContain("{{");
+    // An empty/whitespace override body is ignored — falls back to the default.
+    const empty = renderNotification("supply_house_parts_order", order, { supply_house_parts_order: { body: "   " } });
+    expect(empty.subject).toBe("1420 Canyon Rd - Parts for pickup 7AM");
+  });
+
   it("omits the ceiling note when no ceiling is set, and falls back to a job-site subject", () => {
     const msg = renderNotification("supply_house_parts_order", {
       parts_list: "pipe",

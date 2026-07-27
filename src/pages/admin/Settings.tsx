@@ -13,10 +13,13 @@ import {
   timeForInput,
   clearData,
   fetchMessageLog,
+  fetchMessageTemplates,
+  saveMessageTemplate,
   CLEAR_DATA_CATEGORIES,
   type ClearDataCategory,
   type ClearDataResult,
   type MessageLogEntry,
+  type MessageTemplate,
   type ContactsSyncResult,
   type ContactsPullResult,
   type CronKey,
@@ -221,6 +224,55 @@ export default function AdminSettings() {
       setMessageBusy(false);
     }
   }
+
+  // Message-format editor (Messages debug sub-tab). Overrides are per-company; an empty body resets
+  // a template to its built-in default. tplSubject/tplBody hold the form for the selected template.
+  const [templates, setTemplates] = useState<MessageTemplate[] | null>(null);
+  const [tplBusy, setTplBusy] = useState(false);
+  const [tplKey, setTplKey] = useState("");
+  const [tplSubject, setTplSubject] = useState("");
+  const [tplBody, setTplBody] = useState("");
+  const [tplNotice, setTplNotice] = useState<string | null>(null);
+  const selectedTpl = templates?.find((t) => t.key === tplKey) ?? null;
+
+  function selectTemplate(key: string, list: MessageTemplate[] | null = templates) {
+    setTplKey(key);
+    setTplNotice(null);
+    const t = list?.find((x) => x.key === key);
+    setTplSubject(t?.override_subject ?? "");
+    setTplBody(t?.override_body ?? "");
+  }
+  async function loadTemplates() {
+    setTplBusy(true);
+    setError(null);
+    try {
+      const res = await fetchMessageTemplates();
+      setTemplates(res.templates);
+      if (res.templates[0]) selectTemplate(res.templates[0].key, res.templates);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load message templates");
+    } finally {
+      setTplBusy(false);
+    }
+  }
+  async function persistTemplate(subject: string, bodyText: string) {
+    if (!tplKey) return;
+    setTplBusy(true);
+    setError(null);
+    setTplNotice(null);
+    try {
+      await saveMessageTemplate(tplKey, subject.trim() ? subject : null, bodyText);
+      const res = await fetchMessageTemplates();
+      setTemplates(res.templates);
+      setTplNotice(bodyText.trim() ? "Saved — applies to real sends." : "Reset to the built-in default.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save template");
+    } finally {
+      setTplBusy(false);
+    }
+  }
+  function saveTemplate() { void persistTemplate(tplSubject, tplBody); }
+  function resetTemplate() { setTplBody(""); setTplSubject(""); void persistTemplate("", ""); }
 
   useEffect(() => {
     let active = true;
@@ -968,6 +1020,59 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
+            {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && form.debug_mode && (
+              <section className="border-b border-border px-4 py-3">
+                <div className="mb-2">
+                  <h3 className="text-xs font-semibold">Message formats</h3>
+                  <p className="text-2xs text-muted-foreground">
+                    Customize a message template for this company. Leave the body empty to use the built-in default;
+                    tap a {"{{placeholder}}"} chip to insert that message&rsquo;s fields. Saved formats apply to real sends.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CronButton label={templates ? "Reload" : "Load templates"} busy={tplBusy} disabled={tplBusy} onClick={loadTemplates} />
+                  {templates && (
+                    <InlineSelect
+                      value={tplKey}
+                      onChange={(value) => selectTemplate(value)}
+                      className="h-8 w-80"
+                      options={templates.map((t) => ({ value: t.key, label: `${t.label}${t.override_body ? " • customized" : ""}` }))}
+                    />
+                  )}
+                </div>
+                {selectedTpl && (
+                  <div className="mt-3 space-y-2">
+                    {selectedTpl.placeholders.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {selectedTpl.placeholders.map((p) => (
+                          <button key={p} type="button" title="Insert placeholder" onClick={() => setTplBody((b) => `${b}{{${p}}}`)} className="pill bg-muted font-mono text-muted-foreground hover:bg-muted/70">{`{{${p}}}`}</button>
+                        ))}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-2xs text-muted-foreground">Built-in default{selectedTpl.has_sample ? " (from a recent message)" : " (no example message yet)"}:</p>
+                      <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(selectedTpl.default_body) || "(nothing to preview yet)"}</pre>
+                    </div>
+                    {selectedTpl.channel === "email" && (
+                      <label className="block text-xs">
+                        <span className="mb-1 block text-muted-foreground">Subject (email)</span>
+                        <input value={tplSubject} onChange={(event) => setTplSubject(event.target.value)} disabled={tplBusy} placeholder="Leave blank for the default subject" className="h-8 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65" />
+                      </label>
+                    )}
+                    <label className="block text-xs">
+                      <span className="mb-1 block text-muted-foreground">Custom body (empty = use the default)</span>
+                      <textarea value={tplBody} onChange={(event) => setTplBody(event.target.value)} disabled={tplBusy} rows={5} placeholder="Type a custom message using {{placeholders}}" className="w-full rounded-sm border border-input bg-background px-2 py-1 text-xs disabled:opacity-65" />
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={saveTemplate} disabled={tplBusy || !tplBody.trim()} className="inline-flex h-8 items-center rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">Save format</button>
+                      <button type="button" onClick={resetTemplate} disabled={tplBusy || !selectedTpl.override_body} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:opacity-50">Reset to default</button>
+                      {tplNotice && <span className="text-2xs text-success">{tplNotice}</span>}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
             {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && form.debug_mode && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">

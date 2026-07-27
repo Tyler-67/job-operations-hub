@@ -175,6 +175,28 @@ export function fetchMessageLog(limit = 300) {
   return callEdge("settings", { method: "POST", body: { action: "message_log", limit } }) as Promise<MessageLogResult>;
 }
 
+// DEBUG: the overridable message templates for this company. Each entry carries the built-in default
+// (rendered from a recent real message), the available {{placeholders}}, and the current override (if
+// any). Editing writes purchase-order-safe overrides that the drain sends with. debug tool "message_log".
+export interface MessageTemplate {
+  key: string;
+  label: string;
+  channel: string | null;
+  placeholders: string[];
+  default_subject: string | null;
+  default_body: string;
+  override_subject: string | null;
+  override_body: string | null;
+  has_sample: boolean;
+}
+export function fetchMessageTemplates() {
+  return callEdge("settings", { method: "POST", body: { action: "message_templates" } }) as Promise<{ ok: boolean; templates: MessageTemplate[] }>;
+}
+// Save an override (empty body resets the template to its built-in default).
+export function saveMessageTemplate(key: string, subject: string | null, body: string) {
+  return callEdge("settings", { method: "POST", body: { action: "save_message_template", key, subject, body } }) as Promise<{ ok: boolean }>;
+}
+
 export interface ContactsSyncResult {
   location: string;
   mode: string;

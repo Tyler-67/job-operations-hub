@@ -27,6 +27,25 @@ Deno.serve(async (req) => {
   const { data: due, error } = await sb.rpc("claim_due_notifications", { p_limit: 100 });
   if (error) return json({ error: error.message }, 500);
 
+  // Per-tenant message-format overrides (Settings > Debug > Messages). Loaded once per tick; only
+  // tenants that actually set one appear in the map, and renderNotification falls back to the
+  // built-in default for every other template/tenant — so this is a no-op unless an override exists.
+  const overridesByLoc = new Map<string, Record<string, { subject?: string | null; body: string }>>();
+  const { data: csRows } = await sb.from("company_settings").select("location_id, message_templates");
+  for (const cs of csRows ?? []) {
+    if (cs.message_templates && typeof cs.message_templates === "object" && Object.keys(cs.message_templates).length) {
+      overridesByLoc.set(cs.location_id as string, cs.message_templates);
+    }
+  }
+  const locByRowId = new Map<string, string>();
+  if (overridesByLoc.size && (due?.length ?? 0)) {
+    const { data: locs } = await sb
+      .from("scheduled_notifications")
+      .select("id, location_id")
+      .in("id", (due ?? []).map((r: { id: string }) => r.id));
+    for (const l of locs ?? []) locByRowId.set(l.id as string, l.location_id as string);
+  }
+
   let sent = 0, failed = 0, skipped = 0;
   for (const row of due ?? []) {
     const attempts = Number(row.attempts ?? 0) + 1;
@@ -54,7 +73,7 @@ Deno.serve(async (req) => {
           ? await uptiq.applyTag(recipient, tag)
           : { ok: false, error: "missing_tag" };
       } else {
-        const msg = renderNotification(row.template_key, payload);
+        const msg = renderNotification(row.template_key, payload, overridesByLoc.get(locByRowId.get(row.id) ?? ""));
         result = row.channel === "sms"
           ? await uptiq.sendSms(recipient, msg.body)
           : await uptiq.sendEmail(recipient, msg.subject ?? "", msg.body);

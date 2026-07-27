@@ -30,7 +30,58 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function renderNotification(templateKey: string, payload: NotificationPayload): RenderedMessage {
+export interface TemplateOverride {
+  subject?: string | null;
+  body: string;
+}
+export type TemplateOverrides = Record<string, TemplateOverride>;
+
+// Replace {{ token }} with the payload's stringified value (empty when absent). Used ONLY for a
+// tenant's format override; the built-in templates keep their own richer interpolation + logic.
+function interpolate(text: string, payload: NotificationPayload): string {
+  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token: string) => str(payload[token]));
+}
+
+// Editor metadata (Settings > Debug > Messages): the overridable template keys + friendly labels.
+// Keep in sync with the switch below.
+export const TEMPLATE_LABELS: Record<string, string> = {
+  supply_house_parts_order: "Supply house — parts order (PO email)",
+  supply_house_parts_ordered_notice: "Supply house — parts ordered (owner/office SMS)",
+  supply_house_already_ordered_notice: "Supply house — already-ordered confirmation (email)",
+  field_purchase_notice: "Field purchase notice (owner/office SMS)",
+  daily_check_in_link: "Daily check-in link (crew SMS)",
+  quick_log_link: "Quick-log link (crew SMS)",
+  quick_log_no_job: "Quick-log — no active job (crew SMS)",
+  daily_check_in_summary: "Daily check-in summary (owner/office email)",
+  inspection_requested_notice: "Inspection requested (office SMS)",
+  inspection_date_link: "Inspection date link (owner SMS)",
+  walkthrough_date_link: "Walkthrough date link (owner SMS)",
+  inspection_reminder_office_notice: "Inspection reminder (office SMS)",
+  inspection_result_ask: "Inspection PASS/FAIL ask (owner SMS)",
+  inspection_fix_details_link: "Inspection fix-details link (owner SMS)",
+  inspection_fix_details_notice: "Inspection fix list (crew SMS)",
+  finish_walkthrough_ask: "Ready-for-walkthrough ask (owner SMS)",
+  walkthrough_result_ask: "Walkthrough approve/punch ask (owner SMS)",
+  walkthrough_reask: "Walkthrough re-ask (owner SMS)",
+  walkthrough_reschedule_notice: "Walkthrough reschedule notice",
+  walkthrough_punch_list_link: "Walkthrough punch-list link (owner SMS)",
+  walkthrough_punch_list_notice: "Walkthrough punch list (crew SMS)",
+  decision_outcome: "Decision outcome (owner/office/crew SMS)",
+  weekly_report_digest: "Weekly report digest (email)",
+};
+export const TEMPLATE_KEYS = Object.keys(TEMPLATE_LABELS);
+
+export function renderNotification(templateKey: string, payload: NotificationPayload, overrides?: TemplateOverrides): RenderedMessage {
+  // Per-tenant format override (Settings > Debug > Messages). Additive: applies ONLY when a non-empty
+  // body exists for this key; {{token}} is substituted from the payload. Otherwise the built-in default
+  // below runs unchanged, so every existing caller (and every tenant with no override) is unaffected.
+  const override = overrides?.[templateKey];
+  if (override && typeof override.body === "string" && override.body.trim()) {
+    const subject = typeof override.subject === "string" && override.subject.trim()
+      ? interpolate(override.subject, payload)
+      : null;
+    return { subject, body: interpolate(override.body, payload) };
+  }
   const address = str(payload.address);
   const pickup = str(payload.pickup_time);
   const parts = str(payload.parts_list) || "(no parts listed)";

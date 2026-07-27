@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
-import { renderNotification } from "../_shared/notifications.ts";
+import { renderNotification, TEMPLATE_KEYS, TEMPLATE_LABELS } from "../_shared/notifications.ts";
 
 const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
@@ -475,9 +475,11 @@ Deno.serve(async (req) => {
       if (action === "message_log") {
         if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
         const { data: cs } = await sb
-          .from("company_settings").select("debug_mode, owner_contact_id, office_contact_id").eq("location_id", locationId).maybeSingle();
+          .from("company_settings").select("debug_mode, owner_contact_id, office_contact_id, message_templates").eq("location_id", locationId).maybeSingle();
         if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
 
+        // Render the log with any tenant overrides applied, so it shows what actually goes out.
+        const overrides = (cs?.message_templates ?? {}) as Record<string, { subject?: string | null; body: string }>;
         const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 1000);
         // Newest first. This is the exact queued/sent log — the recipient is the Uptiq contact id,
         // rendered to the exact SMS/email body via the same renderer the drain sends with.
@@ -506,7 +508,7 @@ Deno.serve(async (req) => {
 
         const messages = rows.map((n: any) => {
           let rendered: { subject: string | null; body: string };
-          try { rendered = renderNotification(String(n.template_key), (n.payload ?? {}) as Record<string, unknown>); }
+          try { rendered = renderNotification(String(n.template_key), (n.payload ?? {}) as Record<string, unknown>, overrides); }
           catch { rendered = { subject: null, body: "(template not rendered)" }; }
           const rid = String(n.recipient ?? "");
           let who = nameByUptiqId.get(rid) ?? null;
@@ -521,6 +523,69 @@ Deno.serve(async (req) => {
           };
         });
         return json({ ok: true, messages, total: messages.length });
+      }
+
+      if (action === "message_templates") {
+        if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
+        const { data: cs } = await sb
+          .from("company_settings").select("debug_mode, message_templates").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        const overrides = (cs.message_templates ?? {}) as Record<string, { subject?: string | null; body: string }>;
+
+        // Latest real payload per template_key — used to preview the built-in default and to surface
+        // the {{placeholders}} available for that message (the payload fields it carries).
+        const { data: samples } = await sb
+          .from("scheduled_notifications")
+          .select("template_key, payload, channel, created_at")
+          .eq("location_id", locationId)
+          .order("created_at", { ascending: false })
+          .limit(500);
+        const sampleByKey = new Map<string, { payload: Record<string, unknown>; channel: string }>();
+        for (const s of samples ?? []) {
+          const k = String(s.template_key);
+          if (!sampleByKey.has(k)) sampleByKey.set(k, { payload: (s.payload ?? {}) as Record<string, unknown>, channel: String(s.channel) });
+        }
+
+        const templates = TEMPLATE_KEYS.map((key) => {
+          const sample = sampleByKey.get(key);
+          const payload = sample?.payload ?? {};
+          let def: { subject: string | null; body: string };
+          try { def = renderNotification(key, payload); } catch { def = { subject: null, body: "" }; }
+          const ov = overrides[key];
+          return {
+            key,
+            label: TEMPLATE_LABELS[key] ?? key,
+            channel: sample?.channel ?? null,
+            placeholders: Object.keys(payload),
+            default_subject: def.subject,
+            default_body: def.body,
+            override_subject: ov?.subject ?? null,
+            override_body: typeof ov?.body === "string" ? ov.body : null,
+            has_sample: Boolean(sample),
+          };
+        });
+        return json({ ok: true, templates });
+      }
+
+      if (action === "save_message_template") {
+        if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
+        const { data: cs } = await sb
+          .from("company_settings").select("debug_mode, message_templates").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        const key = typeof body.key === "string" ? body.key.trim() : "";
+        if (!key || !TEMPLATE_KEYS.includes(key)) return json({ error: "invalid_template_key" }, 400);
+        const overrides = { ...((cs.message_templates ?? {}) as Record<string, unknown>) };
+        const bodyText = typeof body.body === "string" ? body.body : "";
+        if (bodyText.trim()) {
+          const subject = typeof body.subject === "string" && body.subject.trim() ? body.subject : null;
+          overrides[key] = { subject, body: bodyText };
+        } else {
+          delete overrides[key]; // clearing the body resets this template to its built-in default
+        }
+        const { error: upErr } = await sb.from("company_settings").update({ message_templates: overrides }).eq("location_id", locationId);
+        if (upErr) throw upErr;
+        await logEvent({ source: "admin", kind: "settings.message_template", location_id: locationId, payload: { key, cleared: !bodyText.trim(), by: claims.email } });
+        return json({ ok: true, message_templates: overrides });
       }
       return json({ error: "unknown_action" }, 400);
     }
