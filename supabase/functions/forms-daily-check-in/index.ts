@@ -461,6 +461,7 @@ Deno.serve(async (req) => {
     const appBaseUrl = (await resolveAppBaseUrl(sb, job.location_id)) || undefined;
     let transition = null;
     let walkthroughReasked = false;
+    let inspectionAskedInPlace = false;
     if (input.inspectionRequested) {
       transition = await applyTransition(sb, {
         locationId: job.location_id,
@@ -486,20 +487,45 @@ Deno.serve(async (req) => {
           toStateId: transition.toStateId,
         });
       } else {
-        // No inspection_requested transition from this state. When the job is sitting in
-        // the WALKTHROUGH state (punch-list work), the crew marking "ready for inspection"
-        // means the punch items are done — THIS is what re-asks the owner APPROVE /
-        // STILL-ISSUES / RESCHEDULE. (The punch-list submit itself deliberately does not
-        // re-ask; the owner's next prompt comes from the crew's re-request, exactly like
-        // the inspection FAIL loop on every other phase.) enqueueWalkthroughReask
-        // self-gates on the state offering walkthrough_approved + an owner contact, so any
-        // other transitionless state stays a silent no-op. Keyed per submission (the
-        // consumed token id): each distinct crew request re-asks once.
-        walkthroughReasked = await enqueueWalkthroughReask(
-          sb,
-          { id: jobId, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
-          { appBaseUrl, cycleKey: submissionId },
-        );
+        // No inspection_requested transition from this state. Two in-place cases, resolved
+        // off the CURRENT stage's flags (data-driven, no slugs):
+        const { data: curState } = await sb
+          .from("job_states")
+          .select("is_inspection")
+          .eq("id", job.current_state_id)
+          .maybeSingle();
+        if (curState?.is_inspection === true) {
+          // (a) INSPECTION-AS-A-TAG: the work stage itself carries is_inspection (no dedicated
+          //     inspection state to move into), so "ready for inspection" fires the owner
+          //     date-ask IN PLACE — same effect the transition into an inspection state used to
+          //     have. Void any stale date first so the reminder cron / date-ask re-drive a fresh
+          //     cycle. Safe on the old inspection-STATE model too: there the inspection states
+          //     have allow_check_ins=false, so a crew never checks in from one and never reaches
+          //     this branch. Per SUBMISSION (single-use token) so every genuine request texts.
+          await sb.from("jobs").update({ inspection_date: null }).eq("id", jobId);
+          await queueInspectionRequestedNotice(sb, {
+            locationId: job.location_id,
+            jobId,
+            logDate: input.logDate,
+            submissionId,
+            address: job.address,
+            toStateId: job.current_state_id, // the stage IS the inspection phase — label off it
+          });
+          inspectionAskedInPlace = true;
+        } else {
+          // (b) WALKTHROUGH punch-list: when the job sits in the WALKTHROUGH state, the crew
+          //     marking "ready for inspection" means the punch items are done — THIS re-asks the
+          //     owner APPROVE / STILL-ISSUES / RESCHEDULE. (The punch-list submit itself
+          //     deliberately does not re-ask; the owner's next prompt comes from the crew's
+          //     re-request, exactly like the inspection FAIL loop.) enqueueWalkthroughReask
+          //     self-gates on the state offering walkthrough_approved + an owner contact, so any
+          //     other transitionless state stays a silent no-op. Keyed per submission.
+          walkthroughReasked = await enqueueWalkthroughReask(
+            sb,
+            { id: jobId, location_id: job.location_id, state_set_id: job.state_set_id, current_state_id: job.current_state_id, address: job.address ?? null },
+            { appBaseUrl, cycleKey: submissionId },
+          );
+        }
       }
     }
 
@@ -580,6 +606,9 @@ Deno.serve(async (req) => {
       purchase_order_id: purchaseOrderId,
       state_changed: transition?.changed ?? false,
       to_state_id: transition?.toStateId ?? null,
+      // Inspection-as-a-tag: the owner date-ask fired in place (no state change). The crew
+      // form keys its "inspection requested" confirmation off this OR state_changed.
+      inspection_asked: inspectionAskedInPlace,
       finish_walkthrough_asked: finishWalkthroughAsked,
       walkthrough_reasked: walkthroughReasked,
     });

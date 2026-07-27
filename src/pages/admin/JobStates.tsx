@@ -29,6 +29,23 @@ const TRIGGERS = [
   "paid",
 ];
 
+// Friendly labels for the per-stage "next stage after an event" selectors in the edit panel.
+const TRIGGER_LABELS: Record<string, string> = {
+  pass: "On pass →",
+  fail: "On fail →",
+  manual: "Advance →",
+  inspection_requested: "On inspection requested →",
+  progress_100_owner_yes: "On owner ready-for-walkthrough →",
+  walkthrough_approved: "On walkthrough approved →",
+  walkthrough_punch_list: "On punch list →",
+  walkthrough_reschedule: "On reschedule →",
+  paid: "On paid →",
+};
+
+function triggerLabel(trigger: string): string {
+  return TRIGGER_LABELS[trigger] ?? `On ${trigger} →`;
+}
+
 interface StateForm {
   id?: string;
   label: string;
@@ -115,6 +132,20 @@ export default function AdminJobStates() {
   const byId = useMemo(() => Object.fromEntries(states.map((state) => [state.id, state])), [states]);
   const activeJobCounts = data?.active_job_counts ?? {};
   const editing = Boolean(form.id);
+
+  // The stage being edited and its outgoing moves, for the per-stage "next stage" selectors.
+  // An inspection stage always surfaces PASS + FAIL (so they can be set even before they exist);
+  // any other stage surfaces the triggers it already routes on, defaulting to a single manual
+  // advance when it has none yet. The full transitions table below still covers everything else.
+  const outgoing = useMemo(
+    () => (data?.transitions ?? []).filter((transition) => transition.from_state_id === form.id),
+    [data?.transitions, form.id],
+  );
+  const triggerRows = useMemo(() => {
+    if (form.is_inspection) return ["pass", "fail"];
+    const present = [...new Set(outgoing.map((transition) => transition.trigger))];
+    return present.length ? present : ["manual"];
+  }, [form.is_inspection, outgoing]);
 
   useEffect(() => {
     if (activeStates.length && (!transitionForm.from_state_id || !transitionForm.to_state_id)) {
@@ -239,6 +270,27 @@ export default function AdminJobStates() {
       setData(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove transition");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Per-stage next-stage editor: pick the target for one (edited stage, trigger) move. An empty
+  // pick clears the move (delete); any other pick upserts it (create-or-update). Saves immediately,
+  // like the transitions table — separate from the state-field Save button.
+  async function setStageTransition(trigger: string, toStateId: string, existingId?: string) {
+    if (!canManage || !form.id) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = toStateId
+        ? await createTransition({ from_state_id: form.id, trigger, to_state_id: toStateId })
+        : existingId
+          ? await deleteTransition(existingId)
+          : null;
+      if (next) setData(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update next stage");
     } finally {
       setSaving(false);
     }
@@ -499,6 +551,38 @@ export default function AdminJobStates() {
                     Cancel
                   </button>
                 </div>
+
+                {editing && canManage && (
+                  <div className="space-y-2 border-t border-border pt-4">
+                    <div>
+                      <h3 className="text-xs font-semibold">Next stage</h3>
+                      <p className="text-2xs text-muted-foreground">
+                        {form.is_inspection
+                          ? "Where a pass or fail sends the job. Saved immediately."
+                          : "Where this stage advances on each event. Saved immediately."}
+                      </p>
+                    </div>
+                    {triggerRows.map((trigger) => {
+                      const existing = outgoing.find((transition) => transition.trigger === trigger);
+                      return (
+                        <label key={trigger} className="block text-xs">
+                          <span className="mb-1 block text-muted-foreground">{triggerLabel(trigger)}</span>
+                          <InlineSelect
+                            value={existing?.to_state_id ?? ""}
+                            onChange={(value) => setStageTransition(trigger, value, existing?.id)}
+                            className="h-8 w-full"
+                            options={[{ value: "", label: "— none —" }, ...activeStates.map((state) => ({ value: state.id, label: state.label }))]}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {!editing && canManage && (
+                  <p className="border-t border-border pt-4 text-2xs text-muted-foreground">
+                    Save the stage first to set where it routes next.
+                  </p>
+                )}
 
                 {!canManage && (
                   <div className="border-t border-border pt-3 text-xs text-muted-foreground">

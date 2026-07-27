@@ -474,8 +474,11 @@ export default function JobDetail() {
         </div>
         <div className="flex-1" />
         {!isNew && job && (
-          <span className="pill" style={{ backgroundColor: `${currentState?.color ?? "#64748b"}22`, color: currentState?.color ?? "#64748b" }}>
-            {currentState?.label ?? "No state"}
+          <span className="inline-flex flex-wrap items-center gap-1">
+            <span className="pill" style={{ backgroundColor: `${currentState?.color ?? "#64748b"}22`, color: currentState?.color ?? "#64748b" }}>
+              {currentState?.label ?? "No state"}
+            </span>
+            {currentState?.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
           </span>
         )}
         {!readOnly && !isNew && form.active && (

@@ -161,13 +161,16 @@ Deno.serve(async (req) => {
         if (!fromState || !toState) return json({ error: "invalid_state" }, 400);
         if (!trigger) return json({ error: "trigger_required" }, 400);
 
-        const { error } = await sb.from("job_state_transitions").insert({
+        // Upsert on the (state_set, from_state, trigger) unique key so re-picking a stage's
+        // "next stage after <trigger>" updates the target in place instead of colliding with the
+        // existing row. Keeps the per-stage next-stage editor idempotent (set == create-or-update).
+        const { error } = await sb.from("job_state_transitions").upsert({
           state_set_id: stateSet.id,
           from_state_id: fromState.id,
           to_state_id: toState.id,
           trigger,
           conditions: body.conditions && typeof body.conditions === "object" ? body.conditions : {},
-        });
+        }, { onConflict: "state_set_id,from_state_id,trigger" });
         if (error) throw error;
         return json(await statePayload(sb, locationId), 201);
       }

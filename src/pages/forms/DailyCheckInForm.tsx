@@ -162,13 +162,14 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "submit_failed");
-      // Only claim the office was notified when the phase actually advanced into an
-      // inspection state — that is exactly when the backend enqueues the owner/office
-      // notice. In the walkthrough state there is no inspection transition; a ready-for-
-      // inspection request there re-asks the owner to review the walkthrough instead
-      // (walkthrough_reasked), so the confirmation says that.
+      // Claim the office was notified when the inspection was actually requested — either the
+      // job advanced into a dedicated inspection state (state_changed, old model) OR the work
+      // stage itself carries the inspection tag and the owner date-ask fired in place
+      // (inspection_asked, tag model). In the walkthrough state there is no inspection
+      // transition; a ready-for-inspection request there re-asks the owner to review the
+      // walkthrough instead (walkthrough_reasked), so the confirmation says that.
       setDone({
-        inspectionRequested: Boolean(data.state_changed),
+        inspectionRequested: Boolean(data.state_changed) || Boolean(data.inspection_asked),
         walkthroughReasked: Boolean(data.walkthrough_reasked),
       });
     } catch (err) {

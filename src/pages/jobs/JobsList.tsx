@@ -149,8 +149,11 @@ export default function JobsList() {
                     <td className="px-3 py-2 text-muted-foreground">{job.customers[0]?.name ?? "-"}</td>
                     <td className="px-3 py-2">
                       {job.current_state && (
-                        <span className="pill" style={{ backgroundColor: `${job.current_state.color}22`, color: job.current_state.color }}>
-                          {job.current_state.label}
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          <span className="pill" style={{ backgroundColor: `${job.current_state.color}22`, color: job.current_state.color }}>
+                            {job.current_state.label}
+                          </span>
+                          {job.current_state.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
                         </span>
                       )}
                     </td>
