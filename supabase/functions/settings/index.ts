@@ -2,6 +2,7 @@
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { renderNotification, TEMPLATE_KEYS, TEMPLATE_LABELS } from "../_shared/notifications.ts";
+import { mintActionToken } from "../_shared/action-tokens.ts";
 
 const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
@@ -586,6 +587,39 @@ Deno.serve(async (req) => {
         if (upErr) throw upErr;
         await logEvent({ source: "admin", kind: "settings.message_template", location_id: locationId, payload: { key, cleared: !bodyText.trim(), by: claims.email } });
         return json({ ok: true, message_templates: overrides });
+      }
+
+      if (action === "form_test_token") {
+        if (!(await canUseDebugTool(sb, claims, "forms_preview"))) return json({ error: "forbidden" }, 403);
+        const { data: cs } = await sb.from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
+        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        // The token-gated forms + which need a crew contact bound (check-in / quick-log).
+        const FORM_TEST_SPECS: Record<string, { action: string; path: string; needsContact: boolean }> = {
+          daily_check_in: { action: "daily_check_in", path: "/forms/daily-check-in", needsContact: true },
+          inspection_date: { action: "inspection_date", path: "/forms/inspection-date", needsContact: false },
+          walkthrough_date: { action: "walkthrough_date", path: "/forms/walkthrough-date", needsContact: false },
+          inspection_fix_details: { action: "inspection_fix_details", path: "/forms/inspection-fix-details", needsContact: false },
+          walkthrough_punch_details: { action: "walkthrough_punch_details", path: "/forms/walkthrough-punch-list", needsContact: false },
+          quick_log: { action: "quick_log", path: "/forms/quick-log", needsContact: true },
+        };
+        const spec = FORM_TEST_SPECS[typeof body.form === "string" ? body.form : ""];
+        if (!spec) return json({ error: "invalid_form" }, 400);
+        // Bind the test token to the location's most recent job (+ a crew contact for the crew forms).
+        // Submitting the test form WRITES to that job — surfaced in the UI. Short TTL (1h).
+        const { data: job } = await sb.from("jobs").select("id, address").eq("location_id", locationId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (!job) return json({ error: "no_job" }, 409);
+        let contactId: string | null = null;
+        if (spec.needsContact) {
+          const { data: crew } = await sb.from("contacts").select("id").eq("location_id", locationId).eq("role", "crew").eq("active", true).order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (!crew) return json({ error: "no_crew" }, 409);
+          contactId = crew.id as string;
+        }
+        const minted = await mintActionToken(sb, {
+          action: spec.action, jobId: job.id as string, contactId,
+          payload: { address: job.address ?? null }, ttlSeconds: 3600,
+        });
+        await logEvent({ source: "admin", kind: "settings.form_test_token", location_id: locationId, payload: { form: body.form, job_id: job.id, by: claims.email } });
+        return json({ ok: true, path: spec.path, token: minted.token, job_address: job.address ?? null });
       }
       return json({ error: "unknown_action" }, 400);
     }

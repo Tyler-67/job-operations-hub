@@ -15,6 +15,7 @@ import {
   fetchMessageLog,
   fetchMessageTemplates,
   saveMessageTemplate,
+  formTestToken,
   CLEAR_DATA_CATEGORIES,
   type ClearDataCategory,
   type ClearDataResult,
@@ -60,6 +61,16 @@ const CRON_LABEL_BY_FN: Record<string, string> = {
 };
 
 // Config tabs + a debug tab (the debug tab only renders for users who hold a debug tool).
+// The token-gated forms the Forms debug sub-tab can open a live test copy of.
+const DEBUG_FORMS: { form: string; label: string; note: string }[] = [
+  { form: "daily_check_in", label: "Daily check-in", note: "Crew's daily log — binds to a crew contact + the latest job." },
+  { form: "inspection_date", label: "Inspection date", note: "Owner picks the inspection date." },
+  { form: "walkthrough_date", label: "Walkthrough date", note: "Owner schedules the walkthrough." },
+  { form: "inspection_fix_details", label: "Inspection fix details", note: "Owner records what the inspector flagged." },
+  { form: "walkthrough_punch_details", label: "Walkthrough punch list", note: "Owner's list of remaining items." },
+  { form: "quick_log", label: "Quick log", note: "Crew's quick log — binds to a crew contact + the latest job." },
+];
+
 type SettingsTab = "company" | "notifications" | "supply" | "branding" | "debug";
 const CONFIG_TABS: { key: SettingsTab; label: string }[] = [
   { key: "company", label: "Company" },
@@ -157,7 +168,7 @@ export default function AdminSettings() {
     || (user?.role === "owner_admin" && (user?.debug_tools ?? []).length > 0);
   const confirm = useConfirm();
   const [tab, setTab] = useState<SettingsTab>("company");
-  const [debugSubTab, setDebugSubTab] = useState<"general" | "messages">("general");
+  const [debugSubTab, setDebugSubTab] = useState<"general" | "messages" | "forms">("general");
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
   const [loading, setLoading] = useState(true);
@@ -273,6 +284,27 @@ export default function AdminSettings() {
   }
   function saveTemplate() { void persistTemplate(tplSubject, tplBody); }
   function resetTemplate() { setTplBody(""); setTplSubject(""); void persistTemplate("", ""); }
+
+  // Forms debug sub-tab: mint a single-use token for a form and open a live test copy in a new tab.
+  const [formBusy, setFormBusy] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  async function openTestForm(formKey: string) {
+    setFormBusy(formKey);
+    setFormError(null);
+    try {
+      const res = await formTestToken(formKey);
+      window.open(`${window.location.origin}${res.path}?token=${encodeURIComponent(res.token)}`, "_blank", "noopener");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setFormError(
+        msg.includes("no_job") ? "No job yet — create a job first (the test token binds to one)."
+          : msg.includes("no_crew") ? "No active crew contact — this form binds to a crew member."
+            : "Could not open a test copy.",
+      );
+    } finally {
+      setFormBusy(null);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -808,6 +840,7 @@ export default function AdminSettings() {
               <div className="flex flex-wrap gap-1 border-b border-border bg-card px-4 pt-2">
                 <TabButton active={debugSubTab === "general"} onClick={() => setDebugSubTab("general")}>General</TabButton>
                 <TabButton active={debugSubTab === "messages"} onClick={() => setDebugSubTab("messages")}>Messages</TabButton>
+                <TabButton active={debugSubTab === "forms"} onClick={() => setDebugSubTab("forms")}>Forms</TabButton>
               </div>
             )}
 
@@ -1131,6 +1164,32 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
+            {tab === "debug" && debugSubTab === "forms" && hasDebugTool("forms_preview") && form.debug_mode && (
+              <section className="border-b border-border px-4 py-3">
+                <div className="mb-2">
+                  <h3 className="text-xs font-semibold">Forms</h3>
+                  <p className="text-2xs text-muted-foreground">
+                    Open a live test copy of a token-gated form. Each mints a single-use token bound to this
+                    company&rsquo;s most recent job (crew forms also bind a crew contact), so <strong>submitting the test form writes to that job</strong>. Opens in a new tab; the token expires in 1 hour.
+                  </p>
+                </div>
+                {formError && <div className="mb-2 text-2xs text-destructive">{formError}</div>}
+                <div className="divide-y divide-border rounded-sm border border-border">
+                  {DEBUG_FORMS.map((f) => (
+                    <div key={f.form} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-foreground">{f.label}</div>
+                        <div className="text-2xs text-muted-foreground">{f.note}</div>
+                      </div>
+                      <button type="button" onClick={() => openTestForm(f.form)} disabled={formBusy !== null} className="inline-flex h-8 shrink-0 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:opacity-50">
+                        {formBusy === f.form ? "Opening..." : "Open test copy"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {!canManage && (
               <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">View-only role.</div>
             )}

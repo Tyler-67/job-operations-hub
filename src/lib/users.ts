@@ -49,7 +49,8 @@ export const DEBUG_TOOL_OPTIONS = [
   { key: "conversations", label: "Conversations (backup + clear)" },
   { key: "jobs_clear", label: "Jobs (hard delete)" },
   { key: "data_reset", label: "Data reset (clear categories)" },
-  { key: "message_log", label: "Message log (sent messages)" },
+  { key: "message_log", label: "Message log + formats" },
+  { key: "forms_preview", label: "Forms (directory + test-open)" },
 ] as const;
 export type DebugToolKey = (typeof DEBUG_TOOL_OPTIONS)[number]["key"];
 

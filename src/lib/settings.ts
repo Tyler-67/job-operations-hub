@@ -197,6 +197,13 @@ export function saveMessageTemplate(key: string, subject: string | null, body: s
   return callEdge("settings", { method: "POST", body: { action: "save_message_template", key, subject, body } }) as Promise<{ ok: boolean }>;
 }
 
+// DEBUG: mint a single-use token bound to the latest job (+ a crew contact for crew forms) and
+// return its path + token, so the Forms tab can open a live test copy. debug tool "forms_preview".
+export interface FormTestTokenResult { ok: boolean; path: string; token: string; job_address: string | null }
+export function formTestToken(form: string) {
+  return callEdge("settings", { method: "POST", body: { action: "form_test_token", form } }) as Promise<FormTestTokenResult>;
+}
+
 export interface ContactsSyncResult {
   location: string;
   mode: string;
