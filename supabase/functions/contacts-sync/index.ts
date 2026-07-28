@@ -12,6 +12,7 @@ import { uptiqApiLocationId } from "../_shared/instances.ts";
 import { renderNotification } from "../_shared/notifications.ts";
 
 import { isManager, isAdmin } from "../_shared/roles.ts";
+import { cleanText, cleanEmail } from "../_shared/validation.ts";
 
 function reachable(email: unknown, phone: unknown) {
   return Boolean((typeof email === "string" && email.trim()) || (typeof phone === "string" && phone.trim()));
@@ -393,8 +394,33 @@ Deno.serve(async (req) => {
   // Fail loud on a mode this function no longer (or never) supported — e.g. the retired
   // pull_crew/pull_tag modes (the full-mirror pull imports crew too) — instead of silently
   // falling through to link. Omitting mode entirely still defaults to link (original behavior).
-  const KNOWN_MODES = new Set(["delete", "set_active", "list_conversations", "delete_conversation", "pull_contacts", "sync", "link", "upsert"]);
+  const KNOWN_MODES = new Set(["create", "update", "delete", "set_active", "list_conversations", "delete_conversation", "pull_contacts", "sync", "link", "upsert"]);
   if (body.mode !== undefined && !KNOWN_MODES.has(String(body.mode))) return json({ error: "unknown_mode" }, 400);
+
+  // Create/edit an app contact natively — the app OWNS contacts; uptiq_contact_id is optional
+  // enrichment a later Uptiq sync fills in. This is what lets Contacts work with Uptiq as a
+  // tie-in rather than the source. Tenant-scoped by location_id.
+  if (body.mode === "create" || body.mode === "update") {
+    const name = cleanText(body.name);
+    if (!name) return json({ error: "name_required" }, 400);
+    let email: string | null;
+    try { email = cleanEmail(body.email); } catch { return json({ error: "invalid_email" }, 400); }
+    const patch = { name, role: cleanText(body.role) ?? "other", email, phone: cleanText(body.phone) };
+    const cols = "id, name, role, email, phone, uptiq_contact_id, active, created_at";
+    if (body.mode === "create") {
+      const { data, error } = await sb.from("contacts").insert({ location_id: locId, active: true, ...patch }).select(cols).single();
+      if (error) return json({ error: error.message }, 500);
+      await logEvent({ source: "admin", kind: "contact_created", location_id: locId, payload: { contact_id: data.id, name, by: claims.email } });
+      return json({ ok: true, contact: data });
+    }
+    const contactId = typeof body.contact_id === "string" ? body.contact_id : "";
+    if (!contactId) return json({ error: "contact_id_required" }, 400);
+    const { data, error } = await sb.from("contacts").update(patch).eq("id", contactId).eq("location_id", locId).select(cols).maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ error: "not_found" }, 404);
+    await logEvent({ source: "admin", kind: "contact_updated", location_id: locId, payload: { contact_id: contactId, name, by: claims.email } });
+    return json({ ok: true, contact: data });
+  }
 
   // Manage an app contact directly (no Uptiq round-trip): hard delete, or toggle active.
   // Tenant-scoped by location_id so a caller can never touch another tenant's row.

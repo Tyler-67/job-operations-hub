@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, ChevronDown, ChevronRight, Mail, MessageSquare, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, Mail, MessageSquare, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
 import {
-  canManageContacts, deleteContact, fetchContacts, setContactActive, fetchContactMessages,
-  type ContactRow, type ContactsListResponse, type ContactMessage,
+  canManageContacts, createContact, deleteContact, fetchContacts, setContactActive, updateContact, fetchContactMessages,
+  type ContactRow, type ContactsListResponse, type ContactMessage, type ContactInput,
 } from "@/lib/contacts";
 import { syncWithUptiq } from "@/lib/settings";
 import { useSession } from "@/lib/session";
 import { useConfirm } from "@/components/dialogs";
+import { InlineSelect } from "@/components/InlineSelect";
 import { cn } from "@/lib/utils";
+
+const ROLE_OPTIONS = [
+  { value: "customer", label: "Customer" }, { value: "crew", label: "Crew" },
+  { value: "owner", label: "Owner" }, { value: "office", label: "Office" },
+  { value: "supply_house", label: "Supply house" }, { value: "other", label: "Other" },
+];
 
 const ROLE_LABELS: Record<string, string> = {
   customer: "Customers", crew: "Crew", owner: "Owner", office: "Office", supply_house: "Supply houses", other: "Other",
@@ -50,6 +57,11 @@ export default function AdminContacts() {
   const [messages, setMessages] = useState<ContactMessage[] | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgError, setMsgError] = useState<string | null>(null);
+
+  // Native add/edit form (Uptiq-independent). null = closed; id=null = create.
+  const [form, setForm] = useState<{ id: string | null; name: string; role: string; email: string; phone: string } | null>(null);
+  const [formBusy, setFormBusy] = useState(false);
+  const [formErr, setFormErr] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -174,6 +186,26 @@ export default function AdminContacts() {
     }
   }
 
+  function openCreate() { setFormErr(null); setForm({ id: null, name: "", role: "customer", email: "", phone: "" }); }
+  function openEdit(c: ContactRow) { setFormErr(null); setForm({ id: c.id, name: c.name ?? "", role: (c.role ?? "other").toString(), email: c.email ?? "", phone: c.phone ?? "" }); }
+  async function saveContact() {
+    if (!form || !form.name.trim()) { setFormErr("Name is required."); return; }
+    setFormBusy(true); setFormErr(null);
+    const input: ContactInput = { name: form.name.trim(), role: form.role, email: form.email.trim() || null, phone: form.phone.trim() || null };
+    try {
+      const res = form.id ? await updateContact(form.id, input) : await createContact(input);
+      setForm(null);
+      setNotice(form.id ? "Contact updated." : "Contact added.");
+      load();
+      if (res?.contact?.id) setSelectedId(res.contact.id);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Could not save contact";
+      setFormErr(m === "invalid_email" ? "That email doesn't look valid." : m === "name_required" ? "Name is required." : m);
+    } finally {
+      setFormBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
@@ -188,6 +220,11 @@ export default function AdminContacts() {
           placeholder="Search contacts..."
           className="h-8 w-56 rounded-sm border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
         />
+        {canManage && (
+          <button type="button" onClick={openCreate} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border px-3 text-xs hover:bg-muted">
+            <Plus className="h-3.5 w-3.5" /> Add contact
+          </button>
+        )}
         {canManage && (
           <button type="button" onClick={handleSync} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
             <RefreshCw className={cn("h-3.5 w-3.5", pulling && "animate-spin")} />
@@ -262,6 +299,9 @@ export default function AdminContacts() {
                 </div>
                 {canManage && (
                   <div className="flex gap-1">
+                    <button type="button" title="Edit" onClick={() => openEdit(selected)} className="icon-btn">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                     <button type="button" title={selected.active ? "Deactivate" : "Reactivate"} disabled={busyId === selected.id} onClick={() => handleToggleActive(selected)} className="icon-btn">
                       {selected.active ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
                     </button>
@@ -312,6 +352,37 @@ export default function AdminContacts() {
           )}
         </section>
       </div>
+
+      {form && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!formBusy) setForm(null); }}>
+          <div className="w-full max-w-sm rounded-md border border-border bg-card p-4 text-foreground" onClick={(event) => event.stopPropagation()}>
+            <h2 className="mb-3 text-sm font-semibold">{form.id ? "Edit contact" : "Add contact"}</h2>
+            <div className="space-y-2">
+              <label className="block">
+                <span className="text-2xs uppercase tracking-wider text-muted-foreground">Name</span>
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={formBusy} className="mt-0.5 h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+              </label>
+              <label className="block">
+                <span className="text-2xs uppercase tracking-wider text-muted-foreground">Tag / role</span>
+                <InlineSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} disabled={formBusy} className="mt-0.5 h-9 w-full" options={ROLE_OPTIONS} />
+              </label>
+              <label className="block">
+                <span className="text-2xs uppercase tracking-wider text-muted-foreground">Email</span>
+                <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={formBusy} className="mt-0.5 h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+              </label>
+              <label className="block">
+                <span className="text-2xs uppercase tracking-wider text-muted-foreground">Phone</span>
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} disabled={formBusy} type="tel" className="mt-0.5 h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+              </label>
+            </div>
+            {formErr && <div className="mt-2 text-xs text-destructive">{formErr}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" disabled={formBusy} onClick={() => setForm(null)} className="inline-flex h-8 items-center rounded-sm border border-border px-3 text-xs hover:bg-muted disabled:opacity-60">Cancel</button>
+              <button type="button" disabled={formBusy || !form.name.trim()} onClick={saveContact} className="inline-flex h-8 items-center rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">{formBusy ? "Saving..." : "Save"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

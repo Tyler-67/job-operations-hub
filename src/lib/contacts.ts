@@ -60,6 +60,16 @@ export function setContactActive(id: string, active: boolean) {
   return callEdge("contacts-sync", { body: { mode: "set_active", contact_id: id, active } }) as unknown as Promise<{ ok: boolean; contact_id: string; active: boolean }>;
 }
 
+// Native contact create/edit (no Uptiq needed — the app owns contacts; uptiq_contact_id is
+// optional enrichment a later sync fills in). owner_admin / support_admin.
+export interface ContactInput { name: string; role: string; email: string | null; phone: string | null }
+export function createContact(input: ContactInput) {
+  return callEdge("contacts-sync", { body: { mode: "create", ...input } }) as unknown as Promise<{ ok: boolean; contact: ContactRow }>;
+}
+export function updateContact(id: string, input: ContactInput) {
+  return callEdge("contacts-sync", { body: { mode: "update", contact_id: id, ...input } }) as unknown as Promise<{ ok: boolean; contact: ContactRow }>;
+}
+
 export interface ConversationDeleteResult {
   mode: string;
   dry_run: boolean;
