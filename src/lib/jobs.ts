@@ -1,5 +1,6 @@
 import { callEdge } from "@/lib/session";
 import { isManager } from "@/lib/roles";
+import { money, date } from "@/lib/format";
 import type { Database } from "@/integrations/supabase/types";
 
 export type JobState = Database["public"]["Tables"]["job_states"]["Row"];
@@ -208,21 +209,5 @@ export function deleteJob(id: string, dryRun: boolean) {
 
 export const canManageJobs = isManager;
 
-export function currency(value: number | null | undefined) {
-  return typeof value === "number"
-    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value)
-    : "-";
-}
-
-export function shortDate(value: string | null | undefined) {
-  if (!value) return "-";
-  // Date-only strings ("YYYY-MM-DD", e.g. job start/inspection/log dates) must render as a
-  // local calendar date. `new Date("2026-07-13")` parses as UTC midnight, which displays the
-  // PRIOR day in any negative-offset timezone (US zones) — an off-by-one. Build a local date
-  // from the parts instead. Full timestamps (with time/zone) fall through and render as-is.
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (dateOnly) {
-    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])).toLocaleDateString();
-  }
-  return new Date(value).toLocaleDateString();
-}
+export const currency = (value: number | null | undefined) => money(value);
+export const shortDate = date;

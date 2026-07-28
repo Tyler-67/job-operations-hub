@@ -1,5 +1,6 @@
 import { callEdge } from "@/lib/session";
 import { isManager } from "@/lib/roles";
+import { timeInput } from "@/lib/format";
 import type { SupplyHouse } from "@/lib/expenses";
 
 export interface SettingsLocation {
@@ -255,12 +256,4 @@ export function syncWithUptiq(opts: { dryRun?: boolean } = {}) {
   return callEdge("contacts-sync", { method: "POST", body: { mode: "sync", dry_run: Boolean(opts.dryRun) } }) as unknown as Promise<UptiqSyncResult>;
 }
 
-export function timeForInput(value: string | null | undefined) {
-  return value ? value.slice(0, 5) : "";
-}
-
-export function moneyLabel(value: number | null | undefined) {
-  return typeof value === "number"
-    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value)
-    : "-";
-}
+export const timeForInput = timeInput;

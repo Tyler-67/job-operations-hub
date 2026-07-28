@@ -1,5 +1,6 @@
 import { callEdge } from "@/lib/session";
 import { isManager } from "@/lib/roles";
+import { money as fmtMoney, date as fmtDate } from "@/lib/format";
 import type { Database } from "@/integrations/supabase/types";
 
 export type JobExpense = Database["public"]["Tables"]["job_expenses"]["Row"];
@@ -105,12 +106,5 @@ export function updatePurchaseOrder(payload: UpdatePurchaseOrderPayload) {
   return callEdge("expenses", { method: "PATCH", body: { action: "update_po", ...payload } }) as Promise<ExpensesResponse>;
 }
 
-export function money(value: number | null | undefined) {
-  return typeof value === "number"
-    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value)
-    : "-";
-}
-
-export function dateLabel(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleDateString() : "-";
-}
+export const money = (value: number | null | undefined) => fmtMoney(value, { cents: true });
+export const dateLabel = fmtDate;
