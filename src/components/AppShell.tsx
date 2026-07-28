@@ -64,6 +64,14 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
   },
 ];
 
+// True when the app is embedded in an iframe — i.e. running inside Uptiq (our only allowed frame
+// ancestor). Uptiq's iframe clips the right edge, so we reserve breathing room on that side when
+// embedded. Standalone (a browser tab, or the token/SMS-link forms) renders flush. Computed once:
+// the framing can't change over the page's lifetime.
+const EMBEDDED = typeof window !== "undefined" && (() => {
+  try { return window.self !== window.top; } catch { return true; }
+})();
+
 export default function AppShell() {
   const { user, location, loading, error, needsLogin, signOut } = useSession();
   const [pwOpen, setPwOpen] = useState(false);
@@ -149,7 +157,7 @@ export default function AppShell() {
 
   return (
     <DialogProvider>
-    <div className="grid h-screen grid-cols-[220px_1fr] grid-rows-[44px_1fr] bg-background">
+    <div className={cn("grid h-screen grid-cols-[220px_1fr] grid-rows-[44px_1fr] bg-background", EMBEDDED && "pr-6")}>
       <header className="col-span-2 flex items-center justify-between border-b border-border bg-sidebar px-4 text-sidebar-foreground">
         <div className="flex items-center gap-3">
           <div className="flex h-6 w-6 items-center justify-center rounded-sm bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">U</div>
