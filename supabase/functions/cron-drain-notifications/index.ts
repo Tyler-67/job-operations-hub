@@ -5,7 +5,7 @@
 // next tick) until MAX_ATTEMPTS, then 'failed'. Other channels (task/webhook) are left for
 // their own handlers.
 import { json, preflight, requireCronSecret, serviceClient, logEvent } from "../_shared/util.ts";
-import { uptiq } from "../_shared/uptiq.ts";
+import { activeProvider, type Recipient } from "../_shared/messaging.ts";
 import { renderNotification } from "../_shared/notifications.ts";
 
 const MAX_ATTEMPTS = 5;
@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
     for (const l of locs ?? []) locByRowId.set(l.id as string, l.location_id as string);
   }
 
+  const provider = activeProvider();
   let sent = 0, failed = 0, skipped = 0;
   for (const row of due ?? []) {
     const attempts = Number(row.attempts ?? 0) + 1;
@@ -64,19 +65,23 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    // Address via the active messaging provider (Uptiq today). uptiqContactId = the stored
+    // recipient; phone/email are left for a future non-Uptiq provider to resolve from the contact.
+    // Keeps Uptiq behavior identical while leaving room to swap the delivery channel.
+    const to: Recipient = { uptiqContactId: recipient };
     let result: { ok: boolean; error?: string };
     try {
       const payload = (row.payload ?? {}) as Record<string, unknown>;
       if (row.channel === "tag") {
         const tag = typeof payload.tag === "string" ? payload.tag.trim() : "";
         result = tag
-          ? await uptiq.applyTag(recipient, tag)
+          ? await provider.applyTag(to, tag)
           : { ok: false, error: "missing_tag" };
       } else {
         const msg = renderNotification(row.template_key, payload, overridesByLoc.get(locByRowId.get(row.id) ?? ""));
         result = row.channel === "sms"
-          ? await uptiq.sendSms(recipient, msg.body)
-          : await uptiq.sendEmail(recipient, msg.subject ?? "", msg.body);
+          ? await provider.sendSms(to, msg.body)
+          : await provider.sendEmail(to, msg.subject ?? "", msg.body);
       }
     } catch (e) {
       result = { ok: false, error: String(e) };
