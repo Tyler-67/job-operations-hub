@@ -7,33 +7,12 @@
 // member's chosen job_id is re-validated against their active crew membership server-side,
 // so the token payload's job list can never be used to log against someone else's job.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
-import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
+import { isDuplicateKeyError } from "../_shared/validation.ts";
+import { consumeActionToken } from "../_shared/action-tokens.ts";
 import { normalizeQuickLogInput, buildQuickLogLogFields } from "../_shared/quick-log.ts";
 import { accumulateHours } from "../_shared/check-in.ts";
 
 const QUICK_LOG_ACTION = "quick_log";
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
-}
-
-// Atomically claims the token while it is still unused and unexpired.
-async function consumeToken(sb: any, token: string) {
-  const hash = await hashActionToken(token, resolveActionSecret());
-  const now = new Date().toISOString();
-  const { data, error } = await sb
-    .from("action_tokens")
-    .update({ used_at: now })
-    .eq("token_hash", hash)
-    .eq("action", QUICK_LOG_ACTION)
-    .is("used_at", null)
-    .gt("expires_at", now)
-    .select("job_id, contact_id, payload")
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
-}
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -46,7 +25,7 @@ Deno.serve(async (req) => {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json({ error: "missing_token" }, 400);
 
-    const claim = await consumeToken(sb, token);
+    const claim = await consumeActionToken(sb, token, QUICK_LOG_ACTION);
     if (!claim) return json({ error: "invalid_or_expired" }, 410);
     if (!claim.contact_id) return json({ error: "token_not_bound" }, 422);
     const crewContactId = claim.contact_id as string;

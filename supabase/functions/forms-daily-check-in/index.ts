@@ -9,8 +9,9 @@
 // consumed FIRST: a replayed submit returns 410, which also makes the purchase-order
 // and notification writes below safe without their own dedupe keys.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { isDuplicateKeyError } from "../_shared/validation.ts";
 import { appBaseUrlFor, resolveAppBaseUrl } from "../_shared/instances.ts";
-import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
+import { consumeActionToken } from "../_shared/action-tokens.ts";
 import { applyTransition } from "../_shared/state-machine.ts";
 import { accumulateHours, buildDailyLogFields, classifyParts, normalizeCheckInInput } from "../_shared/check-in.ts";
 import { enqueueFinishWalkthroughAsk } from "../_shared/finish-walkthrough.ts";
@@ -20,29 +21,6 @@ import { queueInspectionDateAsk } from "../_shared/inspection-notify.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 
 const CHECK_IN_ACTION = "daily_check_in";
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
-}
-
-// Atomically claims the token: marks it used only while it is still unused and
-// unexpired, returning the bound job/contact. Null means already used / expired.
-async function consumeToken(sb: any, token: string) {
-  const hash = await hashActionToken(token, resolveActionSecret());
-  const now = new Date().toISOString();
-  const { data, error } = await sb
-    .from("action_tokens")
-    .update({ used_at: now })
-    .eq("token_hash", hash)
-    .eq("action", CHECK_IN_ACTION)
-    .is("used_at", null)
-    .gt("expires_at", now)
-    .select("id, job_id, contact_id, payload")
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
-}
 
 // Expense totals are recomputed from the sum (the office edits expenses elsewhere, so re-deriving
 // keeps them authoritative). Hours are NOT summed here — each check-in ADDS its hours to the job's
@@ -317,7 +295,7 @@ Deno.serve(async (req) => {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json({ error: "missing_token" }, 400);
 
-    const claim = await consumeToken(sb, token);
+    const claim = await consumeActionToken(sb, token, CHECK_IN_ACTION);
     if (!claim) return json({ error: "invalid_or_expired" }, 410);
     if (!claim.job_id || !claim.contact_id) return json({ error: "token_not_bound" }, 422);
 

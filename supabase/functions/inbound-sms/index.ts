@@ -3,6 +3,7 @@
 // On the LOG keyword it replies (via the drain cron) with a single-use quick-log link
 // bound to the texting crew member; other keywords are still logged as stubs for now.
 import { json, preflight, serviceClient, logEvent } from "../_shared/util.ts";
+import { isDuplicateKeyError } from "../_shared/validation.ts";
 import { appBaseUrlFor } from "../_shared/instances.ts";
 import { mintActionToken, buildActionLink } from "../_shared/action-tokens.ts";
 import { triggerDrain } from "../_shared/drain.ts";
@@ -10,11 +11,6 @@ import { parseInboundSms, isQuickLogKeyword, quickLogLinkDedupeKey } from "../_s
 
 const QUICK_LOG_ACTION = "quick_log";
 const QUICK_LOG_FORM_PATH = "/forms/quick-log";
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
-}
 
 // Resolves the texting contact: prefer the Uptiq contact id, fall back to a phone match.
 async function resolveSender(sb: any, fromContactId: string | null, fromPhone: string | null) {

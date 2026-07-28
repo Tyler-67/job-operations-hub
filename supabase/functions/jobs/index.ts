@@ -15,21 +15,11 @@ import { triggerDrain } from "../_shared/drain.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 
 import { isManager } from "../_shared/roles.ts";
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
+import { cleanText, nullableNumber } from "../_shared/validation.ts";
 
 function numberValue(value: unknown, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
-}
-
-function nullableNumber(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
 }
 
 function canWrite(role: unknown) {

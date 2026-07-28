@@ -2,7 +2,8 @@
 // POST /invoice-paid - Uptiq invoice-paid webhook intake.
 // Requires x-cron-secret and only marks a job paid after resolving the Uptiq location.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
-import { cleanText, markJobPaid } from "../_shared/job-payments.ts";
+import { cleanText } from "../_shared/validation.ts";
+import { markJobPaid } from "../_shared/job-payments.ts";
 
 function firstText(...values: unknown[]) {
   for (const value of values) {

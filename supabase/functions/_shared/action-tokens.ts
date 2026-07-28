@@ -23,6 +23,24 @@ export function hashActionToken(token: string, secret: string): Promise<string> 
   return sha256Hex(`${token}.${secret}`);
 }
 
+// Single-use consume: burn the token (set used_at) only if it's unused, unexpired, and matches
+// `action`, returning its job/contact/payload (or null). Replaces the identical per-form copies.
+export async function consumeActionToken(sb: any, token: string, action: string) {
+  const hash = await hashActionToken(token, resolveActionSecret());
+  const now = new Date().toISOString();
+  const { data, error } = await sb
+    .from("action_tokens")
+    .update({ used_at: now })
+    .eq("token_hash", hash)
+    .eq("action", action)
+    .is("used_at", null)
+    .gt("expires_at", now)
+    .select("id, job_id, contact_id, payload")
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
+}
+
 // 32 random bytes as hex — unguessable, URL-safe.
 export function generateActionToken(): string {
   const bytes = new Uint8Array(32);

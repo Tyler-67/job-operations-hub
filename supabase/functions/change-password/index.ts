@@ -4,11 +4,7 @@
 // with no admin role and no email involved. Sets the Supabase Auth password AND the
 // admin-viewable app_users.login_password (BETA) so the two stay in sync.
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
+import { cleanText } from "../_shared/validation.ts";
 
 // Set the auth.users password (create the row if it doesn't exist yet — e.g. an iframe user
 // who never had a standalone password). Throws on failure so we never report success without

@@ -7,32 +7,12 @@
 // free-text details. The token is single-use and consumed FIRST: a replayed submit returns
 // 410, which also makes the note append + crew notice below safe without their own dedupe.
 import { json, preflight, serviceClient } from "../_shared/util.ts";
-import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
+import { isDuplicateKeyError } from "../_shared/validation.ts";
+import { consumeActionToken } from "../_shared/action-tokens.ts";
 import { appendFixDetailsNote, normalizeFixDetailsInput } from "../_shared/fix-details.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 
 const FIX_DETAILS_ACTION = "inspection_fix_details";
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
-}
-
-async function consumeToken(sb: any, token: string) {
-  const hash = await hashActionToken(token, resolveActionSecret());
-  const now = new Date().toISOString();
-  const { data, error } = await sb
-    .from("action_tokens")
-    .update({ used_at: now })
-    .eq("token_hash", hash)
-    .eq("action", FIX_DETAILS_ACTION)
-    .is("used_at", null)
-    .gt("expires_at", now)
-    .select("id, job_id, contact_id, payload")
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
-}
 
 // The lead crew's Uptiq contact id, so the drain cron can deliver the fix list to them.
 async function crewLeadContactId(sb: any, jobId: string): Promise<string | null> {
@@ -58,7 +38,7 @@ Deno.serve(async (req) => {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json({ error: "missing_token" }, 400);
 
-    const claim = await consumeToken(sb, token);
+    const claim = await consumeActionToken(sb, token, FIX_DETAILS_ACTION);
     if (!claim) return json({ error: "invalid_or_expired" }, 410);
     if (!claim.job_id) return json({ error: "token_not_bound" }, 422);
     const jobId = claim.job_id as string;

@@ -1,21 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { cleanText, cleanEmail } from "../_shared/validation.ts";
 import { isDebugTool } from "../_shared/debug-access.ts";
 
 import { isManager, isAdmin, APP_ROLES } from "../_shared/roles.ts";
 // Roles that count as "an owner" for the last-owner guard (don't orphan the company).
 const OWNER_ROLES = ["dev_super", "owner_admin"];
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
-
-function cleanEmail(value: unknown) {
-  const email = cleanText(value)?.toLowerCase() ?? null;
-  if (!email) return null;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
-}
 
 function canRead(role: unknown) {
   return isManager(role);

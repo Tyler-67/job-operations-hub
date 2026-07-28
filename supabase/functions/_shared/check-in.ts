@@ -2,6 +2,7 @@
 // imports so the parsing/classification rules are unit-testable under vitest. The
 // edge function (forms-daily-check-in) does the DB writes; everything here is a
 // deterministic transform of the raw form body.
+import { cleanText } from "./validation.ts";
 
 export type PartsSource = "none" | "field_purchase" | "supply_house";
 
@@ -27,11 +28,6 @@ export interface CheckInInput {
   jobSitePhotoUrls: string[];
   issues: string | null;
   inspectionRequested: boolean;
-}
-
-function cleanText(value: unknown): string | null {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
 }
 
 function clampPct(value: unknown): number | null {

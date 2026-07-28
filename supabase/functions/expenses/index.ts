@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { cleanText, nullableNumber } from "../_shared/validation.ts";
 
 import { isManager } from "../_shared/roles.ts";
 const EXPENSE_KINDS = new Set(["field_purchase", "adjustment"]);
@@ -7,17 +8,6 @@ const EXPENSE_KINDS = new Set(["field_purchase", "adjustment"]);
 // allows `valued` (it's the natural result of setting a final amount).
 const PO_STATUSES = new Set(["draft", "sent", "pending_value", "cancelled"]);
 const PO_STATUSES_ALL = new Set(["draft", "sent", "pending_value", "valued", "cancelled"]);
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
-
-function nullableNumber(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
 
 function requiredAmount(value: unknown) {
   const num = nullableNumber(value);

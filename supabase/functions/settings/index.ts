@@ -1,23 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
+import { cleanText, cleanEmail } from "../_shared/validation.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { renderNotification, TEMPLATE_KEYS, TEMPLATE_LABELS } from "../_shared/notifications.ts";
 import { mintActionToken } from "../_shared/action-tokens.ts";
 
 import { isManager } from "../_shared/roles.ts";
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
-
-function cleanEmail(value: unknown) {
-  const email = cleanText(value)?.toLowerCase() ?? null;
-  if (!email) return null;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("invalid_email");
-  return email;
-}
 
 function cleanTime(value: unknown) {
   const time = cleanText(value);

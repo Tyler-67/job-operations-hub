@@ -5,6 +5,7 @@
 // Split into a pure resolver (resolveTransition) that is unit-testable with plain
 // data, and a thin I/O wrapper (applyTransition) that does the guarded DB update.
 // No Deno or remote imports here so the resolver can run under vitest.
+import { isDuplicateKeyError } from "./validation.ts";
 
 export type TransitionTrigger =
   | "inspection_requested"
@@ -80,11 +81,6 @@ export interface ApplyTransitionOptions {
   dedupeKey?: string;
   // New phases start fresh; set false to preserve state_progress_pct across a move.
   resetProgressOnChange?: boolean;
-}
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
 }
 
 // Applies a single state transition with a guarded UPDATE so a replayed trigger

@@ -1,13 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { maybeBuildCompletionReport } from "./completion-report.ts";
 import { maybeEnqueueReviewRequest } from "./review-request.ts";
+import { cleanText } from "./validation.ts";
 
 const PAID_SOURCES = new Set(["quickbooks", "uptiq_invoice", "manual"]);
-
-export function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
 
 function paidSource(value: unknown) {
   const source = cleanText(value) ?? "manual";

@@ -3,20 +3,9 @@
 // Direct location scoping (claims.loc); all admin roles read + write; soft-delete via active
 // (a hard delete would violate the RESTRICT FK on purchase_orders.supply_house_id).
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { cleanText, cleanEmail } from "../_shared/validation.ts";
 
 import { isManager } from "../_shared/roles.ts";
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
-
-function cleanEmail(value: unknown) {
-  const email = cleanText(value)?.toLowerCase() ?? null;
-  if (!email) return null;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("invalid_email");
-  return email;
-}
 
 // Email is required for a supply house (parts orders are emailed to it). Validates the format
 // and rejects an empty value. NOTE: this guards the admin CRUD only — the Uptiq contact pull

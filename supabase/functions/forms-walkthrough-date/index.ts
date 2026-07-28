@@ -11,35 +11,15 @@
 // owner from recording the date. Picking TODAY fires the APPROVE / PUNCH-LIST ask
 // immediately (the reminder cron's today-check may already be past for the day).
 import { json, preflight, serviceClient } from "../_shared/util.ts";
+import { isDuplicateKeyError } from "../_shared/validation.ts";
 import { appBaseUrlFor } from "../_shared/instances.ts";
-import { hashActionToken, resolveActionSecret } from "../_shared/action-tokens.ts";
+import { consumeActionToken } from "../_shared/action-tokens.ts";
 import { normalizeInspectionDateInput } from "../_shared/inspection.ts";
 import { syncInspectionAppointment } from "../_shared/inspection-calendar.ts";
 import { enqueueWalkthroughResultAsk, stateOffersWalkthroughApproved } from "../_shared/walkthrough.ts";
 import { WALKTHROUGH_DATE_ACTION } from "../_shared/walkthrough-notify.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
-
-function isDuplicateKeyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
-  return message.toLowerCase().includes("duplicate");
-}
-
-async function consumeToken(sb: any, token: string) {
-  const hash = await hashActionToken(token, resolveActionSecret());
-  const now = new Date().toISOString();
-  const { data, error } = await sb
-    .from("action_tokens")
-    .update({ used_at: now })
-    .eq("token_hash", hash)
-    .eq("action", WALKTHROUGH_DATE_ACTION)
-    .is("used_at", null)
-    .gt("expires_at", now)
-    .select("id, job_id, contact_id, payload")
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
-}
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -53,7 +33,7 @@ Deno.serve(async (req) => {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json({ error: "missing_token" }, 400);
 
-    const claim = await consumeToken(sb, token);
+    const claim = await consumeActionToken(sb, token, WALKTHROUGH_DATE_ACTION);
     if (!claim) return json({ error: "invalid_or_expired" }, 410);
     if (!claim.job_id) return json({ error: "token_not_bound" }, 422);
     const jobId = claim.job_id as string;

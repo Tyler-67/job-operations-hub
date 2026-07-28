@@ -1,12 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
+import { cleanText } from "../_shared/validation.ts";
 
 import { isManager } from "../_shared/roles.ts";
-
-function cleanText(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return text.length ? text : null;
-}
 
 function boolValue(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
