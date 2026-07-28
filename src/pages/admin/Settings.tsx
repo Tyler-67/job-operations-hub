@@ -25,6 +25,7 @@ import {
   type SettingsResponse,
 } from "@/lib/settings";
 import { useSession } from "@/lib/session";
+import { currentEnvLabel, otherEnvLabel, switchEnv } from "@/lib/envswitch";
 import { InlineSelect, type SelectOption } from "@/components/InlineSelect";
 import { InlineMultiSelect } from "@/components/InlineMultiSelect";
 import { useConfirm } from "@/components/dialogs";
@@ -707,6 +708,26 @@ export default function AdminSettings() {
                       tenant. Toggling shows/hides the panels immediately; <strong>Save Settings</strong> to persist it.
                     </span>
                   </label>
+                </div>
+              </section>
+            )}
+
+            {/* Environment switch — dev_super only. Bounces this iframe between the Dev and Stable
+                builds so a developer can preview either version inside Uptiq. Not gated behind
+                debug_mode so the bounce-back is always reachable. */}
+            {user?.role === "dev_super" && (
+              <section className="border-b border-border">
+                <div className="border-b border-border bg-muted/60 px-4 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Environment</div>
+                <div className="flex flex-wrap items-center gap-2 px-4 py-4">
+                  <span className="pill bg-muted text-muted-foreground">On: {currentEnvLabel()}</span>
+                  <button
+                    type="button"
+                    onClick={switchEnv}
+                    className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    Switch to {otherEnvLabel()} &rarr;
+                  </button>
+                  <span className="text-2xs text-muted-foreground">Preview the Dev or Stable (prod) build inside Uptiq. dev_super only.</span>
                 </div>
               </section>
             )}

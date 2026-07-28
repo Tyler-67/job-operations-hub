@@ -125,6 +125,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         // DOOR 1 — Uptiq iframe (unchanged).
         if (fromIframe) {
+          // Stash the raw Uptiq bootstrap params BEFORE we strip them below, so the dev-only
+          // env-switch tool can hand them to the other deployment's origin. See src/lib/envswitch.ts.
+          try {
+            sessionStorage.setItem("uptiq.iframe_boot", JSON.stringify({
+              location_id: params.get("location_id"),
+              user_email: params.get("user_email"),
+              user_name: params.get("user_name") || undefined,
+              phone: params.get("phone") || undefined,
+            }));
+          } catch { /* sessionStorage unavailable */ }
           const out = await callEdge("iframe-session", {
             body: {
               location_id: params.get("location_id"),

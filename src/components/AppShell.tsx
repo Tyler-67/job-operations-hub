@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { callEdge, useSession } from "@/lib/session";
+import { currentEnvLabel, devBuildBlocked, switchEnv } from "@/lib/envswitch";
 import { roleLabel } from "@/lib/users";
 import {
   BarChart3,
@@ -57,6 +58,28 @@ export default function AppShell() {
     return (
       <div className="flex h-screen items-center justify-center p-6 text-center text-sm text-destructive">
         Session failed: {error}
+      </div>
+    );
+  }
+
+  // The dev (non-production) build is a dev_super-only sandbox. Any other role that reaches it is
+  // blocked from the authenticated app and pointed at production. No-op on the prod host. The
+  // token-gated form/action routes don't mount AppShell, so dev-tenant SMS links still work.
+  if (devBuildBlocked(user?.role)) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="text-sm font-semibold text-foreground">Preview build &mdash; not available</div>
+        <p className="max-w-md text-xs text-muted-foreground">
+          You&rsquo;re on the <strong>{currentEnvLabel()}</strong> build, which is limited to developers.
+          Please use the production app.
+        </p>
+        <button
+          type="button"
+          onClick={switchEnv}
+          className="inline-flex h-9 items-center rounded-sm bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90"
+        >
+          Go to the production app
+        </button>
       </div>
     );
   }
