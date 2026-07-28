@@ -1,4 +1,5 @@
 import { callEdge } from "@/lib/session";
+import { isManager } from "@/lib/roles";
 import type { Database } from "@/integrations/supabase/types";
 
 export type SupplyHouseRow = Database["public"]["Tables"]["supply_house_contacts"]["Row"];
@@ -21,9 +22,7 @@ export interface SaveSupplyHousePayload {
   active: boolean;
 }
 
-export function canManageSupplyHouses(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canManageSupplyHouses = isManager;
 
 export function fetchSupplyHouses() {
   return callEdge("supply-houses") as Promise<SupplyHousesResponse>;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
 
-const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager } from "../_shared/roles.ts";
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -30,7 +30,7 @@ function isValidSlug(value: string) {
 }
 
 function canWrite(role: unknown) {
-  return ADMIN_ROLES.has(String(role ?? ""));
+  return isManager(role);
 }
 
 async function defaultStateSet(sb: any, locationId: string) {

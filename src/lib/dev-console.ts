@@ -1,6 +1,7 @@
 // API client for the Developer console (dev_super only — the backend re-checks the fresh
 // role on every call; the FE gate is cosmetic).
 import { callEdge } from "@/lib/session";
+import { isDevSuper } from "@/lib/roles";
 
 export interface InstanceMetrics {
   users_active: number;
@@ -37,9 +38,7 @@ export interface InstanceDraft {
   clone_states_from?: string;
 }
 
-export function canUseDevConsole(role?: string | null) {
-  return role === "dev_super";
-}
+export const canUseDevConsole = isDevSuper;
 
 export async function fetchDevOverview(): Promise<DevOverview> {
   return await callEdge("dev-console") as unknown as DevOverview;

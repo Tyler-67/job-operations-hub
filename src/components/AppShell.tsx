@@ -4,6 +4,7 @@ import { callEdge, listInstances, switchInstance, useSession, type AppInstance }
 import { currentEnvLabel, devBuildBlocked, switchEnv } from "@/lib/envswitch";
 import { ChangelogOverlay } from "@/components/ChangelogOverlay";
 import { roleLabel } from "@/lib/users";
+import { isManager } from "@/lib/roles";
 import { InlineSelect } from "@/components/InlineSelect";
 import {
   BarChart3,
@@ -134,7 +135,7 @@ export default function AppShell() {
     );
   }
 
-  const isAdmin = user?.role === "dev_super" || user?.role === "owner_admin" || user?.role === "office_manager" || user?.role === "support_admin";
+  const isAdmin = isManager(user?.role);
 
   function openPwModal() {
     setPw(""); setPw2(""); setPwMsg(null); setPwOpen(true);

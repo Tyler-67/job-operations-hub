@@ -10,8 +10,7 @@ import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 import { uptiqApiLocationId } from "../_shared/instances.ts";
 
-const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
-const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager, isAdmin } from "../_shared/roles.ts";
 
 function reachable(email: unknown, phone: unknown) {
   return Boolean((typeof email === "string" && email.trim()) || (typeof phone === "string" && phone.trim()));
@@ -336,7 +335,7 @@ Deno.serve(async (req) => {
   // GET: read-only list of the location's contacts (customers, crew, owner, office, supply houses)
   // for the Contacts admin page. Broader read gate than the sync POST (which writes app records).
   if (req.method === "GET") {
-    if (!READ_ROLES.has(role)) return json({ error: "forbidden" }, 403);
+    if (!isManager(role)) return json({ error: "forbidden" }, 403);
     const { data, error } = await sb
       .from("contacts")
       .select("id, name, role, email, phone, uptiq_contact_id, active, created_at")
@@ -352,7 +351,7 @@ Deno.serve(async (req) => {
   }
 
   // POST (sync/pull) writes app records, so it stays write-role gated.
-  if (!WRITE_ROLES.has(role)) return json({ error: "forbidden" }, 403);
+  if (!isAdmin(role)) return json({ error: "forbidden" }, 403);
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body.dry_run === true;

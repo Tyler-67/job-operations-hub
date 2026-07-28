@@ -1,8 +1,10 @@
 import { callEdge } from "@/lib/session";
 import type { Database } from "@/integrations/supabase/types";
+import { isManager, isAdmin, APP_ROLES, type AppRole } from "@/lib/roles";
 
 export type AppUserRow = Database["public"]["Tables"]["app_users"]["Row"];
-export type AppRole = Database["public"]["Enums"]["app_role"];
+export type { AppRole };
+export { APP_ROLES };
 
 export interface UserEmail {
   id: string;
@@ -59,8 +61,6 @@ export function generatePassword() {
   return `Burn-${hex}!`;
 }
 
-export const APP_ROLES: AppRole[] = ["dev_super", "owner_admin", "office_manager", "crew", "viewer", "support_admin"];
-
 // Display names: owner_admin reads as plain "owner"; dev_super is the dev-side super user.
 const ROLE_LABELS: Record<string, string> = {
   owner_admin: "owner",
@@ -71,13 +71,9 @@ export function roleLabel(role: string) {
   return ROLE_LABELS[role] ?? role.replace(/_/g, " ");
 }
 
-export function canViewUsers(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canViewUsers = isManager;
 
-export function canManageUsers(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "support_admin";
-}
+export const canManageUsers = isAdmin;
 
 // Role hierarchy: dev_super > support_admin > owner_admin. You can only assign roles at or
 // below your own tier (mirrors the server's canManageRole).

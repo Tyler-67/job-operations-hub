@@ -1,4 +1,5 @@
 import { callEdge } from "@/lib/session";
+import { isManager, isAdmin } from "@/lib/roles";
 
 // A row from the app `contacts` table (the messaging parties: customers, crew, owner, office,
 // supply houses). Distinct from app_users (login identities). Read via contacts-sync GET.
@@ -99,11 +100,7 @@ export function sendTest(params: { uptiqContactId: string; channel: "sms" | "ema
   }) as unknown as Promise<SendTestResult>;
 }
 
-export function canViewContacts(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canViewContacts = isManager;
 
 // Delete/deactivate contacts (writes app records) — same gate as the crew pull / contacts-sync POST.
-export function canManageContacts(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "support_admin";
-}
+export const canManageContacts = isAdmin;

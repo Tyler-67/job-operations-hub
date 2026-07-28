@@ -4,7 +4,7 @@ import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { renderNotification, TEMPLATE_KEYS, TEMPLATE_LABELS } from "../_shared/notifications.ts";
 import { mintActionToken } from "../_shared/action-tokens.ts";
 
-const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager } from "../_shared/roles.ts";
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
 
 function cleanText(value: unknown) {
@@ -85,7 +85,7 @@ function validateTimezone(value: unknown) {
 }
 
 function canAccess(role: unknown) {
-  return ADMIN_ROLES.has(String(role ?? ""));
+  return isManager(role);
 }
 
 async function loadLocation(sb: any, locationId: string) {

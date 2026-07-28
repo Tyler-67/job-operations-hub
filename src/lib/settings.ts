@@ -1,4 +1,5 @@
 import { callEdge } from "@/lib/session";
+import { isManager } from "@/lib/roles";
 import type { SupplyHouse } from "@/lib/expenses";
 
 export interface SettingsLocation {
@@ -82,9 +83,7 @@ export const COMMON_TIMEZONES = [
   "Pacific/Honolulu",
 ];
 
-export function canManageSettings(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canManageSettings = isManager;
 
 export function fetchSettings() {
   return callEdge("settings") as Promise<SettingsResponse>;

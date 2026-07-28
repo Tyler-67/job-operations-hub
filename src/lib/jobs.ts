@@ -1,4 +1,5 @@
 import { callEdge } from "@/lib/session";
+import { isManager } from "@/lib/roles";
 import type { Database } from "@/integrations/supabase/types";
 
 export type JobState = Database["public"]["Tables"]["job_states"]["Row"];
@@ -205,9 +206,7 @@ export function deleteJob(id: string, dryRun: boolean) {
   }) as Promise<JobDeleteResult>;
 }
 
-export function canManageJobs(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canManageJobs = isManager;
 
 export function currency(value: number | null | undefined) {
   return typeof value === "number"

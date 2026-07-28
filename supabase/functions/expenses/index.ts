@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
 
-const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager } from "../_shared/roles.ts";
 const EXPENSE_KINDS = new Set(["field_purchase", "adjustment"]);
 // Create accepts every status except the value-workflow terminal `valued`; update_po also
 // allows `valued` (it's the natural result of setting a final amount).
@@ -26,7 +26,7 @@ function requiredAmount(value: unknown) {
 }
 
 function canWrite(role: unknown) {
-  return ADMIN_ROLES.has(String(role ?? ""));
+  return isManager(role);
 }
 
 async function loadJob(sb: any, locationId: string, jobId: string | null) {

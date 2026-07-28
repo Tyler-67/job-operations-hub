@@ -1,4 +1,5 @@
 import { callEdge } from "@/lib/session";
+import { isManager } from "@/lib/roles";
 import type { Database } from "@/integrations/supabase/types";
 
 export type JobStateSet = Database["public"]["Tables"]["job_state_sets"]["Row"];
@@ -33,9 +34,7 @@ export interface SaveTransitionPayload {
   trigger: string;
 }
 
-export function canManageJobStates(role?: string | null) {
-  return role === "dev_super" || role === "owner_admin" || role === "office_manager" || role === "support_admin";
-}
+export const canManageJobStates = isManager;
 
 export function fetchJobStates(includeInactive = true) {
   return callEdge("job-states", { query: { include_inactive: includeInactive } }) as Promise<JobStatesResponse>;

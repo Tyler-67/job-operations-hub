@@ -4,7 +4,7 @@
 // (a hard delete would violate the RESTRICT FK on purchase_orders.supply_house_id).
 import { json, preflight, serviceClient, verifySession } from "../_shared/util.ts";
 
-const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager } from "../_shared/roles.ts";
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
 
   const claims = await verifySession(req.headers.get("x-app-session"));
   if (!claims) return json({ error: "unauthorized" }, 401);
-  if (!ADMIN_ROLES.has(String(claims.role ?? ""))) return json({ error: "forbidden" }, 403);
+  if (!isManager(claims.role)) return json({ error: "forbidden" }, 403);
 
   const locationId = claims.loc as string;
   const sb = serviceClient();

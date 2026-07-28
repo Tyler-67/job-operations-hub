@@ -14,7 +14,7 @@ import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 
-const ADMIN_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
+import { isManager } from "../_shared/roles.ts";
 
 function cleanText(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -33,7 +33,7 @@ function nullableNumber(value: unknown) {
 }
 
 function canWrite(role: unknown) {
-  return ADMIN_ROLES.has(String(role ?? ""));
+  return isManager(role);
 }
 
 function errorStatus(message: string) {

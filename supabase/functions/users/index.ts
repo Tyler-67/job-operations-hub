@@ -2,9 +2,7 @@
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { isDebugTool } from "../_shared/debug-access.ts";
 
-const READ_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "support_admin"]);
-const WRITE_ROLES = new Set(["dev_super", "owner_admin", "support_admin"]);
-const APP_ROLES = new Set(["dev_super", "owner_admin", "office_manager", "crew", "viewer", "support_admin"]);
+import { isManager, isAdmin, APP_ROLES } from "../_shared/roles.ts";
 // Roles that count as "an owner" for the last-owner guard (don't orphan the company).
 const OWNER_ROLES = ["dev_super", "owner_admin"];
 
@@ -20,11 +18,11 @@ function cleanEmail(value: unknown) {
 }
 
 function canRead(role: unknown) {
-  return READ_ROLES.has(String(role ?? ""));
+  return isManager(role);
 }
 
 function canWrite(role: unknown) {
-  return WRITE_ROLES.has(String(role ?? ""));
+  return isAdmin(role);
 }
 
 // Role hierarchy: dev_super > support_admin > owner_admin. Only dev_super may create/alter
