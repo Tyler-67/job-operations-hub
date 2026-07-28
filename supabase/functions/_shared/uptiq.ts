@@ -130,15 +130,6 @@ export const uptiq = {
     }
     return { ok: true as const, status: 200, contacts, scanned, pages, capped: pages >= maxPages };
   },
-  // READ-ONLY pull: the location's contacts whose tags include `tag` (case-insensitive).
-  // Thin filter over listContacts, kept as its own method for the crew-tag pull's contract.
-  async listContactsByTag(params: { locationId: string; tag: string; pageLimit?: number; maxPages?: number }) {
-    const target = params.tag.trim().toLowerCase();
-    const res = await uptiq.listContacts(params);
-    if (!res.ok) return { ok: false, status: res.status, error: res.error, data: res.data, matched: [], scanned: res.scanned, pages: res.pages };
-    const matched = res.contacts.filter((c) => c.tags.includes(target));
-    return { ok: true, status: 200, matched, scanned: res.scanned, pages: res.pages, capped: res.capped };
-  },
   async sendSms(contactId: string, message: string) {
     return callUptiq(`/conversations/messages`, {
       method: "POST",

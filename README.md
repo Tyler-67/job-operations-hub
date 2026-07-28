@@ -1,8 +1,8 @@
 # Uptiq - Tradesman Snapshot v2
 
-> **DEPRECATED (2026-06-11): Lovable is no longer part of this stack.** The app deploys to **Vercel** (auto-deploy on push to `main`); Supabase is owned directly. References to Lovable below are stale and pending a rewrite.
+> The app deploys to **Vercel** (auto-deploy on push to `main`); Supabase is owned directly.
 
-Operational job hub for trades companies. This app replaces the distributed v1 workflow system with one stable codebase, one Lovable deployment, and one Supabase project per company.
+Operational job hub for trades companies. This app replaces the distributed v1 workflow system with one stable codebase, one Vercel deployment, and one Supabase project per company.
 
 > Single-tenant per company: each company gets its own app deployment, Supabase project, Uptiq token, secrets, and data. Do not share production tables across companies.
 
@@ -10,7 +10,7 @@ Operational job hub for trades companies. This app replaces the distributed v1 w
 
 - React 18, Vite, TypeScript, Tailwind
 - Supabase Postgres, RLS, Edge Functions, and Storage
-- Lovable for app building, preview, and deployment
+- Vercel for build, preview, and deployment
 - Uptiq for contacts, outbound SMS/email/calls, inspections calendar, iframe shell, and the Review Requested tag bridge
 
 ## Current Build Status
