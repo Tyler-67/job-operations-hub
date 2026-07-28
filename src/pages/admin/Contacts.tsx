@@ -1,23 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
-import { canManageContacts, deleteContact, fetchContacts, setContactActive, type ContactRow, type ContactsListResponse } from "@/lib/contacts";
+import { Ban, ChevronDown, ChevronRight, Mail, MessageSquare, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
+import {
+  canManageContacts, deleteContact, fetchContacts, setContactActive, fetchContactMessages,
+  type ContactRow, type ContactsListResponse, type ContactMessage,
+} from "@/lib/contacts";
 import { syncWithUptiq } from "@/lib/settings";
 import { useSession } from "@/lib/session";
-import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
+import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<string, string> = {
-  customer: "Customer",
-  crew: "Crew",
-  owner: "Owner",
-  office: "Office",
-  supply_house: "Supply house",
-  other: "Other",
+  customer: "Customers", crew: "Crew", owner: "Owner", office: "Office", supply_house: "Supply houses", other: "Other",
 };
+// Group order (the "tag" groups). Unknown roles sort to the end, then alphabetical.
+const ROLE_ORDER = ["owner", "office", "crew", "customer", "supply_house", "other"];
 
 function roleLabel(role: string | null | undefined) {
   const r = (role ?? "other").toString();
   return ROLE_LABELS[r] ?? r;
+}
+function msgTime(m: ContactMessage) {
+  const t = m.sent_at ?? m.created_at;
+  try { return new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+  catch { return t; }
+}
+function roleBreakdown(byRole: Record<string, number> | undefined) {
+  if (!byRole) return "";
+  return Object.entries(byRole).sort((a, b) => b[1] - a[1])
+    .map(([role, n]) => `${n} ${role === "unrecognized" ? "unrecognized" : roleLabel(role).toLowerCase()}`).join(", ");
 }
 
 export default function AdminContacts() {
@@ -28,12 +38,18 @@ export default function AdminContacts() {
 
   const [data, setData] = useState<ContactsListResponse | null>(null);
   const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [pulling, setPulling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [channel, setChannel] = useState<"sms" | "email">("sms");
+  const [messages, setMessages] = useState<ContactMessage[] | null>(null);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [msgError, setMsgError] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -42,37 +58,56 @@ export default function AdminContacts() {
       .catch((err) => setError(err instanceof Error ? err.message : "Could not load contacts"))
       .finally(() => setLoading(false));
   }
-
   useEffect(() => { load(); }, []);
 
   const contacts = useMemo(() => data?.contacts ?? [], [data?.contacts]);
-  const filtered = useMemo(() => {
+  const selected = useMemo(() => contacts.find((c) => c.id === selectedId) ?? null, [contacts, selectedId]);
+
+  // Load the selected contact's system-sent message history.
+  useEffect(() => {
+    if (!selectedId) { setMessages(null); return; }
+    let active = true;
+    setMsgLoading(true); setMsgError(null);
+    fetchContactMessages(selectedId)
+      .then((res) => { if (active) setMessages(res.messages); })
+      .catch((err) => { if (active) setMsgError(err instanceof Error ? err.message : "Could not load messages"); })
+      .finally(() => { if (active) setMsgLoading(false); });
+    return () => { active = false; };
+  }, [selectedId]);
+
+  // Group filtered contacts by role (the "tag"), in ROLE_ORDER.
+  const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return contacts.filter((c) => {
-      if (roleFilter !== "all" && (c.role ?? "other") !== roleFilter) return false;
-      if (!needle) return true;
-      return [c.name, c.email, c.phone, c.uptiq_contact_id, c.role].join(" ").toLowerCase().includes(needle);
+    const byRole = new Map<string, ContactRow[]>();
+    for (const c of contacts) {
+      if (needle && ![c.name, c.email, c.phone, c.role].join(" ").toLowerCase().includes(needle)) continue;
+      const r = (c.role ?? "other").toString();
+      if (!byRole.has(r)) byRole.set(r, []);
+      byRole.get(r)!.push(c);
+    }
+    return [...byRole.entries()].sort((a, b) => {
+      const ia = ROLE_ORDER.indexOf(a[0]); const ib = ROLE_ORDER.indexOf(b[0]);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a[0].localeCompare(b[0]);
     });
-  }, [contacts, query, roleFilter]);
+  }, [contacts, query]);
 
-  const roles = useMemo(() => Object.keys(data?.role_counts ?? {}).sort(), [data?.role_counts]);
+  const channelMessages = useMemo(
+    () => (messages ?? []).filter((m) => m.channel === channel),
+    [messages, channel],
+  );
 
-  // "5 crew, 12 customer, 3 supply house, 2 unrecognized" — the tag->role preview for the confirm.
-  function roleBreakdown(byRole: Record<string, number> | undefined) {
-    if (!byRole) return "";
-    return Object.entries(byRole)
-      .sort((a, b) => b[1] - a[1])
-      .map(([role, n]) => `${n} ${role === "unrecognized" ? "unrecognized" : roleLabel(role).toLowerCase()}`)
-      .join(", ");
+  function toggleGroup(role: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role); else next.add(role);
+      return next;
+    });
   }
 
-  // The same ONE sync command as Settings (contacts-sync mode:"sync"): tag pull, then link the
-  // rest. Preview first (dry run, read-only) so the confirm shows what each step would do.
+  // The ONE sync command (contacts-sync mode:"sync"): tag pull, then link. Preview (dry run) first.
   async function handleSync() {
     if (!canManage) return;
-    setPulling(true);
-    setError(null);
-    setNotice(null);
+    setPulling(true); setError(null); setNotice(null);
     try {
       const preview = await syncWithUptiq({ dryRun: true });
       const breakdown = roleBreakdown(preview.pull.by_role);
@@ -104,9 +139,7 @@ export default function AdminContacts() {
 
   async function handleToggleActive(c: ContactRow) {
     if (!canManage) return;
-    setBusyId(c.id);
-    setError(null);
-    setNotice(null);
+    setBusyId(c.id); setError(null); setNotice(null);
     try {
       await setContactActive(c.id, !c.active);
       setNotice(`${c.active ? "Deactivated" : "Reactivated"} ${c.name ?? "contact"}.`);
@@ -123,15 +156,13 @@ export default function AdminContacts() {
     if (!(await confirm({
       title: `Delete ${c.name ?? "this contact"}?`,
       body: "Permanently removes this contact. If it has check-in, expense, or message history it can't be deleted — deactivate it instead.",
-      confirmLabel: "Delete",
-      destructive: true,
+      confirmLabel: "Delete", destructive: true,
     }))) return;
-    setBusyId(c.id);
-    setError(null);
-    setNotice(null);
+    setBusyId(c.id); setError(null); setNotice(null);
     try {
       await deleteContact(c.id);
       setNotice(`Deleted ${c.name ?? "contact"}.`);
+      if (selectedId === c.id) setSelectedId(null);
       load();
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -148,24 +179,18 @@ export default function AdminContacts() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
         <div>
           <h1 className="text-sm font-semibold">Contacts</h1>
-          <p className="text-xs text-muted-foreground">People this company messages: customers, crew, owner, office, supply houses. Synced from Uptiq by tag; supply houses also link into the Supply Houses list.</p>
+          <p className="text-xs text-muted-foreground">Grouped by tag. Select a contact to see the texts &amp; emails the system has sent them.</p>
         </div>
         <div className="flex-1" />
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search name, email, phone, id..."
+          placeholder="Search contacts..."
           className="h-8 w-56 rounded-sm border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-        />
-        <InlineSelect
-          value={roleFilter}
-          onChange={setRoleFilter}
-          className="h-8 w-44"
-          options={[{ value: "all", label: "All roles" }, ...roles.map((r) => ({ value: r, label: `${roleLabel(r)} (${data?.role_counts[r]})` }))]}
         />
         {canManage && (
           <button type="button" onClick={handleSync} disabled={pulling || loading} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
-            <RefreshCw className={`h-3.5 w-3.5 ${pulling ? "animate-spin" : ""}`} />
+            <RefreshCw className={cn("h-3.5 w-3.5", pulling && "animate-spin")} />
             {pulling ? "Syncing..." : "Sync with Uptiq"}
           </button>
         )}
@@ -173,56 +198,120 @@ export default function AdminContacts() {
 
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
       {notice && <div className="border-b border-success/30 bg-success/10 px-4 py-2 text-xs text-success">{notice}</div>}
-      {loading && <div className="p-6 text-xs text-muted-foreground">Loading contacts...</div>}
 
-      {!loading && (
-        <main className="min-h-0 flex-1 overflow-auto">
-          <table className="ops-grid w-full table-fixed border-collapse text-xs">
-            <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="w-[22%] border-b border-border px-3 py-2 text-left font-medium">Name</th>
-                <th className="w-[12%] border-b border-border px-3 py-2 text-left font-medium">Role</th>
-                <th className="w-[16%] border-b border-border px-3 py-2 text-left font-medium">Phone</th>
-                <th className="border-b border-border px-3 py-2 text-left font-medium">Email</th>
-                <th className="w-[22%] border-b border-border px-3 py-2 text-left font-medium">Uptiq contact ID</th>
-                <th className="w-20 border-b border-border px-3 py-2 text-left font-medium">Status</th>
-                {canManage && <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={canManage ? 7 : 6} className="p-8 text-center text-muted-foreground">No contacts{query || roleFilter !== "all" ? " match" : " yet"}.</td></tr>
-              )}
-              {filtered.map((c: ContactRow) => (
-                <tr key={c.id} className="ops-row">
-                  <td className="px-3 py-2 font-medium">{c.name ?? "(unnamed)"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{roleLabel(c.role)}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{c.phone ?? "-"}</td>
-                  <td className="px-3 py-2 text-muted-foreground"><div className="truncate">{c.email ?? "-"}</div></td>
-                  <td className="px-3 py-2 font-mono text-2xs text-muted-foreground"><div className="truncate">{c.uptiq_contact_id ?? "-"}</div></td>
-                  <td className="px-3 py-2">
-                    <span className={`pill ${c.active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
-                      {c.active ? "active" : "inactive"}
-                    </span>
-                  </td>
-                  {canManage && (
-                    <td className="px-3 py-2">
-                      <div className="flex justify-end gap-1">
-                        <button type="button" title={c.active ? "Deactivate" : "Reactivate"} disabled={busyId === c.id} onClick={() => handleToggleActive(c)} className="icon-btn">
-                          {c.active ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                        </button>
-                        <button type="button" title="Delete" disabled={busyId === c.id} onClick={() => handleDelete(c)} className="icon-btn">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+      <div className="flex min-h-0 flex-1">
+        {/* Left: contacts grouped by tag (collapsible) */}
+        <aside className="w-72 shrink-0 overflow-auto border-r border-border">
+          {loading && <div className="p-4 text-xs text-muted-foreground">Loading contacts...</div>}
+          {!loading && groups.length === 0 && <div className="p-4 text-xs text-muted-foreground">No contacts{query ? " match" : " yet"}.</div>}
+          {!loading && groups.map(([role, list]) => {
+            const isCollapsed = collapsed.has(role);
+            return (
+              <div key={role}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(role)}
+                  className="flex w-full items-center gap-1 border-b border-border bg-muted/50 px-3 py-1.5 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-muted"
+                >
+                  {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {roleLabel(role)} <span className="text-muted-foreground/60">({list.length})</span>
+                </button>
+                {!isCollapsed && list.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedId(c.id)}
+                    className={cn(
+                      "flex w-full flex-col items-start border-b border-border/40 px-3 py-2 text-left hover:bg-muted/50",
+                      selectedId === c.id && "bg-sidebar-accent hover:bg-sidebar-accent",
+                    )}
+                  >
+                    <span className={cn("text-xs font-medium", !c.active && "text-muted-foreground line-through")}>{c.name ?? "(unnamed)"}</span>
+                    <span className="w-full truncate text-2xs text-muted-foreground">{c.email ?? c.phone ?? "no contact info"}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </aside>
+
+        {/* Right: per-contact messaging panel */}
+        <section className="flex min-h-0 flex-1 flex-col">
+          {!selected && (
+            <div className="flex flex-1 items-center justify-center p-6 text-xs text-muted-foreground">
+              Select a contact to view the texts &amp; emails the system has sent them.
+            </div>
+          )}
+          {selected && (
+            <>
+              <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{selected.name ?? "(unnamed)"}</div>
+                  <div className="truncate text-2xs text-muted-foreground">
+                    {roleLabel(selected.role)} · {selected.email ?? "no email"} · {selected.phone ?? "no phone"}
+                  </div>
+                </div>
+                <div className="flex-1" />
+                <div className="flex overflow-hidden rounded-sm border border-border text-xs">
+                  <button type="button" onClick={() => setChannel("sms")} className={cn("inline-flex items-center gap-1 px-3 py-1", channel === "sms" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                    <MessageSquare className="h-3.5 w-3.5" /> Text
+                  </button>
+                  <button type="button" onClick={() => setChannel("email")} className={cn("inline-flex items-center gap-1 px-3 py-1", channel === "email" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                    <Mail className="h-3.5 w-3.5" /> Email
+                  </button>
+                </div>
+                {canManage && (
+                  <div className="flex gap-1">
+                    <button type="button" title={selected.active ? "Deactivate" : "Reactivate"} disabled={busyId === selected.id} onClick={() => handleToggleActive(selected)} className="icon-btn">
+                      {selected.active ? <Ban className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    </button>
+                    <button type="button" title="Delete" disabled={busyId === selected.id} onClick={() => handleDelete(selected)} className="icon-btn">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
+                {msgLoading && <div className="text-xs text-muted-foreground">Loading messages...</div>}
+                {msgError && <div className="text-xs text-destructive">{msgError}</div>}
+                {!msgLoading && !msgError && channelMessages.length === 0 && (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                    No {channel === "sms" ? "texts" : "emails"} sent to this contact yet.
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  {channelMessages.map((m) => (
+                    <div key={m.id} className="max-w-[85%] self-end rounded-lg rounded-br-sm border border-border bg-card px-3 py-2">
+                      {channel === "email" && m.subject && <div className="mb-1 text-2xs font-semibold text-foreground">{m.subject}</div>}
+                      <div className="whitespace-pre-wrap break-words text-xs text-foreground">{m.body}</div>
+                      <div className="mt-1 flex items-center gap-2 text-2xs text-muted-foreground">
+                        <span>{msgTime(m)}</span>
+                        <span className={cn("pill", m.status === "sent" ? "bg-success/10 text-success" : m.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>{m.status}</span>
                       </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </main>
-      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Composer — visual only for now (no send wired up yet). */}
+              <div className="border-t border-border p-3">
+                <div className="flex items-center gap-2 opacity-60">
+                  <input
+                    disabled
+                    placeholder={channel === "sms" ? "Text this contact..." : "Email this contact..."}
+                    className="h-9 flex-1 rounded-sm border border-input bg-background px-3 text-xs"
+                  />
+                  <button type="button" disabled className="inline-flex h-9 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground">
+                    <Send className="h-3.5 w-3.5" /> Send
+                  </button>
+                </div>
+                <p className="mt-1 text-2xs text-muted-foreground">Sending from here isn&rsquo;t wired up yet — this shows what the system has sent.</p>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

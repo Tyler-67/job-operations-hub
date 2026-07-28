@@ -9,6 +9,7 @@ import { json, preflight, serviceClient, verifySession, logEvent } from "../_sha
 import { canUseDebugTool } from "../_shared/debug-access.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 import { uptiqApiLocationId } from "../_shared/instances.ts";
+import { renderNotification } from "../_shared/notifications.ts";
 
 import { isManager, isAdmin } from "../_shared/roles.ts";
 
@@ -336,6 +337,38 @@ Deno.serve(async (req) => {
   // for the Contacts admin page. Broader read gate than the sync POST (which writes app records).
   if (req.method === "GET") {
     if (!isManager(role)) return json({ error: "forbidden" }, 403);
+    // Per-contact message history (?contact_id=): the system-sent SMS/email for this contact,
+    // rendered to the exact body the drain sends. Read-only, same isManager gate as the list.
+    const contactId = new URL(req.url).searchParams.get("contact_id");
+    if (contactId) {
+      const { data: contact, error: cErr } = await sb
+        .from("contacts").select("id, name, role, email, phone, uptiq_contact_id, active")
+        .eq("id", contactId).eq("location_id", locId).maybeSingle();
+      if (cErr) return json({ error: cErr.message }, 500);
+      if (!contact) return json({ error: "not_found" }, 404);
+      const uid = String(contact.uptiq_contact_id ?? "").trim();
+      if (!uid) return json({ contact, messages: [], total: 0 });
+      const { data: cs } = await sb
+        .from("company_settings").select("message_templates").eq("location_id", locId).maybeSingle();
+      const overrides = (cs?.message_templates ?? {}) as Record<string, { subject?: string | null; body: string }>;
+      const { data: notifs, error: nErr } = await sb
+        .from("scheduled_notifications")
+        .select("id, channel, template_key, payload, status, scheduled_for, sent_at, created_at")
+        .eq("location_id", locId).eq("recipient", uid)
+        .order("created_at", { ascending: true }).limit(500);
+      if (nErr) return json({ error: nErr.message }, 500);
+      const messages = (notifs ?? []).map((n: any) => {
+        let rendered: { subject: string | null; body: string };
+        try { rendered = renderNotification(String(n.template_key), (n.payload ?? {}) as Record<string, unknown>, overrides); }
+        catch { rendered = { subject: null, body: "(template not rendered)" }; }
+        return {
+          id: n.id, channel: n.channel, template_key: n.template_key, status: n.status,
+          subject: rendered.subject, body: rendered.body,
+          scheduled_for: n.scheduled_for, sent_at: n.sent_at, created_at: n.created_at,
+        };
+      });
+      return json({ contact, messages, total: messages.length });
+    }
     const { data, error } = await sb
       .from("contacts")
       .select("id, name, role, email, phone, uptiq_contact_id, active, created_at")

@@ -25,6 +25,30 @@ export function fetchContacts() {
   return callEdge("contacts-sync") as unknown as Promise<ContactsListResponse>;
 }
 
+// One system-sent message (SMS or email) to a contact — rendered to the exact body the drain sends.
+export interface ContactMessage {
+  id: string;
+  channel: string; // "sms" | "email"
+  template_key: string;
+  status: string;
+  subject: string | null;
+  body: string;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+export interface ContactMessagesResponse {
+  contact: { id: string; name: string | null; role: string | null; email: string | null; phone: string | null; uptiq_contact_id: string | null; active: boolean };
+  messages: ContactMessage[];
+  total: number;
+}
+
+// Per-contact message history: every SMS/email the system has queued/sent to this contact,
+// chronological. Read-only (isManager). Empty when the contact has no Uptiq id (never messaged).
+export function fetchContactMessages(contactId: string) {
+  return callEdge("contacts-sync", { query: { contact_id: contactId } }) as unknown as Promise<ContactMessagesResponse>;
+}
+
 // Hard-delete a contact. Rejects with Error("has_history") if the contact is referenced by
 // check-ins/expenses/messages (deactivate it instead). owner_admin / support_admin.
 export function deleteContact(id: string) {
