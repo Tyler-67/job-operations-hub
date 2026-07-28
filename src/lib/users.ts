@@ -2,8 +2,7 @@ import { callEdge } from "@/lib/session";
 import type { Database } from "@/integrations/supabase/types";
 
 export type AppUserRow = Database["public"]["Tables"]["app_users"]["Row"];
-// NOTE: generated types.ts is stale (no dev_super yet) — declare the enum locally.
-export type AppRole = "dev_super" | "owner_admin" | "office_manager" | "crew" | "viewer" | "support_admin";
+export type AppRole = Database["public"]["Enums"]["app_role"];
 
 export interface UserEmail {
   id: string;
@@ -11,9 +10,7 @@ export interface UserEmail {
 }
 
 // app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
-// uptiq_contact_id is declared here too because the generated types.ts is stale (column added
-// in migration 20260714120000).
-export type AppUserWithEmails = Omit<AppUserRow, "role"> & { role: AppRole; emails?: UserEmail[]; uptiq_contact_id?: string | null; debug_tools?: string[] };
+export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[] };
 
 export interface UsersResponse {
   users: AppUserWithEmails[];

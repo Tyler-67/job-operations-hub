@@ -17,6 +17,7 @@ export type Database = {
       action_tokens: {
         Row: {
           action: string
+          batch_id: string | null
           contact_id: string | null
           created_at: string
           expires_at: string
@@ -28,6 +29,7 @@ export type Database = {
         }
         Insert: {
           action: string
+          batch_id?: string | null
           contact_id?: string | null
           created_at?: string
           expires_at: string
@@ -39,6 +41,7 @@ export type Database = {
         }
         Update: {
           action?: string
+          batch_id?: string | null
           contact_id?: string | null
           created_at?: string
           expires_at?: string
@@ -106,10 +109,43 @@ export type Database = {
           },
         ]
       }
+      app_user_emails: {
+        Row: {
+          app_user_id: string
+          created_at: string
+          email: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          app_user_id: string
+          created_at?: string
+          email: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          app_user_id?: string
+          created_at?: string
+          email?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_user_emails_app_user_id_fkey"
+            columns: ["app_user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_users: {
         Row: {
           active: boolean
           created_at: string
+          debug_tools: string[]
           email: string
           id: string
           last_seen_at: string | null
@@ -120,11 +156,13 @@ export type Database = {
           phone: string | null
           role: Database["public"]["Enums"]["app_role"]
           updated_at: string
+          uptiq_contact_id: string | null
           uptiq_user_id: string | null
         }
         Insert: {
           active?: boolean
           created_at?: string
+          debug_tools?: string[]
           email: string
           id?: string
           last_seen_at?: string | null
@@ -135,11 +173,13 @@ export type Database = {
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
+          uptiq_contact_id?: string | null
           uptiq_user_id?: string | null
         }
         Update: {
           active?: boolean
           created_at?: string
+          debug_tools?: string[]
           email?: string
           id?: string
           last_seen_at?: string | null
@@ -150,6 +190,7 @@ export type Database = {
           phone?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
+          uptiq_contact_id?: string | null
           uptiq_user_id?: string | null
         }
         Relationships: [
@@ -171,11 +212,13 @@ export type Database = {
           check_in_send_time: string
           check_in_weekdays: number[]
           created_at: string
+          debug_mode: boolean
           default_supply_house_contact_id: string | null
           id: string
           inspection_reminder_time: string
           inspections_calendar_id: string | null
           location_id: string
+          message_templates: Json
           office_contact_id: string | null
           office_email: string | null
           office_phone: string | null
@@ -185,6 +228,7 @@ export type Database = {
           owner_phone: string | null
           parts_cost_ceiling: number
           review_request_delay_days: number
+          review_request_tag: string | null
           supply_house_pickup_time: string | null
           updated_at: string
           weekly_report_day: number
@@ -198,11 +242,13 @@ export type Database = {
           check_in_send_time?: string
           check_in_weekdays?: number[]
           created_at?: string
+          debug_mode?: boolean
           default_supply_house_contact_id?: string | null
           id?: string
           inspection_reminder_time?: string
           inspections_calendar_id?: string | null
           location_id: string
+          message_templates?: Json
           office_contact_id?: string | null
           office_email?: string | null
           office_phone?: string | null
@@ -212,6 +258,7 @@ export type Database = {
           owner_phone?: string | null
           parts_cost_ceiling?: number
           review_request_delay_days?: number
+          review_request_tag?: string | null
           supply_house_pickup_time?: string | null
           updated_at?: string
           weekly_report_day?: number
@@ -225,11 +272,13 @@ export type Database = {
           check_in_send_time?: string
           check_in_weekdays?: number[]
           created_at?: string
+          debug_mode?: boolean
           default_supply_house_contact_id?: string | null
           id?: string
           inspection_reminder_time?: string
           inspections_calendar_id?: string | null
           location_id?: string
+          message_templates?: Json
           office_contact_id?: string | null
           office_email?: string | null
           office_phone?: string | null
@@ -239,6 +288,7 @@ export type Database = {
           owner_phone?: string | null
           parts_cost_ceiling?: number
           review_request_delay_days?: number
+          review_request_tag?: string | null
           supply_house_pickup_time?: string | null
           updated_at?: string
           weekly_report_day?: number
@@ -308,6 +358,63 @@ export type Database = {
           },
         ]
       }
+      conversation_backups: {
+        Row: {
+          contact_id: string | null
+          contact_snapshot: Json
+          created_at: string
+          created_by: string | null
+          deleted_ok: boolean
+          id: string
+          location_id: string
+          message_count: number
+          messages_snapshot: Json | null
+          uptiq_contact_id: string | null
+          uptiq_conversation_id: string | null
+        }
+        Insert: {
+          contact_id?: string | null
+          contact_snapshot: Json
+          created_at?: string
+          created_by?: string | null
+          deleted_ok?: boolean
+          id?: string
+          location_id: string
+          message_count?: number
+          messages_snapshot?: Json | null
+          uptiq_contact_id?: string | null
+          uptiq_conversation_id?: string | null
+        }
+        Update: {
+          contact_id?: string | null
+          contact_snapshot?: Json
+          created_at?: string
+          created_by?: string | null
+          deleted_ok?: boolean
+          id?: string
+          location_id?: string
+          message_count?: number
+          messages_snapshot?: Json | null
+          uptiq_contact_id?: string | null
+          uptiq_conversation_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_backups_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_backups_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_logs: {
         Row: {
           created_at: string
@@ -326,6 +433,7 @@ export type Database = {
           parts_photo_url: string | null
           parts_source: string | null
           receipt_photo_url: string | null
+          source: string | null
           state_id: string | null
           state_progress_pct: number | null
           updated_at: string
@@ -347,6 +455,7 @@ export type Database = {
           parts_photo_url?: string | null
           parts_source?: string | null
           receipt_photo_url?: string | null
+          source?: string | null
           state_id?: string | null
           state_progress_pct?: number | null
           updated_at?: string
@@ -368,6 +477,7 @@ export type Database = {
           parts_photo_url?: string | null
           parts_source?: string | null
           receipt_photo_url?: string | null
+          source?: string | null
           state_id?: string | null
           state_progress_pct?: number | null
           updated_at?: string
@@ -610,6 +720,13 @@ export type Database = {
             referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "job_expenses_supply_house_id_fkey"
+            columns: ["supply_house_id"]
+            isOneToOne: false
+            referencedRelation: "supply_house_contacts"
+            referencedColumns: ["id"]
+          },
         ]
       }
       job_state_sets: {
@@ -760,7 +877,11 @@ export type Database = {
           created_at: string
           current_state_id: string | null
           id: string
+          inspection_appointment_id: string | null
           inspection_date: string | null
+          inspection_slot: string | null
+          invoice_id: string | null
+          invoice_number: string | null
           job_completion_pct: number
           latest_po: string | null
           location_id: string
@@ -771,8 +892,6 @@ export type Database = {
           paid_source: string | null
           payment_event_id: string | null
           payment_notes: string | null
-          invoice_id: string | null
-          invoice_number: string | null
           scope_of_work: string | null
           start_date: string | null
           state_progress_pct: number
@@ -782,6 +901,9 @@ export type Database = {
           total_hours: number
           total_po_expenses: number
           updated_at: string
+          walkthrough_appointment_id: string | null
+          walkthrough_date: string | null
+          walkthrough_slot: string | null
         }
         Insert: {
           active?: boolean
@@ -790,7 +912,11 @@ export type Database = {
           created_at?: string
           current_state_id?: string | null
           id?: string
+          inspection_appointment_id?: string | null
           inspection_date?: string | null
+          inspection_slot?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
           job_completion_pct?: number
           latest_po?: string | null
           location_id: string
@@ -801,8 +927,6 @@ export type Database = {
           paid_source?: string | null
           payment_event_id?: string | null
           payment_notes?: string | null
-          invoice_id?: string | null
-          invoice_number?: string | null
           scope_of_work?: string | null
           start_date?: string | null
           state_progress_pct?: number
@@ -812,6 +936,9 @@ export type Database = {
           total_hours?: number
           total_po_expenses?: number
           updated_at?: string
+          walkthrough_appointment_id?: string | null
+          walkthrough_date?: string | null
+          walkthrough_slot?: string | null
         }
         Update: {
           active?: boolean
@@ -820,7 +947,11 @@ export type Database = {
           created_at?: string
           current_state_id?: string | null
           id?: string
+          inspection_appointment_id?: string | null
           inspection_date?: string | null
+          inspection_slot?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
           job_completion_pct?: number
           latest_po?: string | null
           location_id?: string
@@ -831,8 +962,6 @@ export type Database = {
           paid_source?: string | null
           payment_event_id?: string | null
           payment_notes?: string | null
-          invoice_id?: string | null
-          invoice_number?: string | null
           scope_of_work?: string | null
           start_date?: string | null
           state_progress_pct?: number
@@ -842,6 +971,9 @@ export type Database = {
           total_hours?: number
           total_po_expenses?: number
           updated_at?: string
+          walkthrough_appointment_id?: string | null
+          walkthrough_date?: string | null
+          walkthrough_slot?: string | null
         }
         Relationships: [
           {
@@ -859,6 +991,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "jobs_paid_by_app_user_id_fkey"
+            columns: ["paid_by_app_user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "jobs_state_set_id_fkey"
             columns: ["state_set_id"]
             isOneToOne: false
@@ -869,6 +1008,7 @@ export type Database = {
       }
       locations: {
         Row: {
+          app_base_url: string | null
           company_name: string
           created_at: string
           id: string
@@ -876,8 +1016,10 @@ export type Database = {
           updated_at: string
           uptiq_company_id: string | null
           uptiq_location_id: string
+          uptiq_sync_location_id: string | null
         }
         Insert: {
+          app_base_url?: string | null
           company_name: string
           created_at?: string
           id?: string
@@ -885,8 +1027,10 @@ export type Database = {
           updated_at?: string
           uptiq_company_id?: string | null
           uptiq_location_id: string
+          uptiq_sync_location_id?: string | null
         }
         Update: {
+          app_base_url?: string | null
           company_name?: string
           created_at?: string
           id?: string
@@ -894,8 +1038,35 @@ export type Database = {
           updated_at?: string
           uptiq_company_id?: string | null
           uptiq_location_id?: string
+          uptiq_sync_location_id?: string | null
         }
         Relationships: []
+      }
+      po_number_counters: {
+        Row: {
+          location_id: string
+          po_date: string
+          seq: number
+        }
+        Insert: {
+          location_id: string
+          po_date: string
+          seq?: number
+        }
+        Update: {
+          location_id?: string
+          po_date?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "po_number_counters_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       purchase_orders: {
         Row: {
@@ -906,6 +1077,7 @@ export type Database = {
           final_amount: number | null
           id: string
           job_id: string
+          po_number: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["po_status"]
           supply_house_id: string | null
@@ -921,6 +1093,7 @@ export type Database = {
           final_amount?: number | null
           id?: string
           job_id: string
+          po_number?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["po_status"]
           supply_house_id?: string | null
@@ -936,6 +1109,7 @@ export type Database = {
           final_amount?: number | null
           id?: string
           job_id?: string
+          po_number?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["po_status"]
           supply_house_id?: string | null
@@ -978,6 +1152,7 @@ export type Database = {
         Row: {
           attempts: number
           channel: Database["public"]["Enums"]["notif_channel"]
+          claimed_at: string | null
           created_at: string
           dedupe_key: string | null
           id: string
@@ -994,6 +1169,7 @@ export type Database = {
         Insert: {
           attempts?: number
           channel: Database["public"]["Enums"]["notif_channel"]
+          claimed_at?: string | null
           created_at?: string
           dedupe_key?: string | null
           id?: string
@@ -1010,6 +1186,7 @@ export type Database = {
         Update: {
           attempts?: number
           channel?: Database["public"]["Enums"]["notif_channel"]
+          claimed_at?: string | null
           created_at?: string
           dedupe_key?: string | null
           id?: string
@@ -1096,15 +1273,69 @@ export type Database = {
           },
         ]
       }
+      weekly_reports: {
+        Row: {
+          created_at: string
+          id: string
+          location_id: string
+          period_end: string
+          period_start: string
+          snapshot: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location_id: string
+          period_end: string
+          period_start: string
+          snapshot?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location_id?: string
+          period_end?: string
+          period_start?: string
+          snapshot?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_reports_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      claim_due_notifications: {
+        Args: { p_limit: number }
+        Returns: {
+          attempts: number
+          channel: Database["public"]["Enums"]["notif_channel"]
+          id: string
+          payload: Json
+          recipient: string
+          template_key: string
+        }[]
+      }
       has_role: {
         Args: { _email: string; _role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean
       }
+      next_po_number: {
+        Args: { p_date: string; p_location_id: string }
+        Returns: string
+      }
+      reap_stale_sending: { Args: { p_older_than: string }; Returns: number }
     }
     Enums: {
       app_role:
@@ -1113,8 +1344,9 @@ export type Database = {
         | "crew"
         | "viewer"
         | "support_admin"
+        | "dev_super"
       notif_channel: "sms" | "email" | "task" | "tag" | "webhook"
-      notif_status: "pending" | "sent" | "failed" | "cancelled"
+      notif_status: "pending" | "sent" | "failed" | "cancelled" | "sending"
       po_status: "draft" | "sent" | "pending_value" | "valued" | "cancelled"
     }
     CompositeTypes: {
@@ -1249,9 +1481,10 @@ export const Constants = {
         "crew",
         "viewer",
         "support_admin",
+        "dev_super",
       ],
       notif_channel: ["sms", "email", "task", "tag", "webhook"],
-      notif_status: ["pending", "sent", "failed", "cancelled"],
+      notif_status: ["pending", "sent", "failed", "cancelled", "sending"],
       po_status: ["draft", "sent", "pending_value", "valued", "cancelled"],
     },
   },
