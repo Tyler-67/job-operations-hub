@@ -519,7 +519,7 @@ const TABS: DocTab[] = [
 
         <Sub>2. Provisioning API (machine-callable)</Sub>
         <P>For scripts or external onboarding, a secret-authenticated endpoint creates an instance with no login:</P>
-        <pre className="mt-2 overflow-auto rounded-sm border border-border bg-muted/50 p-3 font-mono text-2xs text-muted-foreground">{`POST https://kffrgtzqwqrjfrziglby.supabase.co/functions/v1/provision-instance?secret=<SECRET>
+        <pre className="mt-2 overflow-auto rounded-sm border border-border bg-muted/50 p-3 font-mono text-2xs text-muted-foreground">{`POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/provision-instance?secret=<SECRET>
 Content-Type: application/json
 
 {
