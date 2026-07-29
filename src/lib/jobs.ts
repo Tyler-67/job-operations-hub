@@ -84,6 +84,40 @@ export interface JobsResponse {
   default_state_set_id: string | null;
 }
 
+// Parse a date-only string ("YYYY-MM-DD") as a LOCAL calendar date at midnight. last_log_date is
+// date-only; new Date() reads it as UTC midnight, which is the PRIOR day in US timezones — that
+// mis-flagged a same-day check-in as overdue (fixed on the Dashboard in db6c441; JobsList had
+// reintroduced it with a private copy, so the predicates live here now, shared).
+function localMidnight(value: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Whole days a check-in-eligible job is overdue: undefined = not eligible (terminal / no check-ins),
+// null = eligible but never logged, 0 = logged today (not overdue), N = last log N days ago.
+export function checkInOverdueDays(job: Pick<JobSummary, "current_state" | "last_log_date">): number | null | undefined {
+  if (!job.current_state?.allow_check_ins || job.current_state?.is_terminal) return undefined;
+  if (!job.last_log_date) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((today.getTime() - localMidnight(job.last_log_date).getTime()) / 86_400_000);
+}
+
+export function needsCheckIn(job: Pick<JobSummary, "current_state" | "last_log_date">): boolean {
+  const days = checkInOverdueDays(job);
+  return days === null || (typeof days === "number" && days >= 1);
+}
+
+// Human overdue status for a pill/label: null when not overdue (or not eligible).
+export function checkInStatus(job: Pick<JobSummary, "current_state" | "last_log_date">): string | null {
+  const days = checkInOverdueDays(job);
+  if (days === null) return "never checked in";
+  if (typeof days === "number" && days >= 1) return days === 1 ? "1 day overdue" : `${days} days overdue`;
+  return null;
+}
+
 // Whether the job has an ACTIVE inspection cycle. Tagged WORK stages (is_inspection with
 // check-ins allowed) are inspection-capable the whole time the job sits in them — the cycle
 // only becomes active once REQUESTED (crew ready check-in / office toggle) or scheduled.

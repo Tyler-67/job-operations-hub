@@ -1,18 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
-import { canManageJobs, currency, fetchJobs, inspectionUnderway, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import { canManageJobs, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
-
-function isOverdue(job: JobSummary) {
-  if (!job.current_state?.allow_check_ins || job.current_state?.is_terminal) return false;
-  if (!job.last_log_date) return true;
-  const lastLog = new Date(job.last_log_date);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return lastLog < today;
-}
 
 function isInspectionSoon(job: JobSummary) {
   if (!job.inspection_date) return false;
@@ -58,12 +49,12 @@ export default function JobsList() {
   }), [jobs, query, stateId]);
 
   // The old stat-tile bar's numbers, relocated to the column heads (per Tyler: "(00/00)").
-  const overdueCount = jobs.filter(isOverdue).length;
+  const overdueCount = jobs.filter(needsCheckIn).length;
   const inspectionCount = jobs.filter(isInspectionSoon).length;
   const scheduledInspections = jobs.filter((job) => job.inspection_date).length;
   const activeCount = jobs.filter((job) => job.active && !job.current_state?.is_terminal).length;
   const actionCount = jobs.filter((job) =>
-    isOverdue(job) ||
+    needsCheckIn(job) ||
     inspectionUnderway(job) ||
     job.purchase_orders.some((po) => po.status === "pending_value")).length;
   const canManage = canManageJobs(user?.role);
@@ -138,7 +129,7 @@ export default function JobsList() {
             </thead>
             <tbody>
               {filtered.map((job) => {
-                const overdue = isOverdue(job);
+                const overdue = needsCheckIn(job);
                 const pending = job.purchase_orders.filter((po) => po.status === "pending_value").length;
                 return (
                   <tr key={job.id} className="ops-row">
