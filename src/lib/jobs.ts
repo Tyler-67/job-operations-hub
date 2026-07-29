@@ -84,6 +84,17 @@ export interface JobsResponse {
   default_state_set_id: string | null;
 }
 
+// Whether the job has an ACTIVE inspection cycle. Tagged WORK stages (is_inspection with
+// check-ins allowed) are inspection-capable the whole time the job sits in them — the cycle
+// only becomes active once REQUESTED (crew ready check-in / office toggle) or scheduled.
+// Dedicated inspection STATES (allow_check_ins=false) are only ever entered by a request, so
+// being in one means active. Gates the inspection tag + pass/fail interfaces everywhere.
+export function inspectionUnderway(job: Pick<JobSummary, "inspection_requested_at" | "inspection_date" | "current_state">): boolean {
+  const st = job.current_state;
+  if (!st?.is_inspection) return false;
+  return Boolean(job.inspection_requested_at || job.inspection_date || st.allow_check_ins === false);
+}
+
 // Result of syncing a job's inspection to the Uptiq inspections calendar. Present on a job
 // create/save response only when the inspection date was set or changed on that request.
 export interface InspectionCalendarSync {

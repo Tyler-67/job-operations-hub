@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
-import { currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import { currency, fetchJobs, inspectionUnderway, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 
 // Parse a date-only string ("YYYY-MM-DD") as a LOCAL calendar date at midnight. last_log_date is
 // date-only; new Date() reads it as UTC midnight, which is the PRIOR day in US timezones — that
@@ -68,7 +68,7 @@ export default function Dashboard() {
   const inspectionsScheduled = activeJobs.filter((job) => job.inspection_date).length;
   const actionCount = activeJobs.filter((job) =>
     needsCheckIn(job) ||
-    job.current_state?.is_inspection ||
+    inspectionUnderway(job) ||
     job.purchase_orders.some((po) => po.status === "pending_value")).length;
 
   const stateCounts = useMemo(() => {
@@ -133,7 +133,7 @@ export default function Dashboard() {
                             <span className="pill" style={{ backgroundColor: `${job.current_state.color}22`, color: job.current_state.color }}>
                               {job.current_state.label}
                             </span>
-                            {job.current_state.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
+                            {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
                           </span>
                         )}
                       </td>
@@ -148,11 +148,12 @@ export default function Dashboard() {
                         <div className="flex flex-col items-start gap-1">
                           {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">{checkInStatus(job) ?? "check-in"}</span>}
                           {pendingPoCount > 0 && <span className="pill bg-warning/20 text-warning">PO value</span>}
-                          {/* Same condition as the Jobs list's Office action column: the job is IN an
-                              inspection phase right now (not the date-window heuristic — that left a
-                              dateless inspection chipped on Jobs but blank here). */}
-                          {job.current_state?.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
-                          {!needsCheckIn(job) && pendingPoCount === 0 && !job.current_state?.is_inspection && <span className="text-muted-foreground">-</span>}
+                          {/* Same condition as the Jobs list's Office action column: an inspection is
+                              UNDERWAY on the job right now (requested/scheduled on a tagged stage, or
+                              sitting in a dedicated inspection state) — a tagged stage alone no longer
+                              chips every job that merely COULD be inspected. */}
+                          {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
+                          {!needsCheckIn(job) && pendingPoCount === 0 && !inspectionUnderway(job) && <span className="text-muted-foreground">-</span>}
                         </div>
                       </td>
                     </tr>

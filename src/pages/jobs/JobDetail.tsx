@@ -474,17 +474,28 @@ export default function JobDetail() {
   const isPaid = currentState?.slug === "paid" || Boolean(job?.paid_at);
   const canMarkPaid = !readOnly && !isNew && job && !isPaid && currentState?.slug === "complete";
 
+  // Inspection status on THIS job. A tagged WORK stage is inspection-capable the whole time
+  // the job sits in it — the tag + pass/fail interface only apply while a cycle is ACTIVE
+  // (requested or scheduled); FAIL clears the request, walking the job back to the plain
+  // working stage until re-requested. Dedicated inspection STATES (allow_check_ins=false)
+  // are only ever entered by a request, so there the interface always applies.
+  const inspectionActive = Boolean(job?.inspection_requested_at || job?.inspection_date);
+  const inspectionOn = Boolean(currentState?.is_inspection && (inspectionActive || currentState?.allow_check_ins === false));
+
   // Which result buttons to offer, keyed off the current state's kind. Inspection states
-  // take pass/fail; the final walkthrough takes approve/punch-list/reschedule/still-issues;
-  // finish work takes the "customer approved" advance into the walkthrough.
+  // take pass/fail (only while an inspection is underway); the final walkthrough takes
+  // approve/punch-list/reschedule/still-issues; finish work takes the "customer approved"
+  // advance into the walkthrough.
   const decisionButtons: { action: JobDecisionAction; label: string; tone: DecisionTone }[] =
     readOnly || isNew || !job || isPaid || !currentState
       ? []
       : currentState.is_inspection
-        ? [
-            { action: "inspection_pass", label: "Mark inspection passed", tone: "pass" },
-            { action: "inspection_fail", label: "Mark inspection failed", tone: "fail" },
-          ]
+        ? inspectionOn
+          ? [
+              { action: "inspection_pass", label: "Mark inspection passed", tone: "pass" },
+              { action: "inspection_fail", label: "Mark inspection failed", tone: "fail" },
+            ]
+          : []
         : currentState.is_walkthrough
           ? [
               { action: "walkthrough_approve", label: "Approve walkthrough", tone: "pass" },
@@ -519,7 +530,7 @@ export default function JobDetail() {
             <span className="pill" style={{ backgroundColor: `${currentState?.color ?? "#64748b"}22`, color: currentState?.color ?? "#64748b" }}>
               {currentState?.label ?? "No state"}
             </span>
-            {currentState?.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
+            {inspectionOn && <span className="pill bg-info/10 text-info">inspection</span>}
           </span>
         )}
         {!readOnly && !isNew && form.active && (
@@ -672,9 +683,10 @@ export default function JobDetail() {
         </div>
 
         <aside className="overflow-auto border-l border-border bg-card">
-          {/* Inspection toggle — tag-model stages only (the stage IS the inspection phase, so
-              there's no state for the dropdown to move into). Active = requested or scheduled. */}
-          {!isNew && job && currentState?.is_inspection && (
+          {/* Inspection toggle — tagged WORK stages only (the stage IS the inspection phase, so
+              there's no state for the dropdown to move into; dedicated inspection STATES don't
+              get the toggle — being in one already means requested). Active = requested/scheduled. */}
+          {!isNew && job && currentState?.is_inspection && currentState.allow_check_ins !== false && (
             <div className="border-b border-border p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Inspection</h2>
               {(job.inspection_requested_at || job.inspection_date) ? (

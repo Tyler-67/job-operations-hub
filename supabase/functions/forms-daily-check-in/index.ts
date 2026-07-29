@@ -456,7 +456,9 @@ Deno.serve(async (req) => {
         // cron-inspection-reminders sends NOTHING: the date-ask only fires when the date is null
         // and the pass/fail ask only when it equals today. Clearing it makes the reminder cron
         // ask the owner for a fresh date, which then drives the pass/fail ask on that day.
-        await sb.from("jobs").update({ inspection_date: null }).eq("id", jobId);
+        // inspection_requested_at is stamped for uniformity with the tag model (the applyTransition
+        // above just cleared it — every entry into an inspection phase marks the active request).
+        await sb.from("jobs").update({ inspection_date: null, inspection_requested_at: new Date().toISOString() }).eq("id", jobId);
         await queueInspectionRequestedNotice(sb, {
           locationId: job.location_id,
           jobId,

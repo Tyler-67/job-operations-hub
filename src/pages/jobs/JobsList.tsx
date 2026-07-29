@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
-import { canManageJobs, currency, fetchJobs, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import { canManageJobs, currency, fetchJobs, inspectionUnderway, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 
@@ -64,7 +64,7 @@ export default function JobsList() {
   const activeCount = jobs.filter((job) => job.active && !job.current_state?.is_terminal).length;
   const actionCount = jobs.filter((job) =>
     isOverdue(job) ||
-    job.current_state?.is_inspection ||
+    inspectionUnderway(job) ||
     job.purchase_orders.some((po) => po.status === "pending_value")).length;
   const canManage = canManageJobs(user?.role);
 
@@ -153,7 +153,7 @@ export default function JobsList() {
                           <span className="pill" style={{ backgroundColor: `${job.current_state.color}22`, color: job.current_state.color }}>
                             {job.current_state.label}
                           </span>
-                          {job.current_state.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
+                          {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
                         </span>
                       )}
                     </td>
@@ -172,8 +172,8 @@ export default function JobsList() {
                       <div className="flex flex-wrap gap-1">
                         {overdue && <span className="pill bg-destructive/10 text-destructive">check-in overdue</span>}
                         {pending > 0 && <span className="pill bg-warning/20 text-warning">{pending} PO value</span>}
-                        {job.current_state?.is_inspection && <span className="pill bg-info/10 text-info">inspection</span>}
-                        {!overdue && pending === 0 && !job.current_state?.is_inspection && <span className="text-muted-foreground">-</span>}
+                        {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
+                        {!overdue && pending === 0 && !inspectionUnderway(job) && <span className="text-muted-foreground">-</span>}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{shortDate(job.updated_at)}</td>

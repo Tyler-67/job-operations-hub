@@ -46,13 +46,21 @@ Deno.serve(async (req) => {
   if (cErr) return json({ error: cErr.message }, 500);
 
   // Inspection-phase state ids, flagged in the configurable state set. Labels ride along so
-  // every reminder says WHICH stage inspection it is ("Rough-In Inspection").
-  const { data: states, error: sErr } = await sb.from("job_states").select("id, is_inspection, label");
+  // every reminder says WHICH stage inspection it is ("Rough-In Inspection"). Dedicated
+  // inspection STATES (allow_check_ins=false) are only ever entered by a request, so the
+  // date-nudge always applies there; tagged WORK stages nudge only while a request is active
+  // (jobs.inspection_requested_at) — otherwise every job merely SITTING in a tagged stage
+  // would get a daily phantom nudge.
+  const { data: states, error: sErr } = await sb.from("job_states").select("id, is_inspection, label, allow_check_ins");
   if (sErr) return json({ error: sErr.message }, 500);
   const inspectionStateIds = new Set<string>();
+  const dedicatedInspectionStateIds = new Set<string>();
   const stateLabelById = new Map<string, string>();
   for (const st of states ?? []) {
-    if (st.is_inspection) inspectionStateIds.add(st.id as string);
+    if (st.is_inspection) {
+      inspectionStateIds.add(st.id as string);
+      if (st.allow_check_ins === false) dedicatedInspectionStateIds.add(st.id as string);
+    }
     if (typeof st.label === "string" && st.label.trim()) stateLabelById.set(st.id as string, st.label.trim());
   }
 
@@ -87,7 +95,7 @@ Deno.serve(async (req) => {
 
     const { data: jobs } = await sb
       .from("jobs")
-      .select("id, address, state_set_id, current_state_id, inspection_date, walkthrough_date")
+      .select("id, address, state_set_id, current_state_id, inspection_date, inspection_requested_at, walkthrough_date")
       .eq("location_id", loc).eq("active", true);
     const eligible = (jobs ?? []).filter((j: any) => inspectionStateIds.has(j.current_state_id));
 
@@ -95,10 +103,13 @@ Deno.serve(async (req) => {
       // Treat inspection_date as the literal calendar day it was entered as (the stored
       // midnight-UTC timestamp's date portion), so the today-check never drifts by zone.
       const inspectionDate = job.inspection_date ? String(job.inspection_date).slice(0, 10) : null;
+      // An inspection is underway: requested (tagged stage) or the state is a dedicated
+      // inspection state. A scheduled date implies it for Branch B either way.
+      const requested = Boolean(job.inspection_requested_at) || dedicatedInspectionStateIds.has(job.current_state_id as string);
 
       const phaseLabel = stateLabelById.get(job.current_state_id as string) ?? null;
 
-      if (!inspectionDate) {
+      if (!inspectionDate && requested) {
         // Branch A: the owner still needs to pick a date (shared with the check-in immediate send).
         const sent = await queueInspectionDateAsk(sb, {
           locationId: loc, jobId: job.id, address: job.address ?? null,
