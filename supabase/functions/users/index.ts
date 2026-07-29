@@ -109,7 +109,7 @@ async function activeOwnerCount(sb: any, locationId: string, exceptId?: string |
   return count ?? 0;
 }
 
-async function usersPayload(sb: any, locationId: string, includePassword = false, hideDevSuper = false) {
+async function usersPayload(sb: any, locationId: string, includePassword = false, viewerIsSuper = false) {
   // login_password is BETA plaintext (see migration 20260709120000) and only surfaced to
   // credential managers (WRITE roles); office_manager reads the list without it.
   const cols = "id, location_id, email, name, phone, role, active, debug_tools, uptiq_contact_id, last_seen_at, created_at, updated_at"
@@ -125,11 +125,26 @@ async function usersPayload(sb: any, locationId: string, includePassword = false
   if (error) throw error;
 
   // dev_super accounts are app-wide dev identities, invisible to every other role: filtered
-  // BEFORE the alias attach and metrics so no trace (counts included) reaches the response.
-  const users = (data ?? []).filter((user: any) => !hideDevSuper || user.role !== "dev_super");
+  // BEFORE metrics so no trace (counts included) reaches a non-super's response.
+  const localUsers = (data ?? []).filter((user: any) => viewerIsSuper || user.role !== "dev_super");
+
+  // A dev_super is an app-wide superuser, so surface the OTHER instances' dev_super accounts too
+  // (deduped against the local rows): a superuser should always see the superusers, while they
+  // stay hidden from everyone else. These app_wide rows render read-only (manage a super on their
+  // home instance) and are NOT tenant members, so they never enter the metrics below.
+  const listRows: any[] = localUsers.map((user: any) => ({ ...user, app_wide: false }));
+  if (viewerIsSuper) {
+    const localIds = new Set(localUsers.map((user: any) => user.id));
+    const { data: supers, error: superErr } = await sb
+      .from("app_users").select(cols).eq("role", "dev_super").order("email");
+    if (superErr) throw superErr;
+    for (const s of supers ?? []) {
+      if (!localIds.has(s.id)) listRows.push({ ...s, app_wide: true });
+    }
+  }
 
   // Attach each user's SECONDARY login emails (aliases). The primary is app_users.email.
-  const ids = users.map((user: any) => user.id);
+  const ids = listRows.map((user: any) => user.id);
   const emailsByUser: Record<string, { id: string; email: string }[]> = {};
   if (ids.length) {
     const { data: emailRows, error: emailErr } = await sb
@@ -142,21 +157,22 @@ async function usersPayload(sb: any, locationId: string, includePassword = false
       (emailsByUser[row.app_user_id] ??= []).push({ id: row.id, email: row.email });
     }
   }
-  const usersWithEmails = users.map((user: any) => ({ ...user, emails: emailsByUser[user.id] ?? [] }));
+  const usersWithEmails = listRows.map((user: any) => ({ ...user, emails: emailsByUser[user.id] ?? [] }));
 
+  // Metrics describe THIS instance's own roster (local rows only); app_wide supers are excluded.
   const roleCounts: Record<string, number> = {};
-  for (const user of users) {
+  for (const user of localUsers) {
     roleCounts[user.role] = (roleCounts[user.role] ?? 0) + 1;
   }
 
   return {
     users: usersWithEmails,
     metrics: {
-      total_user_count: users.length,
-      active_user_count: users.filter((user: any) => user.active).length,
-      inactive_user_count: users.filter((user: any) => !user.active).length,
-      owner_admin_count: users.filter((user: any) => user.active && OWNER_ROLES.includes(user.role)).length,
-      office_manager_count: users.filter((user: any) => user.active && user.role === "office_manager").length,
+      total_user_count: localUsers.length,
+      active_user_count: localUsers.filter((user: any) => user.active).length,
+      inactive_user_count: localUsers.filter((user: any) => !user.active).length,
+      owner_admin_count: localUsers.filter((user: any) => user.active && OWNER_ROLES.includes(user.role)).length,
+      office_manager_count: localUsers.filter((user: any) => user.active && user.role === "office_manager").length,
       role_counts: roleCounts,
     },
   };
@@ -335,11 +351,11 @@ Deno.serve(async (req) => {
   const sb = serviceClient();
 
   // dev_super rows are invisible (list AND metrics) to everyone below dev_super.
-  const hideDevSuper = actorRole !== "dev_super";
+  const viewerIsSuper = actorRole === "dev_super";
 
   try {
     if (req.method === "GET") {
-      return json(await usersPayload(sb, locationId, canWrite(actorRole), hideDevSuper));
+      return json(await usersPayload(sb, locationId, canWrite(actorRole), viewerIsSuper));
     }
 
     if (!canWrite(actorRole)) return json({ error: "forbidden" }, 403);
@@ -349,23 +365,23 @@ Deno.serve(async (req) => {
       const action = cleanText(body.action);
       if (action === "add_email") {
         await addUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true, hideDevSuper), 201);
+        return json(await usersPayload(sb, locationId, true, viewerIsSuper), 201);
       }
       if (action === "remove_email") {
         await removeUserEmail(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true, hideDevSuper));
+        return json(await usersPayload(sb, locationId, true, viewerIsSuper));
       }
       if (action === "set_password") {
         await setUserPassword(sb, locationId, actorRole, body);
-        return json(await usersPayload(sb, locationId, true, hideDevSuper));
+        return json(await usersPayload(sb, locationId, true, viewerIsSuper));
       }
       await createUser(sb, locationId, actorRole, body);
-      return json(await usersPayload(sb, locationId, true, hideDevSuper), 201);
+      return json(await usersPayload(sb, locationId, true, viewerIsSuper), 201);
     }
 
     if (req.method === "PATCH") {
       await updateUser(sb, locationId, actorId, actorRole, body);
-      return json(await usersPayload(sb, locationId, true, hideDevSuper));
+      return json(await usersPayload(sb, locationId, true, viewerIsSuper));
     }
 
     return json({ error: "method_not_allowed" }, 405);

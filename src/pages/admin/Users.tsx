@@ -337,8 +337,12 @@ export default function AdminUsers() {
                 )}
                 {filtered.map((row) => {
                   const rowSelf = row.id === user?.id;
+                  // An app-wide super surfaced from another instance: visible to a super, but
+                  // managed only on its home instance, so lock the row's controls here.
+                  const rowAppWide = Boolean(row.app_wide);
                   const rowSupportLocked = (row.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
                     || (row.role === "dev_super" && user?.role !== "dev_super");
+                  const rowLocked = rowSupportLocked || rowAppWide;
                   return (
                     <tr key={row.id} className={`ops-row ${row.active ? "" : "opacity-60"}`}>
                       <td className="px-3 py-2">
@@ -347,6 +351,9 @@ export default function AdminUsers() {
                       </td>
                       <td className="px-3 py-2">
                         <span className={`pill ${roleTone(row.role)}`}>{roleLabel(row.role)}</span>
+                        {rowAppWide && (
+                          <span className="pill ml-1 bg-muted text-muted-foreground" title="App-wide superuser — manage on their home instance">app-wide</span>
+                        )}
                         {(row.debug_tools?.length ?? 0) > 0 && row.role !== "dev_super" && (
                           <span className="pill ml-1 bg-warning/20 text-warning" title={`Debug tools granted: ${(row.debug_tools ?? []).join(", ")}`}>
                             debugger ×{row.debug_tools?.length}
@@ -363,15 +370,15 @@ export default function AdminUsers() {
                       <td className="px-3 py-2 text-muted-foreground">{shortDateTime(row.updated_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-1">
-                          <button type="button" title="Edit user" disabled={!canManage || saving || rowSupportLocked} onClick={() => setForm(userToForm(row))} className="icon-btn">
+                          <button type="button" title={rowAppWide ? "App-wide superuser — manage on their home instance" : "Edit user"} disabled={!canManage || saving || rowLocked} onClick={() => setForm(userToForm(row))} className="icon-btn">
                             <Edit2 className="h-3.5 w-3.5" />
                           </button>
                           {row.active ? (
-                            <button type="button" title="Deactivate user" disabled={!canManage || saving || rowSelf || rowSupportLocked} onClick={() => setUserActive(row, false)} className="icon-btn">
+                            <button type="button" title="Deactivate user" disabled={!canManage || saving || rowSelf || rowLocked} onClick={() => setUserActive(row, false)} className="icon-btn">
                               <UserX className="h-3.5 w-3.5" />
                             </button>
                           ) : (
-                            <button type="button" title="Reactivate user" disabled={!canManage || saving || rowSupportLocked} onClick={() => setUserActive(row, true)} className="icon-btn">
+                            <button type="button" title="Reactivate user" disabled={!canManage || saving || rowLocked} onClick={() => setUserActive(row, true)} className="icon-btn">
                               <RotateCcw className="h-3.5 w-3.5" />
                             </button>
                           )}

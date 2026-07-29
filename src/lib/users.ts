@@ -12,7 +12,9 @@ export interface UserEmail {
 }
 
 // app_users row plus its SECONDARY login emails (aliases). The primary is app_users.email.
-export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[] };
+// app_wide: true marks a dev_super account surfaced from ANOTHER instance (only ever sent to a
+// dev_super viewer). It's read-only here — the super is managed on their home instance.
+export type AppUserWithEmails = AppUserRow & { emails?: UserEmail[]; app_wide?: boolean };
 
 export interface UsersResponse {
   users: AppUserWithEmails[];
