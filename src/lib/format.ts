@@ -19,3 +19,18 @@ export function date(value: string | null | undefined): string {
 export function timeInput(value: string | null | undefined): string {
   return value ? value.slice(0, 5) : "";
 }
+
+// Email bodies are simple HTML; flatten to readable text for on-screen display (SMS passes
+// through untouched). Used by the Contacts message panel + the Settings debug message log.
+export function stripHtml(body: string): string {
+  return body
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

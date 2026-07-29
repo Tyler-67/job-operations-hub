@@ -5,6 +5,8 @@ import {
   type ContactRow, type ContactsListResponse, type ContactMessage, type ContactInput,
 } from "@/lib/contacts";
 import { syncWithUptiq } from "@/lib/settings";
+import { stripHtml } from "@/lib/format";
+import { linkify } from "@/lib/linkify";
 import { useSession } from "@/lib/session";
 import { useConfirm } from "@/components/dialogs";
 import { InlineSelect } from "@/components/InlineSelect";
@@ -324,7 +326,11 @@ export default function AdminContacts() {
                   {channelMessages.map((m) => (
                     <div key={m.id} className="max-w-[85%] self-end rounded-lg rounded-br-sm border border-border bg-card px-3 py-2">
                       {channel === "email" && m.subject && <div className="mb-1 text-2xs font-semibold text-foreground">{m.subject}</div>}
-                      <div className="whitespace-pre-wrap break-words text-xs text-foreground">{m.body}</div>
+                      {/* SMS bodies are plain text; email bodies are simple HTML → flatten first.
+                          Either way, bare URLs render as clickable links. */}
+                      <div className="whitespace-pre-wrap break-words text-xs text-foreground">
+                        {linkify(channel === "email" ? stripHtml(m.body) : m.body)}
+                      </div>
                       <div className="mt-1 flex items-center gap-2 text-2xs text-muted-foreground">
                         <span>{msgTime(m)}</span>
                         <span className={cn("pill", m.status === "sent" ? "bg-success/10 text-success" : m.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>{m.status}</span>

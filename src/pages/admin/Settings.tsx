@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, ChevronRight, Save } from "lucide-react";
+import { stripHtml } from "@/lib/format";
+import { linkify } from "@/lib/linkify";
 import {
   COMMON_TIMEZONES,
   WEEKDAYS,
@@ -1113,7 +1115,7 @@ export default function AdminSettings() {
                     )}
                     <div>
                       <p className="text-2xs text-muted-foreground">Built-in default{selectedTpl.has_sample ? " (from a recent message)" : " (no example message yet)"}:</p>
-                      <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(selectedTpl.default_body) || "(nothing to preview yet)"}</pre>
+                      <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(selectedTpl.default_body) ? linkify(stripHtml(selectedTpl.default_body)) : "(nothing to preview yet)"}</pre>
                     </div>
                     {selectedTpl.channel === "email" && (
                       <label className="block text-xs">
@@ -1181,7 +1183,7 @@ export default function AdminSettings() {
                                 <span className="ml-auto text-muted-foreground">{formatWhen(m.sent_at ?? m.scheduled_for)}</span>
                               </div>
                               {m.subject && <div className="mt-1 text-2xs font-medium text-foreground">{m.subject}</div>}
-                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{stripHtml(m.body)}</pre>
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">{linkify(stripHtml(m.body))}</pre>
                               {m.last_error && <div className="mt-1 text-2xs text-destructive">error: {m.last_error}</div>}
                             </div>
                           ))}
@@ -1235,20 +1237,6 @@ function formatWhen(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
-}
-
-// Email bodies are simple HTML; flatten to readable text for the debug log (SMS passes through).
-function stripHtml(body: string): string {
-  return body
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function CronButton({ label, busy, disabled, onClick }: { label: string; busy: boolean; disabled: boolean; onClick: () => void }) {
