@@ -119,11 +119,16 @@ export async function applyTransition(sb: any, opts: ApplyTransitionOptions): Pr
 
   const patch: Record<string, unknown> = { current_state_id: match.to_state_id };
   if (opts.resetProgressOnChange !== false) patch.state_progress_pct = 0;
+  // Any real transition ends the current inspection request — the new state is a fresh cycle
+  // (a re-request re-sets it: crew ready check-in / office toggle / tagged-state entry).
+  patch.inspection_requested_at = null;
   // B5: a failed inspection reverts the job to its work state; clear the now-stale
-  // inspection_date so the re-inspection re-enters the date-nudge path. In the seeded
-  // set the only transitions carrying the 'fail' trigger are the three inspection
-  // reverts, so this fires exactly on inspection failures.
-  if (opts.trigger === "fail") patch.inspection_date = null;
+  // inspection_date so the re-inspection re-enters the date-nudge path. PASS clears it too:
+  // under inspection-as-a-tag the NEXT stage can itself be tagged (dirt_work pass → roughin),
+  // and a date carried over would read as a scheduled inspection for a stage nobody requested
+  // (the reminder cron keys off is_inspection + date). Harmless on the old state model, where
+  // pass lands on an untagged work state.
+  if (opts.trigger === "fail" || opts.trigger === "pass") patch.inspection_date = null;
 
   const { data: updated, error: uErr } = await sb
     .from("jobs")

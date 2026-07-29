@@ -478,10 +478,11 @@ Deno.serve(async (req) => {
           //     inspection state to move into), so "ready for inspection" fires the owner
           //     date-ask IN PLACE — same effect the transition into an inspection state used to
           //     have. Void any stale date first so the reminder cron / date-ask re-drive a fresh
-          //     cycle. Safe on the old inspection-STATE model too: there the inspection states
+          //     cycle, and stamp inspection_requested_at — the job-page toggle + status read it.
+          //     Safe on the old inspection-STATE model too: there the inspection states
           //     have allow_check_ins=false, so a crew never checks in from one and never reaches
           //     this branch. Per SUBMISSION (single-use token) so every genuine request texts.
-          await sb.from("jobs").update({ inspection_date: null }).eq("id", jobId);
+          await sb.from("jobs").update({ inspection_date: null, inspection_requested_at: new Date().toISOString() }).eq("id", jobId);
           await queueInspectionRequestedNotice(sb, {
             locationId: job.location_id,
             jobId,

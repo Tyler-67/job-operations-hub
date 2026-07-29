@@ -56,6 +56,9 @@ export interface JobSummary {
   scope_of_work: string | null;
   notes: string | null;
   inspection_date: string | null;
+  // Active inspection request (inspection-as-a-tag stages): stamped by the crew's ready
+  // check-in / the office Request-inspection toggle; null when no cycle is pending.
+  inspection_requested_at: string | null;
   walkthrough_date: string | null;
   latest_po: string | null;
   completion_report: CompletionReport | null;
@@ -99,6 +102,9 @@ export interface JobDetailResponse {
   purchase_orders: PurchaseOrder[];
   expenses: JobExpense[];
   calendar?: InspectionCalendarSync;
+  // Present only on an inspection-toggle save: whether the owner's date-ask actually went out
+  // (false = marked requested but no owner messaging contact is configured).
+  inspection_ask_sent?: boolean;
 }
 
 export interface SaveJobPayload {
@@ -147,6 +153,14 @@ export async function createJob(payload: SaveJobPayload) {
 
 export async function updateJob(id: string, payload: SaveJobPayload) {
   return callEdge("jobs", { body: { ...payload, id }, method: "POST" }) as Promise<JobDetailResponse>;
+}
+
+// Inspection toggle (tag-model stages) — sent ALONE, never as part of a save: true starts a
+// cycle (voids any stale date + texts the owner the date link), false cancels it (clears the
+// request + date, cancels the calendar appointment). The response's inspection_ask_sent says
+// whether the owner text actually went out.
+export async function setJobInspectionRequested(id: string, requested: boolean) {
+  return callEdge("jobs", { body: { id, inspection_requested: requested }, method: "POST" }) as Promise<JobDetailResponse>;
 }
 
 export async function markJobPaid(id: string, payload: MarkJobPaidPayload = {}) {

@@ -260,7 +260,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
 
   const { data: existing, error: existingErr } = await sb
     .from("jobs")
-    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, inspection_slot, walkthrough_date, walkthrough_appointment_id, walkthrough_slot, current_state_id")
+    .select("id, state_set_id, active, inspection_date, inspection_appointment_id, inspection_slot, inspection_requested_at, walkthrough_date, walkthrough_appointment_id, walkthrough_slot, current_state_id")
     .eq("location_id", locationId)
     .eq("id", jobId)
     .maybeSingle();
@@ -275,6 +275,9 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   }
   if ("current_state_id" in body) {
     patch.current_state_id = await ensureStateBelongsToSet(sb, cleanText(body.current_state_id), existing.state_set_id);
+    // A manual state move ends any pending inspection request — the new stage is a fresh cycle.
+    // (Entering a TAGGED stage re-stamps it below, alongside the owner date-ask it fires.)
+    if (patch.current_state_id !== existing.current_state_id) patch.inspection_requested_at = null;
   }
   if ("state_progress_pct" in body) patch.state_progress_pct = Math.max(0, Math.min(100, numberValue(body.state_progress_pct)));
   if ("job_completion_pct" in body) patch.job_completion_pct = Math.max(0, Math.min(100, numberValue(body.job_completion_pct)));
@@ -373,7 +376,7 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
         });
         if (asked) await triggerDrain();
       } else if (stateChanged && !dateChanged) {
-        await sb.from("jobs").update({ inspection_date: null }).eq("id", jobId);
+        await sb.from("jobs").update({ inspection_date: null, inspection_requested_at: new Date().toISOString() }).eq("id", jobId);
         const asked = await queueInspectionDateAsk(sb, {
           locationId, jobId, address: jobRow?.address ?? null,
           ownerContactId, appBaseUrl, localDate: localToday, force: true,
@@ -412,6 +415,42 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
     }
   }
 
+  // OFFICE INSPECTION TOGGLE — the job-page lever for inspection-as-a-tag stages, where there is
+  // no dedicated inspection state for the dropdown to move into (the crew's check-in "ready for
+  // inspection" is the field-side equivalent). Sent alone by the FE; a save that also changes the
+  // state or the date takes precedence (those paths already run their own inspection wiring above).
+  //  • true  → start a cycle: void any stale date, stamp inspection_requested_at, text the owner
+  //            the date-picker link NOW (force + drain — user actions always send).
+  //  • false → cancel the cycle: clear the marker + date and cancel the calendar appointment.
+  //            Silent — an office retraction, not an owner-facing event.
+  let inspectionAskSent: boolean | undefined;
+  if (typeof body.inspection_requested === "boolean" && !stateChanged && !("inspection_date" in body)) {
+    if (body.inspection_requested) {
+      const [{ data: state }, { data: jobRow }, { data: loc }, { data: cs }] = await Promise.all([
+        sb.from("job_states").select("is_inspection").eq("id", effectiveStateId).maybeSingle(),
+        sb.from("jobs").select("address").eq("id", jobId).maybeSingle(),
+        sb.from("locations").select("timezone, app_base_url").eq("id", locationId).maybeSingle(),
+        sb.from("company_settings").select("owner_contact_id").eq("location_id", locationId).maybeSingle(),
+      ]);
+      if (state?.is_inspection !== true) return { error: "not_inspection_stage", status: 400 };
+      await sb.from("jobs").update({ inspection_date: null, inspection_requested_at: new Date().toISOString() }).eq("id", jobId);
+      const ownerContactId = (cs?.owner_contact_id ?? "").trim();
+      const appBaseUrl = appBaseUrlFor(loc);
+      inspectionAskSent = false;
+      if (ownerContactId && appBaseUrl) {
+        const tz = (typeof loc?.timezone === "string" && loc.timezone.trim()) || "America/Chicago";
+        const asked = await queueInspectionDateAsk(sb, {
+          locationId, jobId, address: jobRow?.address ?? null,
+          ownerContactId, appBaseUrl, localDate: localContext(tz, new Date()).date, force: true,
+        });
+        if (asked) { await triggerDrain(); inspectionAskSent = true; }
+      }
+    } else {
+      await sb.from("jobs").update({ inspection_date: null, inspection_requested_at: null }).eq("id", jobId);
+      if (existing.inspection_appointment_id) await cancelInspectionAppointment(sb, { jobId });
+    }
+  }
+
   // Archiving a job cancels its scheduled Uptiq inspection/walkthrough appointments
   // (best-effort) so the calendar doesn't keep dead slots. Only on the active true -> false
   // transition.
@@ -421,7 +460,8 @@ async function updateExistingJob(sb: any, locationId: string, body: any) {
   }
 
   const detail = await getJobDetail(sb, locationId, jobId);
-  return calendar ? { ...detail, calendar } : detail;
+  const out = calendar ? { ...detail, calendar } : detail;
+  return inspectionAskSent === undefined ? out : { ...out, inspection_ask_sent: inspectionAskSent };
 }
 
 Deno.serve(async (req) => {

@@ -9,6 +9,7 @@ import {
   fetchJobs,
   fireJobDecision,
   markJobPaid,
+  setJobInspectionRequested,
   shortDate,
   updateJob,
   type InspectionCalendarSync,
@@ -426,6 +427,46 @@ export default function JobDetail() {
     }
   }
 
+  // Inspection toggle (tag-model stages): the office-side equivalent of the crew's "ready for
+  // inspection" check-in flag. ON starts a cycle (voids any stale date + texts the owner the
+  // date link); OFF cancels it (clears the request + date, cancels the calendar appointment).
+  async function toggleInspection(next: boolean) {
+    if (!canManage || isNew || !id) return;
+    const ok = await confirm({
+      title: next ? "Request inspection" : "Cancel inspection request",
+      body: next
+        ? "Marks this job ready for inspection and texts the owner the link to schedule it — same as the crew flagging it on a check-in."
+        : "Clears the inspection request and any scheduled date (the Uptiq calendar appointment is cancelled). No texts are sent.",
+      confirmLabel: next ? "Request inspection" : "Cancel request",
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await setJobInspectionRequested(id, next);
+      setDetail(res);
+      setStates(res.states);
+      setForm((current) => ({
+        ...current,
+        inspection_date: dateInput(res.job.inspection_date),
+        inspection_slot: slotInput((res.job as { inspection_slot?: string | null }).inspection_slot),
+      }));
+      setNotice(
+        next
+          ? res.inspection_ask_sent
+            ? "Inspection requested — the owner has been texted the scheduling link."
+            : "Inspection marked requested. No text went out (no owner messaging contact is configured in Settings)."
+          : "Inspection request cleared.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the inspection request");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div className="p-6 text-xs text-muted-foreground">Loading job...</div>;
 
   const readOnly = !canManage;
@@ -631,6 +672,38 @@ export default function JobDetail() {
         </div>
 
         <aside className="overflow-auto border-l border-border bg-card">
+          {/* Inspection toggle — tag-model stages only (the stage IS the inspection phase, so
+              there's no state for the dropdown to move into). Active = requested or scheduled. */}
+          {!isNew && job && currentState?.is_inspection && (
+            <div className="border-b border-border p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Inspection</h2>
+              {(job.inspection_requested_at || job.inspection_date) ? (
+                <>
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    {job.inspection_date
+                      ? <>Scheduled for <span className="font-medium text-foreground">{shortDate(job.inspection_date)}</span>.</>
+                      : "Requested — the owner has been asked to schedule it."}
+                  </p>
+                  {!readOnly && (
+                    <button type="button" disabled={saving} onClick={() => toggleInspection(false)} className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-sm border border-border px-3 text-xs hover:bg-muted">
+                      Cancel inspection request
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    Not requested — flag the job when the work is ready for the inspector.
+                  </p>
+                  {!readOnly && (
+                    <button type="button" disabled={saving} onClick={() => toggleInspection(true)} className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
+                      Request inspection
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {decisionButtons.length > 0 && (
             <div className="border-b border-border p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{decisionHeading}</h2>

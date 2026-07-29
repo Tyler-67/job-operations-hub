@@ -98,7 +98,7 @@ const TABS: DocTab[] = [
         <DocTable
           head={["Movement", "Triggered by"]}
           rows={[
-            [<>Work phase → its inspection</>, <>Crew marks <strong>ready for inspection</strong> on a daily check-in (or the office moves the state).</>],
+            [<>Work phase → its inspection</>, <>Crew marks <strong>ready for inspection</strong> on a daily check-in (or the office clicks <strong>Request inspection</strong> on the job page / moves the state).</>],
             [<>Inspection → next phase</>, <>Owner taps <strong>PASS</strong> (or office clicks <strong>Mark inspection passed</strong>).</>],
             [<>Inspection → back to the work phase</>, <>Owner taps <strong>FAIL</strong> and writes the fix list (or office clicks <strong>Mark inspection failed</strong>).</>],
             [<>Finish Work → Walkthrough</>, <>Crew reports <strong>100%</strong> → owner answers <strong>YES</strong>; or Final Inspection <strong>PASS</strong>.</>],
