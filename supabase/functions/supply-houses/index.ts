@@ -81,6 +81,35 @@ function housePatch(body: Record<string, unknown>) {
   return patch;
 }
 
+// Keep a contacts (role='supply_house') projection in lockstep with the source-of-truth
+// supply_house_contacts row, linked by contacts.supply_house_id. Called after every create/update
+// so the Contacts roster always reflects the Supply Houses admin (name/email/phone/uptiq id/active).
+// Soft-delete (active=false) flows through here as a normal field update; a hard delete of the
+// house cascades the contact via the FK. Self-heals: inserts the mirror if it's somehow missing.
+async function syncSupplyHouseContact(sb: any, locationId: string, house: any) {
+  const fields = {
+    location_id: locationId,
+    name: house.name,
+    role: "supply_house",
+    uptiq_contact_id: house.uptiq_contact_id ?? null,
+    email: house.email ?? null,
+    phone: house.phone ?? null,
+    active: house.active ?? true,
+    supply_house_id: house.id,
+  };
+  const { data: existing, error: findErr } = await sb
+    .from("contacts")
+    .select("id")
+    .eq("location_id", locationId)
+    .eq("supply_house_id", house.id)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  const { error } = existing
+    ? await sb.from("contacts").update(fields).eq("id", existing.id)
+    : await sb.from("contacts").insert(fields);
+  if (error) throw error;
+}
+
 async function createSupplyHouse(sb: any, locationId: string, body: Record<string, unknown>) {
   const name = cleanText(body.name);
   if (!name) throw new Error("name_required");
@@ -88,14 +117,19 @@ async function createSupplyHouse(sb: any, locationId: string, body: Record<strin
   await assertNameFree(sb, locationId, name);
 
   const patch = housePatch(body);
-  const { error } = await sb.from("supply_house_contacts").insert({
-    location_id: locationId,
-    name,
-    ...patch,
-    email,
-    active: patch.active ?? true,
-  });
+  const { data: created, error } = await sb
+    .from("supply_house_contacts")
+    .insert({
+      location_id: locationId,
+      name,
+      ...patch,
+      email,
+      active: patch.active ?? true,
+    })
+    .select(SELECT_COLS)
+    .single();
   if (error) throw error;
+  await syncSupplyHouseContact(sb, locationId, created);
 }
 
 async function updateSupplyHouse(sb: any, locationId: string, body: Record<string, unknown>) {
@@ -112,6 +146,7 @@ async function updateSupplyHouse(sb: any, locationId: string, body: Record<strin
     patch.name = name;
   }
 
+  let finalHouse = house;
   if (Object.keys(patch).length) {
     const { error } = await sb
       .from("supply_house_contacts")
@@ -119,7 +154,9 @@ async function updateSupplyHouse(sb: any, locationId: string, body: Record<strin
       .eq("id", house.id)
       .eq("location_id", locationId);
     if (error) throw error;
+    finalHouse = (await loadSupplyHouse(sb, locationId, house.id)) ?? house;
   }
+  await syncSupplyHouseContact(sb, locationId, finalHouse);
 }
 
 Deno.serve(async (req) => {
