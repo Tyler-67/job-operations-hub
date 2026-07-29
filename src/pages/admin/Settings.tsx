@@ -172,10 +172,10 @@ export default function AdminSettings() {
   const [debugSubTab, setDebugSubTab] = useState<"general" | "messages" | "forms">("general");
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
-  // Debug PANELS normally hide behind the per-company debug_mode toggle (an owner's switch to
-  // reveal them). A dev_super is an app-wide superuser whose tools should be available on every
-  // instance regardless of that per-tenant flag, so they bypass debug_mode. Owners still gate on it.
-  const debugPanelsShown = form.debug_mode || user?.role === "dev_super";
+  // The debug_mode checkbox reveals the debug PANELS — for everyone, including a dev_super, so the
+  // checkbox always hides/shows them. A dev_super may tick it on ANY instance to use the tools: the
+  // server never blocks a dev_super on a tenant's persisted debug_mode (see _shared/debug-access.ts).
+  const debugPanelsShown = form.debug_mode;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -835,7 +835,7 @@ export default function AdminSettings() {
                       <span className="font-medium">Debug mode</span>{" "}
                       <span className="text-muted-foreground">&mdash; show the diagnostic tools below. Off for a clean/demo tenant; Save Settings to persist.</span>
                       {user?.role === "dev_super" && (
-                        <span className="mt-0.5 block text-2xs text-muted-foreground">As a dev_super, the tools stay visible to you on every instance regardless of this toggle.</span>
+                        <span className="mt-0.5 block text-2xs text-muted-foreground">As a dev_super you can tick this on any instance to use the debug tools &mdash; it works for you even where the company hasn&rsquo;t enabled debug mode, and needn&rsquo;t be saved.</span>
                       )}
                     </span>
                   </label>

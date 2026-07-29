@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { json, preflight, serviceClient, verifySession, logEvent } from "../_shared/util.ts";
 import { cleanText, cleanEmail } from "../_shared/validation.ts";
-import { canUseDebugTool } from "../_shared/debug-access.ts";
+import { canUseDebugTool, debugModeBlocked } from "../_shared/debug-access.ts";
 import { renderNotification, TEMPLATE_KEYS, TEMPLATE_LABELS } from "../_shared/notifications.ts";
 import { mintActionToken } from "../_shared/action-tokens.ts";
 
@@ -434,10 +434,11 @@ Deno.serve(async (req) => {
       }
       if (action === "clear_data") {
         if (!(await canUseDebugTool(sb, claims, "data_reset"))) return json({ error: "forbidden" }, 403);
-        // Still only while debug_mode is on (defense in depth beyond the debug-gated UI).
+        // Still only while debug_mode is on (defense in depth beyond the debug-gated UI); a
+        // dev_super is exempt — see debugModeBlocked.
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
 
         const requested = Array.isArray(body.categories) ? body.categories.map((c: unknown) => String(c ?? "")) : [];
         const categories = CLEAR_ORDER.filter((c) => requested.includes(c));
@@ -466,7 +467,7 @@ Deno.serve(async (req) => {
         if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode, owner_contact_id, office_contact_id, message_templates").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
 
         // Render the log with any tenant overrides applied, so it shows what actually goes out.
         const overrides = (cs?.message_templates ?? {}) as Record<string, { subject?: string | null; body: string }>;
@@ -519,7 +520,7 @@ Deno.serve(async (req) => {
         if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode, message_templates").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
         const overrides = (cs.message_templates ?? {}) as Record<string, { subject?: string | null; body: string }>;
 
         // Latest real payload per template_key — used to preview the built-in default and to surface
@@ -561,7 +562,7 @@ Deno.serve(async (req) => {
         if (!(await canUseDebugTool(sb, claims, "message_log"))) return json({ error: "forbidden" }, 403);
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode, message_templates").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
         const key = typeof body.key === "string" ? body.key.trim() : "";
         if (!key || !TEMPLATE_KEYS.includes(key)) return json({ error: "invalid_template_key" }, 400);
         const overrides = { ...((cs.message_templates ?? {}) as Record<string, unknown>) };
@@ -581,7 +582,7 @@ Deno.serve(async (req) => {
       if (action === "form_test_token") {
         if (!(await canUseDebugTool(sb, claims, "forms_preview"))) return json({ error: "forbidden" }, 403);
         const { data: cs } = await sb.from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
         // The token-gated forms + which need a crew contact bound (check-in / quick-log).
         const FORM_TEST_SPECS: Record<string, { action: string; path: string; needsContact: boolean }> = {
           daily_check_in: { action: "daily_check_in", path: "/forms/daily-check-in", needsContact: true },

@@ -12,7 +12,7 @@ import { enqueueWalkthroughResultAsk, stateOffersWalkthroughApproved } from "../
 import { queueWalkthroughScheduleAsk } from "../_shared/walkthrough-notify.ts";
 import { localContext } from "../_shared/check-in-schedule.ts";
 import { triggerDrain } from "../_shared/drain.ts";
-import { canUseDebugTool } from "../_shared/debug-access.ts";
+import { canUseDebugTool, debugModeBlocked } from "../_shared/debug-access.ts";
 
 import { isManager } from "../_shared/roles.ts";
 import { cleanText, nullableNumber } from "../_shared/validation.ts";
@@ -600,7 +600,7 @@ Deno.serve(async (req) => {
 
         const { data: cs } = await sb
           .from("company_settings").select("debug_mode").eq("location_id", locationId).maybeSingle();
-        if (!cs?.debug_mode) return json({ error: "debug_disabled" }, 403);
+        if (debugModeBlocked(cs?.debug_mode, claims.role)) return json({ error: "debug_disabled" }, 403);
 
         const { data: job } = await sb
           .from("jobs").select("id, address, inspection_appointment_id, walkthrough_appointment_id").eq("location_id", locationId).eq("id", jobId).maybeSingle();

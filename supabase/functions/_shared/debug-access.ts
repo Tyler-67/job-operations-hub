@@ -36,3 +36,11 @@ export async function canUseDebugTool(
     .maybeSingle();
   return Array.isArray(data?.debug_tools) && data.debug_tools.includes(tool);
 }
+
+// The per-company debug_mode toggle is an OWNER's switch to reveal the debug tools on THEIR tenant
+// (defense in depth beyond the debug-gated UI). A dev_super is an app-wide superuser who can use
+// the tools on any instance — they reveal them locally via the Settings checkbox — so they are
+// never blocked by a tenant's persisted debug_mode. Returns true when the action must be refused.
+export function debugModeBlocked(debugMode: unknown, role: unknown): boolean {
+  return !debugMode && String(role ?? "") !== "dev_super";
+}
