@@ -589,7 +589,7 @@ export default function AdminSettings() {
     const names = convContactIds.map(convContactName);
     if (!(await confirm({
       title: `Clear ${convContactIds.length} Uptiq conversation${convContactIds.length > 1 ? "s" : ""}?`,
-      body: `Backs up each contact + all messages here, then deletes the conversation thread in Uptiq for: ${names.join(", ")}. The contacts are NOT deleted; the next message to each starts a fresh thread.`,
+      body: `Backs up each contact + all messages here, then deletes the conversation thread in Uptiq AND the app's own sent-message log (what the Contacts panel shows) for: ${names.join(", ")}. The contacts are NOT deleted, and queued/unsent messages still send; the next message to each starts a fresh thread.`,
       confirmLabel: "Back up & delete",
       destructive: true,
     }))) return;
@@ -603,8 +603,9 @@ export default function AdminSettings() {
       const ok = runs.filter((r) => r.result);
       const totalMessages = ok.reduce((sum, r) => sum + (r.result?.total_messages ?? 0), 0);
       const totalDeleted = ok.reduce((sum, r) => sum + (r.result?.deleted ?? 0), 0);
+      const totalAppCleared = ok.reduce((sum, r) => sum + (r.result?.app_cleared ?? 0), 0);
       const failed = runs.length - ok.length;
-      setNotice(`Backed up ${totalMessages} message(s); deleted ${totalDeleted} conversation(s) across ${ok.length} contact(s)${failed ? ` · ${failed} failed` : ""}.`);
+      setNotice(`Backed up ${totalMessages} message(s); deleted ${totalDeleted} conversation(s) + ${totalAppCleared} app-side log row(s) across ${ok.length} contact(s)${failed ? ` · ${failed} failed` : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Conversation delete failed");
     } finally {
@@ -1001,7 +1002,9 @@ export default function AdminSettings() {
                         <>
                           <div className="font-medium text-foreground">
                             {run.result.dry_run ? "Preview" : "Done"}: {run.result.contact.name ?? run.name} &mdash; {run.result.total_conversations} conversation(s), {run.result.total_messages} message(s){run.result.capped && " (backup capped at 2000/conv)"}{!run.result.dry_run && ` · deleted ${run.result.deleted ?? 0}`}
+                            {run.result.app_messages !== undefined && ` · app log: ${run.result.app_messages} row(s)${run.result.dry_run ? "" : ` (cleared ${run.result.app_cleared ?? 0})`}${run.result.app_capped ? " (capped at 1000 — rerun for the rest)" : ""}`}
                           </div>
+                          {run.result.app_error && <div className="text-destructive">app log clear failed: {run.result.app_error}</div>}
                           {run.result.backup_id && <div>Backup id: <span className="font-mono">{run.result.backup_id}</span></div>}
                           {(run.result.results ?? []).filter((r) => !r.deleted).map((r, index) => (
                             <div key={index} className="text-destructive">conversation {r.id.slice(0, 8)}: {r.error}{r.status ? ` (${r.status})` : ""}</div>

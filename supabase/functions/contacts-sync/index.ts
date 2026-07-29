@@ -569,11 +569,30 @@ Deno.serve(async (req) => {
     const anyCapped = convDetails.some((c) => c.capped);
     const contactOut = { id: (contact?.id as string | null) ?? null, name: displayName, uptiq_contact_id: uptiqContactId };
 
+    // The app-side MIRROR: scheduled_notifications rows addressed to this Uptiq contact are what
+    // the Contacts message panel + debug message log render — clearing only the Uptiq thread
+    // leaves the app still showing the whole conversation. HISTORY rows only (sent/failed/
+    // cancelled): pending/sending rows are scheduled work the drain still owns — a debug clear
+    // must never suppress a real send. Read is capped at 1000 (PostgREST max_rows); app_capped
+    // flags it, and rerunning the clear picks up the remainder.
+    const { data: mirrorData, error: mirrorErr } = await sb
+      .from("scheduled_notifications")
+      .select("*")
+      .eq("location_id", locId)
+      .eq("recipient", uptiqContactId)
+      .in("status", ["sent", "failed", "cancelled"])
+      .order("created_at")
+      .limit(1000);
+    if (mirrorErr) return json({ error: mirrorErr.message }, 500);
+    const appRows = (mirrorData ?? []) as Array<Record<string, unknown>>;
+    const appCapped = appRows.length === 1000;
+
     if (body.dry_run === true) {
       return json({
         mode: "delete_conversation", dry_run: true, contact: contactOut, capped: anyCapped, fetch_failed: fetchFailed,
         conversations: convDetails.map((c) => ({ id: c.id, message_count: c.message_count })),
         total_conversations: convIds.length, total_messages: totalMessages,
+        app_messages: appRows.length, app_capped: appCapped,
       });
     }
 
@@ -584,6 +603,7 @@ Deno.serve(async (req) => {
     }
 
     // Back up BEFORE deleting so nothing is lost even if a delete fails (e.g. missing scope).
+    // The backup carries BOTH sides: the Uptiq thread(s) and the app-side mirror rows.
     const { data: backup, error: bErr } = await sb.from("conversation_backups").insert({
       location_id: locId,
       contact_id: (contact?.id as string | null) ?? null,
@@ -591,6 +611,7 @@ Deno.serve(async (req) => {
       uptiq_conversation_id: convIds.join(",") || null,
       contact_snapshot: contact ?? { target, name: displayName, uptiq_contact_id: uptiqContactId },
       messages_snapshot: convDetails,
+      app_notifications_snapshot: appRows,
       message_count: totalMessages,
       created_by: claims.email ?? null,
     }).select("id").maybeSingle();
@@ -603,15 +624,31 @@ Deno.serve(async (req) => {
       if (del.ok) { deleted++; results.push({ id, deleted: true }); }
       else { results.push({ id, deleted: false, status: del.status, error: del.error ?? "delete_failed" }); }
     }
+
+    // Clear the app-side mirror — by the exact backed-up ids, so a row enqueued/sent after the
+    // snapshot above is never deleted un-backed-up. Runs regardless of the Uptiq outcome (a
+    // failed Uptiq delete gets retried; the backup already holds everything either way).
+    let appCleared = 0;
+    let appError: string | null = null;
+    if (appRows.length) {
+      const { error: dErr } = await sb
+        .from("scheduled_notifications")
+        .delete()
+        .in("id", appRows.map((r) => String(r.id)));
+      if (dErr) appError = dErr.message;
+      else appCleared = appRows.length;
+    }
+
     const allOk = deleted === convIds.length; // vacuously true when there was nothing to delete
     if (backup?.id) await sb.from("conversation_backups").update({ deleted_ok: allOk }).eq("id", backup.id);
     await logEvent({
       source: "admin", kind: "conversation_delete", location_id: locId,
-      payload: { contact_id: (contact?.id as string | null) ?? target, uptiq_contact_id: uptiqContactId, conversations: convIds.length, deleted, backup_id: backup?.id, by: claims.email },
+      payload: { contact_id: (contact?.id as string | null) ?? target, uptiq_contact_id: uptiqContactId, conversations: convIds.length, deleted, app_cleared: appCleared, backup_id: backup?.id, by: claims.email },
     });
     return json({
       mode: "delete_conversation", dry_run: false, contact: contactOut, backup_id: backup?.id,
       total_conversations: convIds.length, total_messages: totalMessages, deleted, results, capped: anyCapped,
+      app_messages: appRows.length, app_cleared: appCleared, app_capped: appCapped, app_error: appError,
     });
   }
 

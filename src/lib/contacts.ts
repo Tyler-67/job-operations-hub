@@ -81,6 +81,12 @@ export interface ConversationDeleteResult {
   deleted?: number;
   backup_id?: string;
   capped?: boolean;
+  // The app-side mirror (scheduled_notifications history rows for this contact — what the
+  // Contacts panel + message log render). Backed up with the thread, then cleared with it.
+  app_messages?: number;
+  app_cleared?: number;
+  app_capped?: boolean;
+  app_error?: string | null;
 }
 
 // The company messaging contacts (Settings owner/office ids) — where the app actually SENDS the
