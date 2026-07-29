@@ -172,6 +172,10 @@ export default function AdminSettings() {
   const [debugSubTab, setDebugSubTab] = useState<"general" | "messages" | "forms">("general");
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [form, setForm] = useState<SettingsForm>(blankForm());
+  // Debug PANELS normally hide behind the per-company debug_mode toggle (an owner's switch to
+  // reveal them). A dev_super is an app-wide superuser whose tools should be available on every
+  // instance regardless of that per-tenant flag, so they bypass debug_mode. Owners still gate on it.
+  const debugPanelsShown = form.debug_mode || user?.role === "dev_super";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -830,6 +834,9 @@ export default function AdminSettings() {
                     <span>
                       <span className="font-medium">Debug mode</span>{" "}
                       <span className="text-muted-foreground">&mdash; show the diagnostic tools below. Off for a clean/demo tenant; Save Settings to persist.</span>
+                      {user?.role === "dev_super" && (
+                        <span className="mt-0.5 block text-2xs text-muted-foreground">As a dev_super, the tools stay visible to you on every instance regardless of this toggle.</span>
+                      )}
                     </span>
                   </label>
                 </div>
@@ -858,7 +865,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && canDebugAny && form.debug_mode && (
+            {tab === "debug" && canDebugAny && debugPanelsShown && (
               <div className="flex flex-wrap gap-1 border-b border-border bg-card px-4 pt-2">
                 <TabButton active={debugSubTab === "general"} onClick={() => setDebugSubTab("general")}>General</TabButton>
                 <TabButton active={debugSubTab === "messages"} onClick={() => setDebugSubTab("messages")}>Messages</TabButton>
@@ -866,7 +873,7 @@ export default function AdminSettings() {
               </div>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("run_crons") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("run_crons") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Run crons</p>
@@ -895,7 +902,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("contacts_sync") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("contacts_sync") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Uptiq contacts</p>
@@ -918,7 +925,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("send_test") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("send_test") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Send test message</p>
@@ -960,7 +967,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("conversations") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("conversations") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Conversations</p>
@@ -1005,7 +1012,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("jobs_clear") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("jobs_clear") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Delete jobs</p>
@@ -1041,7 +1048,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "general" && hasDebugTool("data_reset") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "general" && hasDebugTool("data_reset") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Data reset</p>
@@ -1075,7 +1082,7 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
-            {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && debugPanelsShown && (
               <section className="border-b border-border px-4 py-3">
                 <div className="mb-2">
                   <h3 className="text-xs font-semibold">Message formats</h3>
@@ -1128,7 +1135,7 @@ export default function AdminSettings() {
               </section>
             )}
 
-            {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "messages" && hasDebugTool("message_log") && debugPanelsShown && (
               <section className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:gap-4">
                 <div className="sm:w-40 sm:shrink-0">
                   <p className="text-xs font-medium text-foreground">Message log</p>
@@ -1186,7 +1193,7 @@ export default function AdminSettings() {
                 </div>
               </section>
             )}
-            {tab === "debug" && debugSubTab === "forms" && hasDebugTool("forms_preview") && form.debug_mode && (
+            {tab === "debug" && debugSubTab === "forms" && hasDebugTool("forms_preview") && debugPanelsShown && (
               <section className="border-b border-border px-4 py-3">
                 <div className="mb-2">
                   <h3 className="text-xs font-semibold">Forms</h3>
