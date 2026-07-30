@@ -171,8 +171,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         // DOOR 4 — nobody. Demo is dev-only; otherwise send to the standalone login door.
         if (DEMO_ALLOWED) {
-          const demoToken = await issueDemoSession();
-          return success(await callEdge("me", { session: demoToken }));
+          // The server keeps its own gate (ALLOW_DEMO_SESSION) and normally refuses
+          // (demo_disabled — the backdoor is closed on every current backend). A refusal
+          // just means "no demo here": fall through to the login door like a production
+          // build would, instead of dead-ending `npm run dev` on an error screen.
+          try {
+            const demoToken = await issueDemoSession();
+            return success(await callEdge("me", { session: demoToken }));
+          } catch { /* demo refused — use the standalone door */ }
         }
         return finish({ loading: false, user: null, location: null, error: null, needsLogin: true });
       } catch (e: unknown) {
