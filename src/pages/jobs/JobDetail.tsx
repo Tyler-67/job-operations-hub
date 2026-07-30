@@ -906,18 +906,20 @@ function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
         <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
       </button>
       {isOpen && (
-        <div className="space-y-2 pb-3 pl-6 pr-4">
-          {log.issues && (
-            <div>
-              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
-              <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
-            </div>
-          )}
+        <>
+          <hr className="my-2" style={{ width: "100%", marginTop: "auto" }} />
+          <div className="space-y-2 pb-3 pl-6 pr-4">
+            {log.issues && (
+              <div>
+                <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
+                <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
+              </div>
+            )}
           {(parts || log.parts_list) && (
             <div>
-              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts</div>
-              {parts && <div className="mt-0.5">{parts}</div>}
-              {log.parts_list && <div className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{log.parts_list}</div>}
+              {parts && <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts: {parts}</div>}
+              <hr className="my-2" style={{ marginTop: "0.25rem", marginBottom: "0.25rem" }} />
+              {log.parts_list && <div className="mt-0.5">{log.parts_list}</div>}
             </div>
           )}
           {(sitePhotos.length > 0 || log.receipt_photo_url || log.parts_photo_url) && (
@@ -937,6 +939,7 @@ function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
             {sourceLabel ? ` · via ${sourceLabel}` : ""}
           </div>
         </div>
+        </>
       )}
     </div>
   );
