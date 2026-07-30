@@ -12,6 +12,7 @@ import {
   setJobInspectionRequested,
   shortDate,
   updateJob,
+  type DailyLog,
   type InspectionCalendarSync,
   type JobDecisionAction,
   type JobDetailResponse,
@@ -129,6 +130,32 @@ function paymentSourceLabel(source: string | null | undefined) {
   return "-";
 }
 
+// Job-site photos arrive as untyped JSON; normalize in one place so the URL-signing effect
+// and the row that renders thumbnails can't disagree about the shape.
+function sitePhotosOf(log: DailyLog): string[] {
+  return Array.isArray(log.job_site_photo_urls) ? (log.job_site_photo_urls as string[]) : [];
+}
+
+// Where a check-in's parts came from, as one line — amount, vendor and description included
+// when the crew recorded them. Null when no source was given.
+function partsSummary(log: DailyLog): string | null {
+  if (log.parts_source === "supply_house") return "Supply house order";
+  if (log.parts_source !== "field_purchase") return null;
+  const head = [
+    "Field purchase",
+    log.field_purchase_amount != null && currency(Number(log.field_purchase_amount)),
+    log.field_purchase_vendor && `at ${log.field_purchase_vendor}`,
+  ].filter(Boolean).join(" ");
+  return log.field_purchase_description ? `${head} — ${log.field_purchase_description}` : head;
+}
+
+// Mirrors paymentSourceLabel: raw column value in, display string out (null hides the tail).
+function checkInSourceLabel(source: string | null | undefined) {
+  if (source === "quick_log") return "quick log";
+  if (source === "check_in") return "daily check-in";
+  return source ?? null;
+}
+
 type DecisionTone = "pass" | "fail" | "neutral";
 
 function decisionButtonClass(tone: DecisionTone) {
@@ -189,7 +216,7 @@ export default function JobDetail() {
   useEffect(() => {
     const logs = detail?.daily_logs ?? [];
     const paths = logs.flatMap((log) => [
-      ...(Array.isArray(log.job_site_photo_urls) ? log.job_site_photo_urls : []),
+      ...sitePhotosOf(log),
       log.receipt_photo_url,
       log.parts_photo_url,
     ]);
@@ -235,9 +262,9 @@ export default function JobDetail() {
             invoice_number: job.invoice_number ?? "",
             start_date: dateInput(job.start_date),
             inspection_date: dateInput(job.inspection_date),
-            inspection_slot: slotInput((job as { inspection_slot?: string | null }).inspection_slot),
+            inspection_slot: slotInput(job.inspection_slot),
             walkthrough_date: dateInput(job.walkthrough_date),
-            walkthrough_slot: slotInput((job as { walkthrough_slot?: string | null }).walkthrough_slot),
+            walkthrough_slot: slotInput(job.walkthrough_slot),
             scope_of_work: job.scope_of_work ?? "",
             notes: job.notes ?? "",
             active: job.active,
@@ -253,6 +280,15 @@ export default function JobDetail() {
   const currentState = useMemo(
     () => states.find((state) => state.id === form.current_state_id) ?? null,
     [form.current_state_id, states],
+  );
+  // Check-in row lookups (crew name + phase label by id) — Maps for readability, not speed.
+  const crewById = useMemo(
+    () => new Map((detail?.job.crew ?? []).map((c) => [c.id, c])),
+    [detail],
+  );
+  const stateById = useMemo(
+    () => new Map(states.map((s) => [s.id, s])),
+    [states],
   );
 
   const crewOptions = useMemo(() => splitCrew(form.crew_names), [form.crew_names]);
@@ -294,10 +330,10 @@ export default function JobDetail() {
         invoice_number: form.invoice_number || null,
         start_date: form.start_date || null,
         inspection_date: form.inspection_date || null,
-        ...(isNew || form.inspection_slot !== slotInput((detail?.job as { inspection_slot?: string | null } | undefined)?.inspection_slot)
+        ...(isNew || form.inspection_slot !== slotInput(detail?.job.inspection_slot)
           ? { inspection_slot: form.inspection_slot } : {}),
         walkthrough_date: form.walkthrough_date || null,
-        ...(isNew || form.walkthrough_slot !== slotInput((detail?.job as { walkthrough_slot?: string | null } | undefined)?.walkthrough_slot)
+        ...(isNew || form.walkthrough_slot !== slotInput(detail?.job.walkthrough_slot)
           ? { walkthrough_slot: form.walkthrough_slot } : {}),
         scope_of_work: form.scope_of_work || null,
         notes: form.notes || null,
@@ -406,9 +442,9 @@ export default function JobDetail() {
         current_state_id: res.job.current_state_id ?? "",
         state_progress_pct: String(res.job.state_progress_pct),
         inspection_date: dateInput(res.job.inspection_date),
-        inspection_slot: slotInput((res.job as { inspection_slot?: string | null }).inspection_slot),
+        inspection_slot: slotInput(res.job.inspection_slot),
         walkthrough_date: dateInput(res.job.walkthrough_date),
-        walkthrough_slot: slotInput((res.job as { walkthrough_slot?: string | null }).walkthrough_slot),
+        walkthrough_slot: slotInput(res.job.walkthrough_slot),
         active: res.job.active,
       }));
       const d = res.decision;
@@ -451,7 +487,7 @@ export default function JobDetail() {
       setForm((current) => ({
         ...current,
         inspection_date: dateInput(res.job.inspection_date),
-        inspection_slot: slotInput((res.job as { inspection_slot?: string | null }).inspection_slot),
+        inspection_slot: slotInput(res.job.inspection_slot),
       }));
       setNotice(
         next
@@ -786,70 +822,17 @@ export default function JobDetail() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check-ins</h2>
             <p className="mt-0.5 text-2xs text-muted-foreground">Everything the crew submitted, one row per day per crew — click a row for photos and details.</p>
             <div className="mt-2 divide-y divide-border text-xs">
-              {(detail?.daily_logs ?? []).map((log) => {
-                const open = openLogId === log.id;
-                const crewName = detail?.job.crew.find((c) => c.id === log.crew_contact_id)?.name ?? null;
-                const phase = states.find((s) => s.id === log.state_id)?.label ?? null;
-                const sitePhotos = Array.isArray(log.job_site_photo_urls) ? log.job_site_photo_urls : [];
-                const source = (log as { source?: string | null }).source; // types.ts predates the column
-                const partsSummary = log.parts_source === "field_purchase"
-                  ? `Field purchase${log.field_purchase_amount != null ? ` ${currency(Number(log.field_purchase_amount))}` : ""}${log.field_purchase_vendor ? ` at ${log.field_purchase_vendor}` : ""}`
-                  : log.parts_source === "supply_house"
-                    ? "Supply house order"
-                    : null;
-                return (
-                  <div key={log.id}>
-                    <button
-                      type="button"
-                      onClick={() => setOpenLogId(open ? null : log.id)}
-                      className="flex w-full items-center gap-2 py-2 pr-3 text-left hover:bg-muted/40"
-                    >
-                      {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                      <span className="font-medium">{shortDate(log.log_date)}</span>
-                      {crewName && <span className="text-muted-foreground">{crewName}</span>}
-                      {phase && <span className="pill bg-muted text-muted-foreground">{phase}</span>}
-                      {log.inspection_requested && <span className="pill bg-accent/10 text-accent">ready for inspection</span>}
-                      {sitePhotos.length > 0 && <span className="text-2xs text-muted-foreground">{sitePhotos.length} photo{sitePhotos.length === 1 ? "" : "s"}</span>}
-                      <span className="flex-1" />
-                      {log.state_progress_pct != null && <span className="font-mono-num text-muted-foreground">{log.state_progress_pct}%</span>}
-                      <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
-                    </button>
-                    {open && (
-                      <div className="space-y-2 pb-3 pl-6 pr-4">
-                        {log.issues && (
-                          <div>
-                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
-                            <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
-                          </div>
-                        )}
-                        {(partsSummary || log.parts_list) && (
-                          <div>
-                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts</div>
-                            {partsSummary && <div className="mt-0.5">{partsSummary}{log.field_purchase_description ? ` — ${log.field_purchase_description}` : ""}</div>}
-                            {log.parts_list && <div className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{log.parts_list}</div>}
-                          </div>
-                        )}
-                        {(sitePhotos.length > 0 || log.receipt_photo_url || log.parts_photo_url) && (
-                          <div>
-                            <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Photos</div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              {sitePhotos.map((path, i) => (
-                                <LogPhotoThumb key={path} path={path} urls={logPhotoUrls} label={`Job site ${i + 1}`} />
-                              ))}
-                              {log.receipt_photo_url && <LogPhotoThumb path={log.receipt_photo_url} urls={logPhotoUrls} label="Receipt" />}
-                              {log.parts_photo_url && <LogPhotoThumb path={log.parts_photo_url} urls={logPhotoUrls} label="Parts" />}
-                            </div>
-                          </div>
-                        )}
-                        <div className="text-2xs text-muted-foreground">
-                          Submitted {log.created_at ? new Date(log.created_at).toLocaleString() : "-"}
-                          {source ? ` · via ${source === "quick_log" ? "quick log" : source === "check_in" ? "daily check-in" : source}` : ""}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {(detail?.daily_logs ?? []).map((log) => (
+                <CheckInRow
+                  key={log.id}
+                  log={log}
+                  isOpen={openLogId === log.id}
+                  crewName={crewById.get(log.crew_contact_id ?? "")?.name ?? null}
+                  phase={stateById.get(log.state_id ?? "")?.label ?? null}
+                  photoUrls={logPhotoUrls}
+                  onToggle={setOpenLogId}
+                />
+              ))}
               {(detail?.daily_logs ?? []).length === 0 && <div className="py-3 text-muted-foreground">No check-ins yet.</div>}
             </div>
           </div>
@@ -888,6 +871,74 @@ export default function JobDetail() {
         </aside>
       </div>
     </form>
+  );
+}
+
+// One check-in row of the drill-down: the collapsed summary button + the expanded panel
+// (notes, parts, photo thumbs, submitted line). Pure presentation over a single log —
+// the string-building lives in the module helpers (partsSummary / checkInSourceLabel).
+function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
+  log: DailyLog;
+  isOpen: boolean;
+  crewName: string | null;
+  phase: string | null;
+  photoUrls: Record<string, string | null>;
+  onToggle: (id: string | null) => void;
+}) {
+  const sitePhotos = sitePhotosOf(log);
+  const parts = partsSummary(log);
+  const sourceLabel = checkInSourceLabel(log.source);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onToggle(isOpen ? null : log.id)}
+        className="flex w-full items-center gap-2 py-2 pr-3 text-left hover:bg-muted/40"
+      >
+        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        <span className="font-medium">{shortDate(log.log_date)}</span>
+        {crewName && <span className="text-muted-foreground">{crewName}</span>}
+        {phase && <span className="pill bg-muted text-muted-foreground">{phase}</span>}
+        {log.inspection_requested && <span className="pill bg-accent/10 text-accent">ready for inspection</span>}
+        {sitePhotos.length > 0 && <span className="text-2xs text-muted-foreground">{sitePhotos.length} photo{sitePhotos.length === 1 ? "" : "s"}</span>}
+        <span className="flex-1" />
+        {log.state_progress_pct != null && <span className="font-mono-num text-muted-foreground">{log.state_progress_pct}%</span>}
+        <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
+      </button>
+      {isOpen && (
+        <div className="space-y-2 pb-3 pl-6 pr-4">
+          {log.issues && (
+            <div>
+              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
+              <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
+            </div>
+          )}
+          {(parts || log.parts_list) && (
+            <div>
+              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts</div>
+              {parts && <div className="mt-0.5">{parts}</div>}
+              {log.parts_list && <div className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{log.parts_list}</div>}
+            </div>
+          )}
+          {(sitePhotos.length > 0 || log.receipt_photo_url || log.parts_photo_url) && (
+            <div>
+              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Photos</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {sitePhotos.map((path, i) => (
+                  <LogPhotoThumb key={path} path={path} urls={photoUrls} label={`Job site ${i + 1}`} />
+                ))}
+                {log.receipt_photo_url && <LogPhotoThumb path={log.receipt_photo_url} urls={photoUrls} label="Receipt" />}
+                {log.parts_photo_url && <LogPhotoThumb path={log.parts_photo_url} urls={photoUrls} label="Parts" />}
+              </div>
+            </div>
+          )}
+          <div className="text-2xs text-muted-foreground">
+            Submitted {log.created_at ? new Date(log.created_at).toLocaleString() : "-"}
+            {sourceLabel ? ` · via ${sourceLabel}` : ""}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

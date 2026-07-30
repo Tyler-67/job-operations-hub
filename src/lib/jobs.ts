@@ -59,6 +59,10 @@ export interface JobSummary {
   // Active inspection request (inspection-as-a-tag stages): stamped by the crew's ready
   // check-in / the office Request-inspection toggle; null when no cycle is pending.
   inspection_requested_at: string | null;
+  // Appointment time windows ("9am" / "1pm"; null = default). Responses carry them since the
+  // appointment-slots work — typed here so callers don't re-cast the raw row.
+  inspection_slot: string | null;
+  walkthrough_slot: string | null;
   walkthrough_date: string | null;
   latest_po: string | null;
   completion_report: CompletionReport | null;

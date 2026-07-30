@@ -321,6 +321,7 @@ export type Database = {
           name: string
           phone: string | null
           role: string | null
+          supply_house_id: string | null
           updated_at: string
           uptiq_contact_id: string | null
         }
@@ -333,6 +334,7 @@ export type Database = {
           name: string
           phone?: string | null
           role?: string | null
+          supply_house_id?: string | null
           updated_at?: string
           uptiq_contact_id?: string | null
         }
@@ -345,6 +347,7 @@ export type Database = {
           name?: string
           phone?: string | null
           role?: string | null
+          supply_house_id?: string | null
           updated_at?: string
           uptiq_contact_id?: string | null
         }
@@ -356,10 +359,18 @@ export type Database = {
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "contacts_supply_house_id_fkey"
+            columns: ["supply_house_id"]
+            isOneToOne: false
+            referencedRelation: "supply_house_contacts"
+            referencedColumns: ["id"]
+          },
         ]
       }
       conversation_backups: {
         Row: {
+          app_notifications_snapshot: Json | null
           contact_id: string | null
           contact_snapshot: Json
           created_at: string
@@ -373,6 +384,7 @@ export type Database = {
           uptiq_conversation_id: string | null
         }
         Insert: {
+          app_notifications_snapshot?: Json | null
           contact_id?: string | null
           contact_snapshot: Json
           created_at?: string
@@ -386,6 +398,7 @@ export type Database = {
           uptiq_conversation_id?: string | null
         }
         Update: {
+          app_notifications_snapshot?: Json | null
           contact_id?: string | null
           contact_snapshot?: Json
           created_at?: string
@@ -879,6 +892,7 @@ export type Database = {
           id: string
           inspection_appointment_id: string | null
           inspection_date: string | null
+          inspection_requested_at: string | null
           inspection_slot: string | null
           invoice_id: string | null
           invoice_number: string | null
@@ -914,6 +928,7 @@ export type Database = {
           id?: string
           inspection_appointment_id?: string | null
           inspection_date?: string | null
+          inspection_requested_at?: string | null
           inspection_slot?: string | null
           invoice_id?: string | null
           invoice_number?: string | null
@@ -949,6 +964,7 @@ export type Database = {
           id?: string
           inspection_appointment_id?: string | null
           inspection_date?: string | null
+          inspection_requested_at?: string | null
           inspection_slot?: string | null
           invoice_id?: string | null
           invoice_number?: string | null
