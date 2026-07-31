@@ -89,14 +89,16 @@ export default function Dashboard() {
             <table className="ops-grid ops-grid-full w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <SortableTh label="Address" sortKey="address" sort={sort} onSort={toggleSort} className="w-[30%]" />
-                  <SortableTh label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} className="w-[12%]" />
-                  <SortableTh label="State" sortKey="state" sort={sort} onSort={toggleSort} className="w-[14%]" />
-                  <SortableTh label="State %" sortKey="progress" sort={sort} onSort={toggleSort} className="w-[7%]" />
-                  <SortableTh label="Expenses" sortKey="expenses" sort={sort} onSort={toggleSort} className="w-[9%]" />
-                  <SortableTh label={`Inspection (${inspections.length}/${inspectionsScheduled})`} sortKey="inspection" sort={sort} onSort={toggleSort} className="w-[9%]" />
-                  <SortableTh label={`Check-in (${overdue.length}/${checkInEligible})`} sortKey="checkin" sort={sort} onSort={toggleSort} className="w-[9%]" />
-                  <SortableTh label={`Action (${actionCount})`} sortKey="action" sort={sort} onSort={toggleSort} className="w-[10%]" />
+                  {/* Widths roughly track the Jobs page columns; Progress is wide enough for
+                      the % plus the check-in-overdue pill it now carries. */}
+                  <SortableTh label="Address" sortKey="address" sort={sort} onSort={toggleSort} className="w-[20%]" />
+                  <SortableTh label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} className="w-[10%]" />
+                  <SortableTh label="State" sortKey="state" sort={sort} onSort={toggleSort} className="w-[15%]" />
+                  <SortableTh label="State %" sortKey="progress" sort={sort} onSort={toggleSort} className="w-[15%]" />
+                  <SortableTh label="Expenses" sortKey="expenses" sort={sort} onSort={toggleSort} className="w-[8%]" />
+                  <SortableTh label={`Inspection (${inspections.length}/${inspectionsScheduled})`} sortKey="inspection" sort={sort} onSort={toggleSort} className="w-[11%]" />
+                  <SortableTh label={`Check-in (${overdue.length}/${checkInEligible})`} sortKey="checkin" sort={sort} onSort={toggleSort} className="w-[10%]" />
+                  <SortableTh label={`Action (${actionCount})`} sortKey="action" sort={sort} onSort={toggleSort} className="w-[11%]" />
                 </tr>
               </thead>
               <tbody>
@@ -115,7 +117,8 @@ export default function Dashboard() {
                           lives in the Inspection column, not here. */}
                       <td className="px-3 py-2" style={job.current_state ? { backgroundColor: `${job.current_state.color}22` } : undefined}>
                         {job.current_state && (
-                          <span className="font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
+                          // truncate (not wrap) when space runs out, so rows stay one line tall.
+                          <span className="block truncate font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
                         )}
                       </td>
                       {/* Progress carries the check-in-overdue signal as the ONE pill kept (per Tyler). */}
@@ -136,7 +139,7 @@ export default function Dashboard() {
                       </td>
                       {/* Action = pending PO values only (check-in lives on Progress, inspection in
                           its own column), so one full-cell fill covers it. */}
-                      <td className={`px-3 py-2 ${pendingPoCount > 0 ? "bg-warning/20 font-medium text-warning" : ""}`}>
+                      <td className={`truncate px-3 py-2 ${pendingPoCount > 0 ? "bg-warning/20 font-medium text-warning" : ""}`}>
                         {pendingPoCount > 0 && "PO value"}
                       </td>
                     </tr>
