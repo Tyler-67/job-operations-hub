@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Edit2, KeyRound, RotateCcw, Save, Search, ShieldCheck, UserCheck, UserPlus, UserX, Users, X } from "lucide-react";
+import { Copy, KeyRound, Save, Search, UserPlus, X } from "lucide-react";
 import {
   APP_ROLES,
   DEBUG_TOOL_OPTIONS,
@@ -23,7 +23,7 @@ import {
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { InlineMultiSelect } from "@/components/InlineMultiSelect";
-import { SortableTh, useTableSort, type SortAccessors } from "@/components/SortableTable";
+import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
 
 const USER_SORT: SortAccessors<AppUserWithEmails> = {
   user: (row) => row.name || row.email,
@@ -80,31 +80,6 @@ function roleTone(role: string) {
   if (role === "support_admin") return "bg-warning/20 text-warning";
   if (role === "crew") return "bg-muted text-foreground";
   return "bg-muted text-muted-foreground";
-}
-
-function Metric({ icon: Icon, label, value, tone = "default" }: {
-  icon: typeof Users;
-  label: string;
-  value: string | number;
-  tone?: "default" | "warning" | "success";
-}) {
-  const toneClass = {
-    default: "text-foreground",
-    warning: "text-warning",
-    success: "text-success",
-  }[tone];
-
-  return (
-    <div className="flex min-h-20 items-center gap-3 border-b border-r border-border bg-card px-4 py-3">
-      <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-muted">
-        <Icon className={`h-4 w-4 ${toneClass}`} />
-      </div>
-      <div>
-        <div className={`font-mono-num text-lg font-semibold leading-none ${toneClass}`}>{value}</div>
-        <div className="mt-1 text-2xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
 }
 
 export default function AdminUsers() {
@@ -189,28 +164,6 @@ export default function AdminUsers() {
       resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save user");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function setUserActive(row: AppUserWithEmails, active: boolean) {
-    if (!canManage || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const next = await updateUser({
-        id: row.id,
-        email: row.email,
-        name: row.name,
-        phone: row.phone,
-        role: row.role,
-        active,
-      });
-      setData(next);
-      if (form.id === row.id) resetForm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update user");
     } finally {
       setSaving(false);
     }
@@ -315,14 +268,7 @@ export default function AdminUsers() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 border-b border-border lg:grid-cols-5">
-        <Metric icon={Users} label="Total users" value={data?.metrics.total_user_count ?? 0} />
-        <Metric icon={UserCheck} label="Active users" value={data?.metrics.active_user_count ?? 0} tone="success" />
-        <Metric icon={UserX} label="Inactive users" value={data?.metrics.inactive_user_count ?? 0} tone={(data?.metrics.inactive_user_count ?? 0) ? "warning" : "default"} />
-        <Metric icon={ShieldCheck} label="Owners" value={data?.metrics.owner_admin_count ?? 0} />
-        <Metric icon={Users} label="Office managers" value={data?.metrics.office_manager_count ?? 0} />
-      </div>
-
+      {/* The old metric-tile bar is gone: the counts live in the table heads. */}
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
       {loading && <div className="p-6 text-xs text-muted-foreground">Loading users...</div>}
 
@@ -332,31 +278,40 @@ export default function AdminUsers() {
             <table className="ops-grid w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <SortableTh label="User" sortKey="user" sort={sort} onSort={toggleSort} className="w-[28%]" />
-                  <SortableTh label="Role" sortKey="role" sort={sort} onSort={toggleSort} className="w-40" />
-                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-24" />
+                  {/* The old metric bar's numbers live here: active/total on User, the
+                      admin-tier counts on Role. Percentage widths only (px + % over-constrains
+                      the fixed-layout table at narrow widths and crushes a column). */}
+                  <SortableTh label={`User (${data?.metrics.active_user_count ?? 0}/${data?.metrics.total_user_count ?? 0})`} sortKey="user" sort={sort} onSort={toggleSort} className="w-[26%]" />
+                  <SortableTh label={`Role (${data?.metrics.owner_admin_count ?? 0} owner, ${data?.metrics.office_manager_count ?? 0} office)`} sortKey="role" sort={sort} onSort={toggleSort} className="w-[24%]" />
+                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-[9%]" />
                   <SortableTh label="Phone" sortKey="phone" sort={sort} onSort={toggleSort} />
-                  <SortableTh label="Last seen" sortKey="last_seen" sort={sort} onSort={toggleSort} className="w-40" />
-                  <SortableTh label="Updated" sortKey="updated" sort={sort} onSort={toggleSort} className="w-40" />
-                  <SortableTh label="Actions" sort={sort} onSort={toggleSort} align="right" className="w-24" />
+                  <SortableTh label="Last seen" sortKey="last_seen" sort={sort} onSort={toggleSort} className="w-[15%]" />
+                  <SortableTh label="Updated" sortKey="updated" sort={sort} onSort={toggleSort} className="w-[15%]" />
                 </tr>
               </thead>
               <tbody>
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-muted-foreground">No users match the current filters.</td>
+                    <td colSpan={6} className="p-8 text-center text-muted-foreground">No users match the current filters.</td>
                   </tr>
                 )}
                 {sorted.map((row) => {
-                  const rowSelf = row.id === user?.id;
                   // An app-wide super surfaced from another instance: visible to a super, but
-                  // managed only on its home instance, so lock the row's controls here.
+                  // managed only on its home instance — and a tier above the actor is locked —
+                  // so those rows don't open the edit form.
                   const rowAppWide = Boolean(row.app_wide);
                   const rowSupportLocked = (row.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
                     || (row.role === "dev_super" && user?.role !== "dev_super");
                   const rowLocked = rowSupportLocked || rowAppWide;
                   return (
-                    <tr key={row.id} className={`ops-row ${row.active ? "" : "opacity-60"}`}>
+                    <tr
+                      key={row.id}
+                      tabIndex={rowLocked ? undefined : 0}
+                      title={rowAppWide ? "App-wide superuser — manage on their home instance" : undefined}
+                      className={`ops-row ${row.active ? "" : "opacity-60"} ${rowLocked ? "" : "cursor-pointer"} ${form.id === row.id ? "bg-muted/50" : ""}`}
+                      onClick={(event) => { if (!rowLocked && !shouldIgnoreRowClick(event)) setForm(userToForm(row)); }}
+                      onKeyDown={(event) => { if (!rowLocked && event.key === "Enter") setForm(userToForm(row)); }}
+                    >
                       <td className="px-3 py-2">
                         <div className="truncate font-medium">{row.name || row.email}</div>
                         <div className="mt-0.5 truncate text-muted-foreground">{row.email}</div>
@@ -379,22 +334,6 @@ export default function AdminUsers() {
                       <td className="px-3 py-2 text-muted-foreground">{row.phone ?? "-"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDateTime(row.last_seen_at)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDateTime(row.updated_at)}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-1">
-                          <button type="button" title={rowAppWide ? "App-wide superuser — manage on their home instance" : "Edit user"} disabled={!canManage || saving || rowLocked} onClick={() => setForm(userToForm(row))} className="icon-btn">
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          {row.active ? (
-                            <button type="button" title="Deactivate user" disabled={!canManage || saving || rowSelf || rowLocked} onClick={() => setUserActive(row, false)} className="icon-btn">
-                              <UserX className="h-3.5 w-3.5" />
-                            </button>
-                          ) : (
-                            <button type="button" title="Reactivate user" disabled={!canManage || saving || rowLocked} onClick={() => setUserActive(row, true)} className="icon-btn">
-                              <RotateCcw className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
                     </tr>
                   );
                 })}
