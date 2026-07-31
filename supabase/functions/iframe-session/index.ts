@@ -4,6 +4,7 @@
 import { corsHeaders, json, preflight, serviceClient, signSession, logEvent } from "../_shared/util.ts";
 import { uptiq } from "../_shared/uptiq.ts";
 import { RESERVED_DEMO_EMAIL } from "../_shared/app-user.ts";
+import { isAdmin } from "../_shared/roles.ts";
 
 type VerifiedUptiqUser = {
   id: string | null;
@@ -117,7 +118,12 @@ Deno.serve(async (req) => {
 
   let appUserId: string; let role: string; let debugTools: string[] = [];
   if (existing) {
-    appUserId = existing.id; role = desiredRole ?? existing.role; debugTools = Array.isArray(existing.debug_tools) ? existing.debug_tools : [];
+    appUserId = existing.id;
+    // The bootstrap email is guaranteed AT LEAST owner_admin — a floor for first access,
+    // never a downgrade. Without the isAdmin guard this write silently demoted a
+    // dev_super/support_admin bootstrap row back to owner_admin on EVERY login.
+    role = desiredRole && !isAdmin(existing.role) ? desiredRole : existing.role;
+    debugTools = Array.isArray(existing.debug_tools) ? existing.debug_tools : [];
     await sb.from("app_users").update({
       // Only refresh Uptiq-sourced fields when we actually verified this login; else keep prior values.
       name: effectiveName ?? undefined, phone: effectivePhone ?? undefined,
