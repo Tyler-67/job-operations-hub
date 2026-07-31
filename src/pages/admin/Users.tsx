@@ -372,10 +372,9 @@ export default function AdminUsers() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <span className={`pill ${row.active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
-                          {row.active ? "active" : "inactive"}
-                        </span>
+                      {/* Status fills its whole cell, matching the state cells on the job tables. */}
+                      <td className={`px-3 py-2 font-medium ${row.active ? "bg-success/10 text-success" : "bg-muted/60 text-muted-foreground"}`}>
+                        {row.active ? "active" : "inactive"}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{row.phone ?? "-"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDateTime(row.last_seen_at)}</td>

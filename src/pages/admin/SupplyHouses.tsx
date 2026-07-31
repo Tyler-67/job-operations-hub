@@ -193,10 +193,9 @@ export default function AdminSupplyHouses() {
                     <td className="px-3 py-2 text-muted-foreground">{house.phone ?? "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground"><div className="truncate">{house.email ?? "-"}</div></td>
                     <td className="px-3 py-2 text-muted-foreground">{house.account_number ?? "-"}</td>
-                    <td className="px-3 py-2">
-                      <span className={`pill ${house.active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
-                        {house.active ? "active" : "inactive"}
-                      </span>
+                    {/* Status fills its whole cell, matching the state cells on the job tables. */}
+                    <td className={`px-3 py-2 font-medium ${house.active ? "bg-success/10 text-success" : "bg-muted/60 text-muted-foreground"}`}>
+                      {house.active ? "active" : "inactive"}
                     </td>
                   </tr>
                 ))}

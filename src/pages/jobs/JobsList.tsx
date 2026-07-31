@@ -14,7 +14,8 @@ const JOB_SORT: SortAccessors<JobSummary> = {
   crew: (job) => job.crew.map((contact) => contact.name).join(", ") || null,
   expenses: (job) => job.total_expenses,
   inspection: (job) => job.inspection_date,
-  action: (job) => (needsCheckIn(job) || inspectionUnderway(job) || job.purchase_orders.some((po) => po.status === "pending_value") ? 1 : 0),
+  // Office action = pending PO values only (check-in overdue lives on Progress, inspection in its column).
+  action: (job) => job.purchase_orders.filter((po) => po.status === "pending_value").length,
   updated: (job) => job.updated_at,
 };
 
@@ -67,10 +68,8 @@ export default function JobsList() {
   const inspectionCount = jobs.filter(isInspectionSoon).length;
   const scheduledInspections = jobs.filter((job) => job.inspection_date).length;
   const activeCount = jobs.filter((job) => job.active && !job.current_state?.is_terminal).length;
-  const actionCount = jobs.filter((job) =>
-    needsCheckIn(job) ||
-    inspectionUnderway(job) ||
-    job.purchase_orders.some((po) => po.status === "pending_value")).length;
+  // The Office action column now carries ONLY pending PO values, so its head counts just those.
+  const actionCount = jobs.filter((job) => job.purchase_orders.some((po) => po.status === "pending_value")).length;
   const canManage = canManageJobs(user?.role);
 
   const { sorted, sort, toggleSort } = useTableSort(filtered, JOB_SORT);
@@ -152,33 +151,32 @@ export default function JobsList() {
                       <Link to={`/jobs/${job.id}`} className="font-medium text-foreground hover:text-accent">{job.address}</Link>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{job.customers[0]?.name ?? "-"}</td>
-                    {/* The state fills its whole cell (per Tyler) instead of a small pill inside it. */}
+                    {/* The state fills its whole cell (per Tyler); the inspection signal lives
+                        in the Inspection column, not here. */}
                     <td className="px-3 py-2" style={job.current_state ? { backgroundColor: `${job.current_state.color}22` } : undefined}>
                       {job.current_state && (
-                        <span className="flex flex-wrap items-center gap-1 font-medium" style={{ color: job.current_state.color }}>
-                          {job.current_state.label}
-                          {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
-                        </span>
+                        <span className="font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
                       )}
                     </td>
+                    {/* Progress carries the check-in-overdue signal as the ONE pill kept (per Tyler). */}
                     <td className="px-3 py-2 font-mono-num">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <div className="h-1.5 w-20 rounded-sm bg-secondary">
                           <div className="h-full rounded-sm bg-accent" style={{ width: `${job.state_progress_pct}%` }} />
                         </div>
                         {job.state_progress_pct}%
+                        {overdue && <span className="pill bg-destructive/10 text-destructive">check-in overdue</span>}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{job.crew.map((contact) => contact.name).join(", ") || "-"}</td>
                     <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{shortDate(job.inspection_date)}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {overdue && <span className="pill bg-destructive/10 text-destructive">check-in overdue</span>}
-                        {pending > 0 && <span className="pill bg-warning/20 text-warning">{pending} PO value</span>}
-                        {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
-                        {!overdue && pending === 0 && !inspectionUnderway(job) && <span className="text-muted-foreground">-</span>}
-                      </div>
+                    {/* An active inspection fills its own column: the date, or "requested" until one is set. */}
+                    <td className={`px-3 py-2 ${inspectionUnderway(job) ? "bg-info/10 font-medium text-info" : "text-muted-foreground"}`}>
+                      {inspectionUnderway(job) && !job.inspection_date ? "requested" : shortDate(job.inspection_date)}
+                    </td>
+                    {/* Office action = pending PO values only — one full-cell fill. */}
+                    <td className={`px-3 py-2 ${pending > 0 ? "bg-warning/20 font-medium text-warning" : ""}`}>
+                      {pending > 0 && `${pending} PO value`}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{shortDate(job.updated_at)}</td>
                   </tr>
