@@ -133,7 +133,12 @@ export default function AdminUsers() {
   // support_admin can't touch dev_super rows (mirrors the server's canManageRole).
   const tierLocked = (form.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
     || (form.role === "dev_super" && user?.role !== "dev_super");
-  const saveDisabled = !canManage || saving || !form.email.trim() || tierLocked;
+  // An app-wide super surfaced from another instance opens READ-ONLY — it's managed on its
+  // home instance (this fn couldn't save it anyway). Every locked row still OPENS, so
+  // clicking always shows the details; the lock only freezes the fields.
+  const editingAppWide = Boolean(editingRow?.app_wide);
+  const formLocked = tierLocked || editingAppWide;
+  const saveDisabled = !canManage || saving || !form.email.trim() || formLocked;
 
   function resetForm() {
     setForm(blankUserForm(roleOptions.includes("viewer") ? "viewer" : roleOptions[0] ?? "viewer"));
@@ -296,21 +301,17 @@ export default function AdminUsers() {
                   </tr>
                 )}
                 {sorted.map((row) => {
-                  // An app-wide super surfaced from another instance: visible to a super, but
-                  // managed only on its home instance — and a tier above the actor is locked —
-                  // so those rows don't open the edit form.
                   const rowAppWide = Boolean(row.app_wide);
-                  const rowSupportLocked = (row.role === "support_admin" && !["support_admin", "dev_super"].includes(user?.role ?? ""))
-                    || (row.role === "dev_super" && user?.role !== "dev_super");
-                  const rowLocked = rowSupportLocked || rowAppWide;
                   return (
+                    // Every row opens the form on click — locked rows (app-wide supers,
+                    // tiers above the actor) open READ-ONLY rather than not opening at all.
                     <tr
                       key={row.id}
-                      tabIndex={rowLocked ? undefined : 0}
+                      tabIndex={0}
                       title={rowAppWide ? "App-wide superuser — manage on their home instance" : undefined}
-                      className={`ops-row ${row.active ? "" : "opacity-60"} ${rowLocked ? "" : "cursor-pointer"} ${form.id === row.id ? "bg-muted/50" : ""}`}
-                      onClick={(event) => { if (!rowLocked && !shouldIgnoreRowClick(event)) setForm(userToForm(row)); }}
-                      onKeyDown={(event) => { if (!rowLocked && event.key === "Enter") setForm(userToForm(row)); }}
+                      className={`ops-row cursor-pointer ${row.active ? "" : "opacity-60"} ${form.id === row.id ? "bg-muted/50" : ""}`}
+                      onClick={(event) => { if (!shouldIgnoreRowClick(event)) setForm(userToForm(row)); }}
+                      onKeyDown={(event) => { if (event.key === "Enter") setForm(userToForm(row)); }}
                     >
                       <td className="px-3 py-2">
                         <div className="truncate font-medium">{row.name || row.email}</div>
@@ -345,28 +346,32 @@ export default function AdminUsers() {
             <div className="space-y-4 p-4">
               <div>
                 <h2 className="text-sm font-semibold">{editing ? "Edit User" : "New User"}</h2>
-                <p className="mt-1 text-xs text-muted-foreground">{canManage ? "Set company access and status." : "View-only role."}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {editingAppWide
+                    ? "App-wide superuser — read-only here; manage them on their home instance."
+                    : canManage ? "Set company access and status." : "View-only role."}
+                </p>
               </div>
 
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Email</span>
-                <input type="email" value={form.email} onChange={(event) => updateForm({ email: event.target.value })} disabled={!canManage || saving || editingSelf} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65" />
+                <input type="email" value={form.email} onChange={(event) => updateForm({ email: event.target.value })} disabled={!canManage || saving || editingSelf || formLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs disabled:opacity-65" />
                 <span className="mt-1 block text-2xs text-muted-foreground">Signs in at /login with this email + the password below.</span>
               </label>
 
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Name</span>
-                <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+                <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} disabled={!canManage || saving || formLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
               </label>
 
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Phone</span>
-                <input value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+                <input value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} disabled={!canManage || saving || formLocked} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
               </label>
 
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Uptiq contact ID <span className="text-muted-foreground/70">(optional — for messaging, e.g. crew)</span></span>
-                <input value={form.uptiq_contact_id} onChange={(event) => updateForm({ uptiq_contact_id: event.target.value })} disabled={!canManage || saving} placeholder="Uptiq contact id" className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
+                <input value={form.uptiq_contact_id} onChange={(event) => updateForm({ uptiq_contact_id: event.target.value })} disabled={!canManage || saving || formLocked} placeholder="Uptiq contact id" className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
               </label>
 
               <div className="grid grid-cols-[1fr_120px] gap-2">
@@ -375,7 +380,7 @@ export default function AdminUsers() {
                   <InlineSelect
                     value={form.role}
                     onChange={(value) => updateForm({ role: value as AppRole })}
-                    disabled={!canManage || saving || tierLocked}
+                    disabled={!canManage || saving || formLocked}
                     className="w-full"
                     options={[
                       ...roleOptions.map((role) => ({ value: role, label: roleLabel(role) })),
@@ -388,7 +393,7 @@ export default function AdminUsers() {
                   <InlineSelect
                     value={form.active ? "active" : "inactive"}
                     onChange={(value) => updateForm({ active: value === "active" })}
-                    disabled={!canManage || saving || editingSelf || tierLocked}
+                    disabled={!canManage || saving || editingSelf || formLocked}
                     className="w-full"
                     options={[
                       { value: "active", label: "Active" },
@@ -404,7 +409,7 @@ export default function AdminUsers() {
                   <InlineMultiSelect
                     values={form.debug_tools}
                     onChange={(values) => updateForm({ debug_tools: values })}
-                    disabled={saving || tierLocked}
+                    disabled={saving || formLocked}
                     className="w-full"
                     placeholder="None — normal role"
                     options={DEBUG_TOOL_OPTIONS.map((tool) => ({ value: tool.key, label: tool.label }))}
@@ -412,7 +417,7 @@ export default function AdminUsers() {
                 </label>
               )}
 
-              {canManage && (
+              {canManage && !editingAppWide && (
                 <div className="space-y-2 border-t border-border pt-4">
                   <div className="flex items-center gap-1.5 text-xs font-medium"><KeyRound className="h-3.5 w-3.5" /> Login password</div>
                   {!editing ? (
@@ -441,7 +446,7 @@ export default function AdminUsers() {
                 </div>
               )}
 
-              {editing && canManage && (
+              {editing && canManage && !editingAppWide && (
                 <div className="space-y-2 border-t border-border pt-4">
                   <div className="text-xs font-medium">Additional login emails</div>
                   <p className="text-2xs text-muted-foreground">
