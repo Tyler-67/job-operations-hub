@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Ban, ChevronDown, ChevronRight, Mail, MessageSquare, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpDown, Ban, ChevronDown, ChevronRight, GripVertical, Mail, MessageSquare, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
 import {
   canManageContacts, createContact, deleteContact, fetchContacts, setContactActive, updateContact, fetchContactMessages,
   type ContactRow, type ContactsListResponse, type ContactMessage, type ContactInput,
@@ -21,8 +21,43 @@ const ROLE_OPTIONS = [
 const ROLE_LABELS: Record<string, string> = {
   customer: "Customers", crew: "Crew", owner: "Owner", office: "Office", supply_house: "Supply houses", other: "Other",
 };
-// Group order (the "tag" groups). Unknown roles sort to the end, then alphabetical.
+// Default group order (the "tag" groups). Unknown roles sort to the end, then alphabetical.
+// The user can drag the group heads to rearrange; the custom order persists per browser.
 const ROLE_ORDER = ["owner", "office", "crew", "customer", "supply_house", "other"];
+const GROUP_ORDER_KEY = "contacts.group_order";
+const SORT_MODE_KEY = "contacts.sort_mode";
+
+type SortMode = "name_asc" | "name_desc" | "recent";
+
+function loadGroupOrder(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) ?? "null");
+    if (Array.isArray(stored) && stored.every((entry) => typeof entry === "string")) return stored;
+  } catch { /* fall through to the default */ }
+  return ROLE_ORDER;
+}
+
+function loadSortMode(): SortMode {
+  const stored = localStorage.getItem(SORT_MODE_KEY);
+  return stored === "name_desc" || stored === "recent" ? stored : "name_asc";
+}
+
+function compareContacts(a: ContactRow, b: ContactRow, mode: SortMode) {
+  // Deactivated contacts sink to the bottom of their group in every mode (matches the
+  // server's active-first ordering the ungrouped list always had).
+  if (a.active !== b.active) return a.active ? -1 : 1;
+  const byName = (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" });
+  if (mode === "name_desc") return -byName;
+  if (mode === "recent") {
+    // Most recently messaged first; never-messaged sink to the bottom, then by name.
+    if (a.last_message_at !== b.last_message_at) {
+      if (!a.last_message_at) return 1;
+      if (!b.last_message_at) return -1;
+      return a.last_message_at < b.last_message_at ? 1 : -1;
+    }
+  }
+  return byName;
+}
 
 function roleLabel(role: string | null | undefined) {
   const r = (role ?? "other").toString();
@@ -53,12 +88,33 @@ export default function AdminContacts() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [sortMode, setSortMode] = useState<SortMode>(loadSortMode);
+  const [groupOrder, setGroupOrder] = useState<string[]>(loadGroupOrder);
+  const dragRole = useRef<string | null>(null);
+  // The group currently dragged over — drives the drop-target highlight.
+  const [dragOverRole, setDragOverRole] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [channel, setChannel] = useState<"sms" | "email">("sms");
   const [messages, setMessages] = useState<ContactMessage[] | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgError, setMsgError] = useState<string | null>(null);
+  // Per-contact message history already fetched this session — switching back to a contact
+  // shows their thread instantly (and refreshes in the background) instead of flashing the
+  // previous contact's messages while the new ones load.
+  const msgCache = useRef(new Map<string, ContactMessage[]>());
+
+  // Swap the displayed thread DURING render when the selection changes (adjust-state-in-render
+  // pattern): a frame pairing contact B's header with contact A's messages can never commit —
+  // an effect-based reset runs after paint and could flash the old thread for a frame.
+  const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
+  if (prevSelectedId !== selectedId) {
+    setPrevSelectedId(selectedId);
+    const cached = selectedId ? msgCache.current.get(selectedId) ?? null : null;
+    setMessages(cached);
+    setMsgError(null);
+    setMsgLoading(Boolean(selectedId) && !cached);
+  }
 
   // Native add/edit form (Uptiq-independent). null = closed; id=null = create.
   const [form, setForm] = useState<{ id: string | null; name: string; role: string; email: string; phone: string } | null>(null);
@@ -77,19 +133,28 @@ export default function AdminContacts() {
   const contacts = useMemo(() => data?.contacts ?? [], [data?.contacts]);
   const selected = useMemo(() => contacts.find((c) => c.id === selectedId) ?? null, [contacts, selectedId]);
 
-  // Load the selected contact's system-sent message history.
+  // Fetch the selected contact's system-sent message history (the render-phase block above
+  // already swapped the display to the cached thread / loading state). The fresh result
+  // replaces the cache; a failed background refresh keeps the cached thread and only
+  // surfaces the error when there was nothing to show.
   useEffect(() => {
-    if (!selectedId) { setMessages(null); return; }
+    if (!selectedId) return;
+    const hadCache = msgCache.current.has(selectedId);
     let active = true;
-    setMsgLoading(true); setMsgError(null);
     fetchContactMessages(selectedId)
-      .then((res) => { if (active) setMessages(res.messages); })
-      .catch((err) => { if (active) setMsgError(err instanceof Error ? err.message : "Could not load messages"); })
+      .then((res) => {
+        msgCache.current.set(selectedId, res.messages);
+        if (active) setMessages(res.messages);
+      })
+      .catch((err) => {
+        if (active && !hadCache) setMsgError(err instanceof Error ? err.message : "Could not load messages");
+      })
       .finally(() => { if (active) setMsgLoading(false); });
     return () => { active = false; };
   }, [selectedId]);
 
-  // Group filtered contacts by role (the "tag"), in ROLE_ORDER.
+  // Group filtered contacts by role (the "tag"), in the user's (drag-arranged) group order,
+  // each group sorted by the selected mode.
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const byRole = new Map<string, ContactRow[]>();
@@ -99,11 +164,12 @@ export default function AdminContacts() {
       if (!byRole.has(r)) byRole.set(r, []);
       byRole.get(r)!.push(c);
     }
+    for (const list of byRole.values()) list.sort((a, b) => compareContacts(a, b, sortMode));
     return [...byRole.entries()].sort((a, b) => {
-      const ia = ROLE_ORDER.indexOf(a[0]); const ib = ROLE_ORDER.indexOf(b[0]);
+      const ia = groupOrder.indexOf(a[0]); const ib = groupOrder.indexOf(b[0]);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a[0].localeCompare(b[0]);
     });
-  }, [contacts, query]);
+  }, [contacts, query, sortMode, groupOrder]);
 
   const channelMessages = useMemo(
     () => (messages ?? []).filter((m) => m.channel === channel),
@@ -116,6 +182,31 @@ export default function AdminContacts() {
       if (next.has(role)) next.delete(role); else next.add(role);
       return next;
     });
+  }
+
+  function changeSortMode(mode: string) {
+    const next: SortMode = mode === "name_desc" || mode === "recent" ? mode : "name_asc";
+    setSortMode(next);
+    localStorage.setItem(SORT_MODE_KEY, next);
+  }
+
+  // Drag a group head onto another to move it there (different people talk to different
+  // sets of contacts, so the folder order is theirs to arrange). Persists per browser.
+  function dropGroup(targetRole: string) {
+    const sourceRole = dragRole.current;
+    dragRole.current = null;
+    setDragOverRole(null);
+    if (!sourceRole || sourceRole === targetRole) return;
+    // Reposition within the FULL known order (stored order, then defaults, then any extra
+    // on-screen roles) — never the filtered on-screen list, or groups hidden by the search
+    // (or currently empty) would be dropped from the persisted order and sink to the end.
+    const full = [...new Set([...groupOrder, ...ROLE_ORDER, ...groups.map(([role]) => role)])];
+    const from = full.indexOf(sourceRole);
+    const to = full.indexOf(targetRole);
+    if (from === -1 || to === -1) return;
+    full.splice(to, 0, ...full.splice(from, 1));
+    setGroupOrder(full);
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(full));
   }
 
   // The ONE sync command (contacts-sync mode:"sync"): tag pull, then link. Preview (dry run) first.
@@ -239,21 +330,61 @@ export default function AdminContacts() {
       {notice && <div className="border-b border-success/30 bg-success/10 px-4 py-2 text-xs text-success">{notice}</div>}
 
       <div className="flex min-h-0 flex-1">
-        {/* Left: contacts grouped by tag (collapsible) */}
+        {/* Left: contacts grouped by tag (collapsible, drag the heads to rearrange) */}
         <aside className="w-72 shrink-0 overflow-auto border-r border-border">
+          <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+            <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <InlineSelect
+              value={sortMode}
+              onChange={changeSortMode}
+              className="h-7 flex-1"
+              options={[
+                { value: "name_asc", label: "Name A → Z" },
+                { value: "name_desc", label: "Name Z → A" },
+                { value: "recent", label: "Latest interaction" },
+              ]}
+            />
+          </div>
           {loading && <div className="p-4 text-xs text-muted-foreground">Loading contacts...</div>}
           {!loading && groups.length === 0 && <div className="p-4 text-xs text-muted-foreground">No contacts{query ? " match" : " yet"}.</div>}
           {!loading && groups.map(([role, list]) => {
             const isCollapsed = collapsed.has(role);
+            const isDropTarget = dragOverRole === role && dragRole.current !== null && dragRole.current !== role;
             return (
-              <div key={role}>
+              // The WHOLE group is the drop target (not just the thin head), so a drag
+              // released anywhere over a folder still lands; the target highlights.
+              <div
+                key={role}
+                onDragOver={(event) => {
+                  if (!dragRole.current) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverRole(role);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    setDragOverRole((current) => (current === role ? null : current));
+                  }
+                }}
+                onDrop={(event) => { event.preventDefault(); dropGroup(role); }}
+                className={cn(isDropTarget && "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent/60")}
+              >
                 <button
                   type="button"
+                  draggable
+                  onDragStart={(event) => {
+                    dragRole.current = role;
+                    // Firefox won't start a drag without data attached.
+                    event.dataTransfer.setData("text/plain", role);
+                    event.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => { dragRole.current = null; setDragOverRole(null); }}
                   onClick={() => toggleGroup(role)}
-                  className="flex w-full items-center gap-1 border-b border-border bg-muted/50 px-3 py-1.5 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-muted"
+                  className="flex w-full items-center gap-1 border-y border-border bg-muted/50 px-3 py-1.5 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:bg-muted"
                 >
                   {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   {roleLabel(role)} <span className="text-muted-foreground/60">({list.length})</span>
+                  <GripVertical className="ml-auto h-3 w-3 cursor-grab text-muted-foreground/50" />
                 </button>
                 {!isCollapsed && list.map((c) => (
                   <button

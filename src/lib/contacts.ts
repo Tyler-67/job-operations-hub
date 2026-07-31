@@ -12,6 +12,9 @@ export interface ContactRow {
   uptiq_contact_id: string | null;
   active: boolean;
   created_at: string;
+  // When the system last messaged this contact (null = never / older than the server's
+  // recent-notifications window). Powers the "latest interaction" sort.
+  last_message_at: string | null;
 }
 
 export interface ContactsListResponse {

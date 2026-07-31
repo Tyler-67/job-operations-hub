@@ -378,7 +378,32 @@ Deno.serve(async (req) => {
       .order("active", { ascending: false })
       .order("name", { ascending: true });
     if (error) return json({ error: error.message }, 500);
-    const contacts = data ?? [];
+    // Last system message per contact — powers the Contacts page "latest interaction" sort.
+    // Real messages only (sms/email — the channels the message panel shows; tag applications
+    // are not an interaction). Newest-first with an explicit 1000-row window (the PostgREST
+    // cap): contacts whose only messages are older than the newest 1000 just sort as
+    // "never messaged", which is fine for a sort order.
+    const { data: recentNotifs, error: recentErr } = await sb
+      .from("scheduled_notifications")
+      .select("recipient, sent_at, created_at")
+      .eq("location_id", locId)
+      .in("channel", ["sms", "email"])
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    // A failed lookup only degrades the sort (everyone reads "never messaged") — log, don't fail the list.
+    if (recentErr) console.error("contacts-sync list: last_message_at lookup failed", recentErr.message);
+    const lastByRecipient = new Map<string, string>();
+    for (const n of recentNotifs ?? []) {
+      const recipient = String(n.recipient ?? "");
+      if (recipient && !lastByRecipient.has(recipient)) {
+        lastByRecipient.set(recipient, (n.sent_at as string | null) ?? (n.created_at as string));
+      }
+    }
+    const contacts = (data ?? []).map((c: Record<string, unknown>) => ({
+      ...c,
+      last_message_at: c.uptiq_contact_id ? lastByRecipient.get(String(c.uptiq_contact_id)) ?? null : null,
+    }));
     const roleCounts: Record<string, number> = {};
     for (const c of contacts) { const r = (c.role as string) ?? "other"; roleCounts[r] = (roleCounts[r] ?? 0) + 1; }
     return json({ contacts, role_counts: roleCounts, total: contacts.length });
