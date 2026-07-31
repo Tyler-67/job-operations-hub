@@ -906,20 +906,22 @@ function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
         <span className="font-mono-num text-muted-foreground">{log.hours_worked ?? 0}h</span>
       </button>
       {isOpen && (
-        <>
-          <hr className="my-2" style={{ width: "100%", marginTop: "auto" }} />
-          <div className="space-y-2 pb-3 pl-6 pr-4">
-            {log.issues && (
-              <div>
-                <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
-                <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
-              </div>
-            )}
+        // Tyler's clarity pass (b84c6e4), kept: a rule separates the expanded body from the
+        // summary line, the parts summary reads inline ("Parts: 3 from Summit…"), a second
+        // rule splits it from the ordered-parts list, and the list itself is plain body text.
+        <div className="space-y-2 border-t border-border pb-3 pl-6 pr-4 pt-2">
+          {log.issues && (
+            <div>
+              <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Notes / issues</div>
+              <div className="mt-0.5 whitespace-pre-wrap">{log.issues}</div>
+            </div>
+          )}
           {(parts || log.parts_list) && (
             <div>
               {parts && <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Parts: {parts}</div>}
-              <hr className="my-2" style={{ marginTop: "0.25rem", marginBottom: "0.25rem" }} />
-              {log.parts_list && <div className="mt-0.5">{log.parts_list}</div>}
+              {log.parts_list && (
+                <div className={`mt-0.5 whitespace-pre-wrap ${parts ? "border-t border-border/60 pt-1" : ""}`}>{log.parts_list}</div>
+              )}
             </div>
           )}
           {(sitePhotos.length > 0 || log.receipt_photo_url || log.parts_photo_url) && (
@@ -939,7 +941,6 @@ function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
             {sourceLabel ? ` · via ${sourceLabel}` : ""}
           </div>
         </div>
-        </>
       )}
     </div>
   );
