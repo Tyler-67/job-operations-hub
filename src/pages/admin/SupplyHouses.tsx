@@ -188,14 +188,14 @@ export default function AdminSupplyHouses() {
                     className={`ops-row ${canManage ? "cursor-pointer" : ""} ${form.id === house.id ? "bg-muted/50" : ""}`}
                     onClick={() => canManage && setForm(toForm(house))}
                   >
-                    <td className="px-3 py-2 font-medium">{house.name}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{house.rep_name ?? "-"}</td>
+                    <td className="truncate px-3 py-2 font-medium">{house.name}</td>
+                    <td className="truncate px-3 py-2 text-muted-foreground">{house.rep_name ?? "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground">{house.phone ?? "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground"><div className="truncate">{house.email ?? "-"}</div></td>
                     <td className="px-3 py-2 text-muted-foreground">{house.account_number ?? "-"}</td>
                     {/* Status fills its whole cell, matching the state cells on the job tables. */}
                     <td className={`px-3 py-2 font-medium ${house.active ? "bg-success/10 text-success" : "bg-muted/60 text-muted-foreground"}`}>
-                      {house.active ? "active" : "inactive"}
+                      {house.active ? "Active" : "Inactive"}
                     </td>
                   </tr>
                 ))}

@@ -173,7 +173,7 @@ export default function JobsList() {
                     <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                     {/* An active inspection fills its own column: the date, or "requested" until one is set. */}
                     <td className={`px-3 py-2 ${inspectionUnderway(job) ? "bg-info/10 font-medium text-info" : "text-muted-foreground"}`}>
-                      {inspectionUnderway(job) && !job.inspection_date ? "requested" : shortDate(job.inspection_date)}
+                      {inspectionUnderway(job) && !job.inspection_date ? "Requested" : shortDate(job.inspection_date)}
                     </td>
                     {/* An overdue check-in FILLS this cell (the moved pill): last check-in date,
                         red, detail on hover. */}

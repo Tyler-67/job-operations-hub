@@ -392,8 +392,12 @@ export default function AdminContacts() {
                     type="button"
                     onClick={() => setSelectedId(c.id)}
                     className={cn(
-                      "flex w-full flex-col items-start border-b border-border/40 px-3 py-2 text-left hover:bg-muted/50",
-                      selectedId === c.id && "bg-sidebar-accent hover:bg-sidebar-accent",
+                      // Selected = light accent tint + a left accent bar (drawn as a
+                      // pseudo-element so nothing shifts). NOT bg-sidebar-accent: that token is
+                      // the dark NAV color, and this list's text is dark — unreadable on it.
+                      "relative flex w-full flex-col items-start border-b border-border/40 px-3 py-2 text-left hover:bg-muted/50",
+                      selectedId === c.id &&
+                        "bg-accent/10 hover:bg-accent/10 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent",
                     )}
                   >
                     <span className={cn("text-xs font-medium", !c.active && "text-muted-foreground line-through")}>{c.name ?? "(unnamed)"}</span>

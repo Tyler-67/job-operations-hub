@@ -102,12 +102,21 @@ function parseAmount(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// Display labels for the enum-backed cells. These fill their cell now rather than sitting
+// in a `.pill` (which uppercased via CSS), so the text carries its own capitalization.
 function poStatusLabel(status: string) {
-  return status.replace(/_/g, " ");
+  const words = status.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+const EXPENSE_KIND_LABELS: Record<string, string> = {
+  field_purchase: "Field purchase",
+  adjustment: "Adjustment",
+  po: "PO",
+};
+
 function expenseKindLabel(kind: string) {
-  return kind === "field_purchase" ? "field purchase" : kind;
+  return EXPENSE_KIND_LABELS[kind] ?? kind;
 }
 
 // The one "+ Add" button (replaces the separate Expense / PO plus boxes): a primary
@@ -533,7 +542,7 @@ function PurchaseOrdersTable({ rows, activeJobCount, selectedId, onEdit, showSta
             <td className={`px-3 py-2 ${po.job?.active ? "" : "bg-muted/60"}`}>
               <div className="truncate font-medium">
                 {po.job?.address ?? "-"}
-                {!po.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">archived</span>}
+                {!po.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">Archived</span>}
               </div>
             </td>
             {showStatus && (
@@ -541,7 +550,7 @@ function PurchaseOrdersTable({ rows, activeJobCount, selectedId, onEdit, showSta
                 {poStatusLabel(po.status)}
               </td>
             )}
-            <td className="px-3 py-2 text-muted-foreground">{po.supply_house?.name ?? "-"}</td>
+            <td className="truncate px-3 py-2 text-muted-foreground">{po.supply_house?.name ?? "-"}</td>
             {/* Description only — the PO id lives in the edit pane, not the row. */}
             <td className="px-3 py-2">
               <div className="truncate">{po.description ?? "-"}</div>
@@ -592,14 +601,14 @@ function ExpensesTable({ rows, activeJobCount, selectedId, onOpen }: {
             <td className={`px-3 py-2 ${expense.job?.active ? "" : "bg-muted/60"}`}>
               <div className="truncate font-medium">
                 {expense.job?.address ?? "-"}
-                {!expense.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">archived</span>}
+                {!expense.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">Archived</span>}
               </div>
             </td>
             {/* Kind fills its whole cell, matching the state cells on the job tables. */}
             <td className={`px-3 py-2 font-medium ${expense.kind === "po" ? "bg-success/10 text-success" : expense.kind === "adjustment" ? "bg-info/10 text-info" : "text-muted-foreground"}`}>
               {expenseKindLabel(expense.kind)}
             </td>
-            <td className="px-3 py-2 text-muted-foreground">{expense.vendor ?? "-"}</td>
+            <td className="truncate px-3 py-2 text-muted-foreground">{expense.vendor ?? "-"}</td>
             <td className="px-3 py-2">
               <div className="truncate">{expense.description ?? "-"}</div>
             </td>
