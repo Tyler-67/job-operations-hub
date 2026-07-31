@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, DollarSign, FileText, Plus, ReceiptText, Save, Search, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Plus, Save, Search, Trash2, X } from "lucide-react";
 import {
   canManageExpenses,
   createExpense,
@@ -19,6 +19,25 @@ import { fetchPhotoReadUrls, isPdfPath } from "@/lib/photos";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { useConfirm } from "@/components/dialogs";
+import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
+
+const PO_SORT: SortAccessors<PurchaseOrderWithDetails> = {
+  job: (po) => po.job?.address ?? null,
+  status: (po) => po.status,
+  supply: (po) => po.supply_house?.name ?? null,
+  po: (po) => po.description ?? null,
+  estimate: (po) => po.estimated_amount,
+  final: (po) => po.final_amount,
+  sent: (po) => po.sent_at,
+};
+
+const EXPENSE_SORT: SortAccessors<JobExpenseWithDetails> = {
+  job: (expense) => expense.job?.address ?? null,
+  kind: (expense) => expense.kind,
+  vendor: (expense) => expense.vendor,
+  description: (expense) => expense.description,
+  amount: (expense) => expense.amount,
+};
 
 type Tab = "po_queue" | "expenses" | "purchase_orders";
 type Panel = "expense" | "po" | "edit_po";
@@ -91,27 +110,32 @@ function expenseKindLabel(kind: string) {
   return kind === "field_purchase" ? "field purchase" : kind;
 }
 
-function Metric({ icon: Icon, label, value, tone = "default" }: {
-  icon: typeof ReceiptText;
-  label: string;
-  value: string | number;
-  tone?: "default" | "warning" | "success";
-}) {
-  const toneClass = {
-    default: "text-foreground",
-    warning: "text-warning",
-    success: "text-success",
-  }[tone];
-
+// The one "+ Add" button (replaces the separate Expense / PO plus boxes): a primary
+// button opening a two-item menu. Styled like the old expense "+".
+function AddMenu({ onExpense, onPo }: { onExpense: () => void; onPo: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDocMouseDown(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [open]);
   return (
-    <div className="flex min-h-20 items-center gap-3 border-b border-r border-border bg-card px-4 py-3">
-      <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-muted">
-        <Icon className={`h-4 w-4 ${toneClass}`} />
-      </div>
-      <div>
-        <div className={`font-mono-num text-lg font-semibold leading-none ${toneClass}`}>{value}</div>
-        <div className="mt-1 text-2xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      </div>
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
+        <Plus className="h-3.5 w-3.5" />
+        Add
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-20 w-44 overflow-hidden rounded-sm border border-border bg-card shadow-md">
+          <button type="button" onClick={() => { setOpen(false); onExpense(); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-muted">New expense</button>
+          <button type="button" onClick={() => { setOpen(false); onPo(); }} className="block w-full border-t border-border px-3 py-2 text-left text-xs hover:bg-muted">New purchase order</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -242,6 +266,19 @@ export default function AdminExpenses() {
     });
   }
 
+  // Row click: a PO-sourced expense opens its PO's edit pane (the expense itself isn't
+  // editable — its value IS the PO), everything else opens the expense form. View-only
+  // roles open the panes too — every field is disabled for them, but this is how they
+  // see an expense's details and photos.
+  function openExpense(expense: JobExpenseWithDetails) {
+    if (expense.purchase_order_id) {
+      const po = purchaseOrders.find((candidate) => candidate.id === expense.purchase_order_id);
+      if (po) startEditPo(po);
+      return;
+    }
+    editExpense(expense);
+  }
+
   function startEditPo(po: PurchaseOrderWithDetails) {
     setPanel("edit_po");
     setEditTarget(po);
@@ -283,8 +320,9 @@ export default function AdminExpenses() {
     }
   }
 
-  async function removeExpense(expense: JobExpenseWithDetails) {
-    if (!canManage || expense.purchase_order_id) return;
+  async function removeExpense(id: string) {
+    const expense = expenses.find((candidate) => candidate.id === id);
+    if (!canManage || !expense || expense.purchase_order_id) return;
     if (!(await confirm({ title: "Delete this expense?", confirmLabel: "Delete", destructive: true }))) return;
     setSaving(true);
     setError(null);
@@ -367,32 +405,15 @@ export default function AdminExpenses() {
           <input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} />
           Archived
         </label>
-        {canManage && (
-          <>
-            <button type="button" onClick={() => resetExpenseForm()} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
-              <Plus className="h-3.5 w-3.5" />
-              Expense
-            </button>
-            <button type="button" onClick={() => resetPoForm()} className="inline-flex h-8 items-center gap-1 rounded-sm border border-border bg-background px-3 text-xs font-medium hover:bg-muted">
-              <Plus className="h-3.5 w-3.5" />
-              PO
-            </button>
-          </>
-        )}
+        {canManage && <AddMenu onExpense={() => resetExpenseForm()} onPo={() => resetPoForm()} />}
       </div>
 
-      <div className="grid grid-cols-2 border-b border-border lg:grid-cols-5">
-        <Metric icon={ReceiptText} label="Pending PO values" value={data?.metrics.pending_po_count ?? 0} tone={(data?.metrics.pending_po_count ?? 0) ? "warning" : "success"} />
-        <Metric icon={DollarSign} label="Total job costs" value={money(data?.metrics.total_expenses)} />
-        <Metric icon={ReceiptText} label="Field purchases" value={money(data?.metrics.total_field_purchase_expenses)} />
-        <Metric icon={ClipboardList} label="PO expenses" value={money(data?.metrics.total_po_expenses)} />
-        <Metric icon={FileText} label="Active jobs" value={data?.metrics.active_job_count ?? 0} />
-      </div>
-
+      {/* The old metric-tile bar is gone: pending-PO count lives on its tab, the money
+          totals live in the table heads, and job/PO status reads off the filled cells. */}
       <div className="flex gap-2 border-b border-border bg-card px-4 py-2">
-        <TabButton active={tab === "po_queue"} onClick={() => setTab("po_queue")}>PO Queue</TabButton>
-        <TabButton active={tab === "expenses"} onClick={() => setTab("expenses")}>Expenses</TabButton>
-        <TabButton active={tab === "purchase_orders"} onClick={() => setTab("purchase_orders")}>All POs</TabButton>
+        <TabButton active={tab === "po_queue"} onClick={() => setTab("po_queue")}>{`PO Queue (${pendingQueue.length})`}</TabButton>
+        <TabButton active={tab === "expenses"} onClick={() => setTab("expenses")}>{`Expenses (${expenses.length})`}</TabButton>
+        <TabButton active={tab === "purchase_orders"} onClick={() => setTab("purchase_orders")}>{`All POs (${purchaseOrders.length})`}</TabButton>
       </div>
 
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
@@ -402,9 +423,20 @@ export default function AdminExpenses() {
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_400px]">
           <main className="overflow-auto">
             {tab === "expenses" ? (
-              <ExpensesTable rows={filteredExpenses} canManage={canManage} saving={saving} photoUrls={photoUrls} onEdit={editExpense} onDelete={removeExpense} />
+              <ExpensesTable
+                rows={filteredExpenses}
+                activeJobCount={data?.metrics.active_job_count ?? 0}
+                selectedId={panel === "expense" ? expenseForm.id ?? null : null}
+                onOpen={openExpense}
+              />
             ) : (
-              <PurchaseOrdersTable rows={filteredPurchaseOrders} canManage={canManage} saving={saving} onEdit={startEditPo} showStatus={tab === "purchase_orders"} />
+              <PurchaseOrdersTable
+                rows={filteredPurchaseOrders}
+                activeJobCount={data?.metrics.active_job_count ?? 0}
+                selectedId={panel === "edit_po" ? editTarget?.id ?? null : null}
+                onEdit={startEditPo}
+                showStatus={tab === "purchase_orders"}
+              />
             )}
           </main>
 
@@ -437,8 +469,10 @@ export default function AdminExpenses() {
                 supplyHouses={supplyHouses}
                 form={expenseForm}
                 saving={saving}
+                photoUrls={photoUrls}
                 onChange={(patch) => setExpenseForm((current) => ({ ...current, ...patch }))}
                 onSave={saveExpense}
+                onDelete={() => { if (expenseForm.id) void removeExpense(expenseForm.id); }}
                 onCancel={() => resetExpenseForm()}
               />
             )}
@@ -455,59 +489,66 @@ export default function AdminExpenses() {
   );
 }
 
-function PurchaseOrdersTable({ rows, canManage, saving, onEdit, showStatus }: {
+function PurchaseOrdersTable({ rows, activeJobCount, selectedId, onEdit, showStatus }: {
   rows: PurchaseOrderWithDetails[];
-  canManage: boolean;
-  saving: boolean;
+  activeJobCount: number;
+  selectedId: string | null;
   onEdit: (po: PurchaseOrderWithDetails) => void;
   showStatus: boolean;
 }) {
+  const { sorted, sort, toggleSort } = useTableSort(rows, PO_SORT);
+  const estimateTotal = rows.reduce((sum, po) => sum + (po.estimated_amount ?? 0), 0);
+  const finalTotal = rows.reduce((sum, po) => sum + (po.final_amount ?? 0), 0);
   return (
     <table className="ops-grid w-full table-fixed border-collapse text-xs">
       <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
         <tr>
-          <th className="w-[25%] border-b border-border px-3 py-2 text-left font-medium">Job</th>
-          {showStatus && <th className="w-28 border-b border-border px-3 py-2 text-left font-medium">Status</th>}
-          <th className="w-[18%] border-b border-border px-3 py-2 text-left font-medium">Supply house</th>
-          <th className="border-b border-border px-3 py-2 text-left font-medium">PO</th>
-          <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Estimate</th>
-          <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Final</th>
-          <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">Sent</th>
-          <th className="border-b border-border py-2 font-medium" style={{ textAlign: 'center', width: '4rem'}}>Action</th>
+          {/* Percentage widths only — fixed pixel columns over-constrain the fixed-layout
+              table at narrower viewports and squeeze the auto (PO) column to nothing. */}
+          <SortableTh label={`Job (${activeJobCount} active)`} sortKey="job" sort={sort} onSort={toggleSort} className="w-[22%]" />
+          {showStatus && <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-[11%]" />}
+          <SortableTh label="Supply house" sortKey="supply" sort={sort} onSort={toggleSort} className="w-[14%]" />
+          <SortableTh label="PO" sortKey="po" sort={sort} onSort={toggleSort} />
+          <SortableTh label={`Estimate (${money(estimateTotal)})`} sortKey="estimate" sort={sort} onSort={toggleSort} align="right" className="w-[14%]" />
+          <SortableTh label={`Final (${money(finalTotal)})`} sortKey="final" sort={sort} onSort={toggleSort} align="right" className="w-[14%]" />
+          <SortableTh label="Sent" sortKey="sent" sort={sort} onSort={toggleSort} className="w-[10%]" />
         </tr>
       </thead>
       <tbody>
-        {rows.length === 0 && (
+        {sorted.length === 0 && (
           <tr>
-            <td colSpan={showStatus ? 8 : 7} className="p-8 text-center text-muted-foreground">No purchase orders match the current filters.</td>
+            <td colSpan={showStatus ? 7 : 6} className="p-8 text-center text-muted-foreground">No purchase orders match the current filters.</td>
           </tr>
         )}
-        {rows.map((po) => (
-          <tr key={po.id} className="ops-row">
-            <td className="px-3 py-2">
-              <div className="truncate font-medium">{po.job?.address ?? "-"}</div>
-              {!po.job?.active && <div className="mt-0.5 text-2xs text-muted-foreground">archived</div>}
+        {sorted.map((po) => (
+          <tr
+            key={po.id}
+            tabIndex={0}
+            className={`ops-row cursor-pointer ${selectedId === po.id ? "bg-muted/50" : ""}`}
+            onClick={(event) => { if (!shouldIgnoreRowClick(event)) onEdit(po); }}
+            onKeyDown={(event) => { if (event.key === "Enter") onEdit(po); }}
+          >
+            {/* Archived jobs read off the cell itself (muted fill + inline suffix) — one line,
+                so every row keeps the same height. */}
+            <td className={`px-3 py-2 ${po.job?.active ? "" : "bg-muted/60"}`}>
+              <div className="truncate font-medium">
+                {po.job?.address ?? "-"}
+                {!po.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">archived</span>}
+              </div>
             </td>
             {showStatus && (
-              <td className="px-3 py-2">
-                <span className={`pill ${po.status === "pending_value" ? "bg-warning/20 text-warning" : po.status === "valued" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
-                  {poStatusLabel(po.status)}
-                </span>
+              <td className={`px-3 py-2 font-medium ${po.status === "pending_value" ? "bg-warning/20 text-warning" : po.status === "valued" ? "bg-success/10 text-success" : "text-muted-foreground"}`}>
+                {poStatusLabel(po.status)}
               </td>
             )}
             <td className="px-3 py-2 text-muted-foreground">{po.supply_house?.name ?? "-"}</td>
+            {/* Description only — the PO id lives in the edit pane, not the row. */}
             <td className="px-3 py-2">
               <div className="truncate">{po.description ?? "-"}</div>
-              <div className="mt-0.5 font-mono text-2xs text-muted-foreground">{po.id.slice(0, 8)}</div>
             </td>
             <td className="px-3 py-2 text-right font-mono-num">{money(po.estimated_amount)}</td>
             <td className="px-3 py-2 text-right font-mono-num">{money(po.final_amount)}</td>
             <td className="px-3 py-2 text-muted-foreground">{dateLabel(po.sent_at)}</td>
-            <td className="px-3 py-2">
-              <button type="button" title="Edit PO" disabled={!canManage || saving} onClick={() => onEdit(po)} className="icon-btn" style={{ display: 'flex', justifySelf: 'center' }}>
-                <FileText className="h-3.5 w-3.5" />
-              </button>
-            </td>
           </tr>
         ))}
       </tbody>
@@ -515,81 +556,54 @@ function PurchaseOrdersTable({ rows, canManage, saving, onEdit, showStatus }: {
   );
 }
 
-function PhotoThumb({ path, urls, label }: { path: string | null | undefined; urls: Record<string, string | null>; label: string }) {
-  if (!path) return null;
-  const url = urls[path];
-  if (!url) return <span className="text-2xs text-muted-foreground" title={path}>{label}…</span>;
-  if (isPdfPath(path)) {
-    return <a href={url} target="_blank" rel="noreferrer" className="text-2xs text-accent hover:underline">{label} (PDF)</a>;
-  }
-  return (
-    <a href={url} target="_blank" rel="noreferrer" title={`${label} — open full size`}>
-      <img src={url} alt={label} className="h-10 w-10 rounded-sm border border-border object-cover" loading="lazy" />
-    </a>
-  );
-}
-
-function ExpensesTable({ rows, canManage, saving, photoUrls, onEdit, onDelete }: {
+function ExpensesTable({ rows, activeJobCount, selectedId, onOpen }: {
   rows: JobExpenseWithDetails[];
-  canManage: boolean;
-  saving: boolean;
-  photoUrls: Record<string, string | null>;
-  onEdit: (expense: JobExpenseWithDetails) => void;
-  onDelete: (expense: JobExpenseWithDetails) => void;
+  activeJobCount: number;
+  selectedId: string | null;
+  onOpen: (expense: JobExpenseWithDetails) => void;
 }) {
+  const { sorted, sort, toggleSort } = useTableSort(rows, EXPENSE_SORT);
+  const amountTotal = rows.reduce((sum, expense) => sum + (expense.amount ?? 0), 0);
   return (
     <table className="ops-grid w-full table-fixed border-collapse text-xs">
       <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
         <tr>
-          <th className="w-[25%] border-b border-border px-3 py-2 text-left font-medium">Job</th>
-          <th className="w-32 border-b border-border px-3 py-2 text-left font-medium">Kind</th>
-          <th className="w-[18%] border-b border-border px-3 py-2 text-left font-medium">Vendor</th>
-          <th className="border-b border-border px-3 py-2 text-left font-medium">Description</th>
-          <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Amount</th>
-          <th className="w-28 border-b border-border px-3 py-2 text-left font-medium">Photos</th>
-          <th className="w-20 border-b border-border px-3 py-2 text-right font-medium">Actions</th>
+          <SortableTh label={`Job (${activeJobCount} active)`} sortKey="job" sort={sort} onSort={toggleSort} className="w-[24%]" />
+          <SortableTh label="Kind" sortKey="kind" sort={sort} onSort={toggleSort} className="w-[12%]" />
+          <SortableTh label="Vendor" sortKey="vendor" sort={sort} onSort={toggleSort} className="w-[15%]" />
+          <SortableTh label="Description" sortKey="description" sort={sort} onSort={toggleSort} />
+          <SortableTh label={`Amount (${money(amountTotal)})`} sortKey="amount" sort={sort} onSort={toggleSort} align="right" className="w-[16%]" />
         </tr>
       </thead>
       <tbody>
-        {rows.length === 0 && (
+        {sorted.length === 0 && (
           <tr>
-            <td colSpan={7} className="p-8 text-center text-muted-foreground">No expenses match the current filters.</td>
+            <td colSpan={5} className="p-8 text-center text-muted-foreground">No expenses match the current filters.</td>
           </tr>
         )}
-        {rows.map((expense) => (
-          <tr key={expense.id} className="ops-row">
-            <td className="px-3 py-2">
-              <div className="truncate font-medium">{expense.job?.address ?? "-"}</div>
-              {!expense.job?.active && <div className="mt-0.5 text-2xs text-muted-foreground">archived</div>}
+        {sorted.map((expense) => (
+          <tr
+            key={expense.id}
+            tabIndex={0}
+            className={`ops-row cursor-pointer ${selectedId === expense.id ? "bg-muted/50" : ""}`}
+            onClick={(event) => { if (!shouldIgnoreRowClick(event)) onOpen(expense); }}
+            onKeyDown={(event) => { if (event.key === "Enter") onOpen(expense); }}
+          >
+            <td className={`px-3 py-2 ${expense.job?.active ? "" : "bg-muted/60"}`}>
+              <div className="truncate font-medium">
+                {expense.job?.address ?? "-"}
+                {!expense.job?.active && <span className="ml-1 font-normal text-2xs text-muted-foreground">archived</span>}
+              </div>
             </td>
-            <td className="px-3 py-2">
-              <span className={`pill ${expense.kind === "po" ? "bg-success/10 text-success" : expense.kind === "adjustment" ? "bg-info/10 text-info" : "bg-muted text-muted-foreground"}`}>
-                {expenseKindLabel(expense.kind)}
-              </span>
+            {/* Kind fills its whole cell, matching the state cells on the job tables. */}
+            <td className={`px-3 py-2 font-medium ${expense.kind === "po" ? "bg-success/10 text-success" : expense.kind === "adjustment" ? "bg-info/10 text-info" : "text-muted-foreground"}`}>
+              {expenseKindLabel(expense.kind)}
             </td>
             <td className="px-3 py-2 text-muted-foreground">{expense.vendor ?? "-"}</td>
             <td className="px-3 py-2">
               <div className="truncate">{expense.description ?? "-"}</div>
             </td>
             <td className="px-3 py-2 text-right font-mono-num">{money(expense.amount)}</td>
-            <td className="px-3 py-2">
-              {(expense.receipt_url || expense.parts_photo_url) ? (
-                <div className="flex items-center gap-1.5">
-                  <PhotoThumb path={expense.receipt_url} urls={photoUrls} label="Receipt" />
-                  <PhotoThumb path={expense.parts_photo_url} urls={photoUrls} label="Parts" />
-                </div>
-              ) : <span className="text-muted-foreground">-</span>}
-            </td>
-            <td className="px-3 py-2">
-              <div className="flex justify-end gap-1">
-                <button type="button" title="Edit expense" disabled={!canManage || saving || Boolean(expense.purchase_order_id)} onClick={() => onEdit(expense)} className="icon-btn">
-                  <FileText className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" title="Delete expense" disabled={!canManage || saving || Boolean(expense.purchase_order_id)} onClick={() => onDelete(expense)} className="icon-btn">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </td>
           </tr>
         ))}
       </tbody>
@@ -597,14 +611,16 @@ function ExpensesTable({ rows, canManage, saving, photoUrls, onEdit, onDelete }:
   );
 }
 
-function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, onSave, onCancel }: {
+function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, photoUrls, onChange, onSave, onDelete, onCancel }: {
   canManage: boolean;
   jobs: ExpensesResponse["jobs"];
   supplyHouses: ExpensesResponse["supply_houses"];
   form: ExpenseForm;
   saving: boolean;
+  photoUrls: Record<string, string | null>;
   onChange: (patch: Partial<ExpenseForm>) => void;
   onSave: () => void;
+  onDelete: () => void;
   onCancel: () => void;
 }) {
   return (
@@ -666,15 +682,11 @@ function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, o
         <textarea value={form.description} onChange={(event) => onChange({ description: event.target.value })} disabled={!canManage || saving} className="min-h-20 w-full resize-none rounded-sm border border-input bg-background px-2 py-2 text-xs" />
       </label>
 
-      <label className="block text-xs">
-        <span className="mb-1 block text-muted-foreground">Receipt URL</span>
-        <input value={form.receipt_url} onChange={(event) => onChange({ receipt_url: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
-      </label>
-
-      <label className="block text-xs">
-        <span className="mb-1 block text-muted-foreground">Parts photo URL</span>
-        <input value={form.parts_photo_url} onChange={(event) => onChange({ parts_photo_url: event.target.value })} disabled={!canManage || saving} className="h-9 w-full rounded-sm border border-input bg-background px-2 text-xs" />
-      </label>
+      {/* Photos live behind an expander in the form — the table row stays clean, and no
+          raw storage URL is ever shown. The paths stay in form state so saves keep them. */}
+      {(form.receipt_url || form.parts_photo_url) && (
+        <PanelPhotos receipt={form.receipt_url || null} parts={form.parts_photo_url || null} urls={photoUrls} />
+      )}
 
       <div className="flex gap-2 border-t border-border pt-4">
         <button type="button" disabled={!canManage || saving || !form.job_id || !form.amount.trim()} onClick={onSave} className="inline-flex h-8 items-center gap-1 rounded-sm bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
@@ -685,7 +697,52 @@ function ExpensePanel({ canManage, jobs, supplyHouses, form, saving, onChange, o
           <X className="h-3.5 w-3.5" />
           Clear
         </button>
+        {form.id && (
+          <button type="button" disabled={!canManage || saving} onClick={onDelete} className="ml-auto inline-flex h-8 items-center gap-1 rounded-sm border border-destructive/40 px-3 text-xs text-destructive hover:bg-destructive/10">
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Collapsed by default: the expense's receipt / parts photos, revealed on demand inside
+// the form pane. Images open full size in a new tab; PDF receipts render as a link.
+function PanelPhotos({ receipt, parts, urls }: { receipt: string | null; parts: string | null; urls: Record<string, string | null> }) {
+  const [open, setOpen] = useState(false);
+  const count = (receipt ? 1 : 0) + (parts ? 1 : 0);
+  return (
+    <div className="rounded-sm border border-border">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between px-2 py-2 text-xs hover:bg-muted">
+        <span className="text-muted-foreground">Photos ({count})</span>
+        {open ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-border p-2">
+          {receipt && <PanelPhoto path={receipt} urls={urls} label="Receipt" />}
+          {parts && <PanelPhoto path={parts} urls={urls} label="Parts" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PanelPhoto({ path, urls, label }: { path: string; urls: Record<string, string | null>; label: string }) {
+  const url = urls[path];
+  return (
+    <div>
+      <div className="mb-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      {!url ? (
+        <div className="text-2xs text-muted-foreground">Loading…</div>
+      ) : isPdfPath(path) ? (
+        <a href={url} target="_blank" rel="noreferrer" className="text-xs text-accent hover:underline">Open PDF</a>
+      ) : (
+        <a href={url} target="_blank" rel="noreferrer" title={`${label} — open full size`}>
+          <img src={url} alt={label} className="max-h-56 w-full rounded-sm border border-border bg-muted/30 object-contain" loading="lazy" />
+        </a>
+      )}
     </div>
   );
 }
@@ -784,6 +841,8 @@ function EditPoPanel({ canManage, po, form, saving, onChange, onSave, onCancel }
       <div>
         <h2 className="text-sm font-semibold">Edit PO</h2>
         <p className="mt-1 text-xs text-muted-foreground">{po.job?.address ?? "-"} · {po.supply_house?.name ?? "No supply house"}</p>
+        {/* The PO's identity lives here (read-only) instead of cluttering the table rows. */}
+        <p className="mt-1 font-mono text-2xs text-muted-foreground">PO id: {po.id}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
