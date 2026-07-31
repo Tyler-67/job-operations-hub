@@ -42,6 +42,7 @@ interface Branding {
   logoUrl: string | null;
   address: string | null;
   phaseLabel: string | null;
+  phaseColor: string | null;
 }
 
 function readBranding(payload: TokenPayload): Branding {
@@ -54,6 +55,7 @@ function readBranding(payload: TokenPayload): Branding {
     logoUrl: str(brand.logo_url),
     address: str(inner.address),
     phaseLabel: str(inner.state_label),
+    phaseColor: str(inner.state_color),
   };
 }
 
@@ -206,10 +208,22 @@ export default function DailyCheckInForm({ payload }: { payload: TokenPayload })
             {brand.companyName.slice(0, 1)}
           </span>
         )}
-        <div>
-          <p className="text-sm font-semibold leading-tight">{brand.companyName}</p>
-          {brand.address && <p className="text-xs text-muted-foreground">{brand.address}</p>}
-          {brand.phaseLabel && <p className="text-xs text-muted-foreground">Phase: {brand.phaseLabel}</p>}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold leading-tight">{brand.companyName}</p>
+          {/* The address line always renders so the header height never shifts. */}
+          <p className="min-h-4 truncate text-xs text-muted-foreground">{brand.address ?? " "}</p>
+        </div>
+        {/* The job's phase as a chip in its state color — compact, and in a STATIC slot on
+            the right so the layout is identical whether a token carries a phase or not. */}
+        <div className="flex min-h-6 shrink-0 items-center justify-end">
+          {brand.phaseLabel && (
+            <span
+              className="max-w-40 truncate rounded-sm px-2 py-1 text-xs font-medium"
+              style={{ backgroundColor: `${brand.phaseColor ?? brand.primaryColor}22`, color: brand.phaseColor ?? brand.primaryColor }}
+            >
+              {brand.phaseLabel}
+            </span>
+          )}
         </div>
       </header>
 

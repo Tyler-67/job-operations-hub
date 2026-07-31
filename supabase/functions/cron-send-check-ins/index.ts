@@ -44,12 +44,14 @@ Deno.serve(async (req) => {
     .select("location_id, check_in_send_time, check_in_weekdays, brand_primary_color, brand_logo_url, default_supply_house_contact_id, locations(company_name, timezone, app_base_url)");
   if (cErr) return json({ error: cErr.message }, 500);
 
-  // States that accept check-ins (id -> label). State ids are globally unique, so this
-  // map doubles as both the eligibility filter and the phase label for the form.
-  const { data: states, error: sErr } = await sb.from("job_states").select("id, label, allow_check_ins");
+  // States that accept check-ins (id -> label + color). State ids are globally unique, so
+  // this map doubles as both the eligibility filter and the phase label/color for the form.
+  const { data: states, error: sErr } = await sb.from("job_states").select("id, label, color, allow_check_ins");
   if (sErr) return json({ error: sErr.message }, 500);
-  const checkInStates = new Map<string, string>();
-  for (const st of states ?? []) if (st.allow_check_ins) checkInStates.set(st.id as string, (st.label as string) ?? "");
+  const checkInStates = new Map<string, { label: string; color: string | null }>();
+  for (const st of states ?? []) {
+    if (st.allow_check_ins) checkInStates.set(st.id as string, { label: (st.label as string) ?? "", color: (st.color as string | null) ?? null });
+  }
 
   let enqueued = 0, skipped = 0, companiesFired = 0;
 
@@ -102,7 +104,7 @@ Deno.serve(async (req) => {
     }
 
     for (const job of eligibleJobs) {
-      const stateLabel = checkInStates.get(job.current_state_id) ?? "";
+      const state = checkInStates.get(job.current_state_id) ?? { label: "", color: null };
       for (const member of crewByJob.get(job.id) ?? []) {
         const contact = (member.contacts ?? {}) as { id?: string; uptiq_contact_id?: string | null };
         const contactId = contact.id ?? "";
@@ -119,7 +121,8 @@ Deno.serve(async (req) => {
           payload: {
             branding,
             address: job.address ?? null,
-            state_label: stateLabel,
+            state_label: state.label,
+            state_color: state.color,
             supply_houses: supplyHouses,
             default_supply_house_id: defaultSupplyHouseId,
           },
