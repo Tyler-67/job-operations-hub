@@ -109,15 +109,17 @@ export function checkInOverdueDays(job: Pick<JobSummary, "current_state" | "last
   return Math.round((today.getTime() - localMidnight(job.last_log_date).getTime()) / 86_400_000);
 }
 
+// An ACTION exists only for a real overdue: the job is in a check-in state AND has checked
+// in before AND that check-in is stale. A job that has never checked in isn't actionable
+// (per Tyler 2026-07-31: "never checked in" must not appear in the Action column).
 export function needsCheckIn(job: Pick<JobSummary, "current_state" | "last_log_date">): boolean {
   const days = checkInOverdueDays(job);
-  return days === null || (typeof days === "number" && days >= 1);
+  return typeof days === "number" && days >= 1;
 }
 
-// Human overdue status for a pill/label: null when not overdue (or not eligible).
+// Human overdue status for a pill/label: null when not overdue (or not eligible / never checked in).
 export function checkInStatus(job: Pick<JobSummary, "current_state" | "last_log_date">): string | null {
   const days = checkInOverdueDays(job);
-  if (days === null) return "never checked in";
   if (typeof days === "number" && days >= 1) return days === 1 ? "1 day overdue" : `${days} days overdue`;
   return null;
 }

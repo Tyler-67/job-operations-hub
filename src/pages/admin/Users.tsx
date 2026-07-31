@@ -23,6 +23,16 @@ import {
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { InlineMultiSelect } from "@/components/InlineMultiSelect";
+import { SortableTh, useTableSort, type SortAccessors } from "@/components/SortableTable";
+
+const USER_SORT: SortAccessors<AppUserWithEmails> = {
+  user: (row) => row.name || row.email,
+  role: (row) => roleLabel(row.role),
+  status: (row) => row.active,
+  phone: (row) => row.phone,
+  last_seen: (row) => row.last_seen_at,
+  updated: (row) => row.updated_at,
+};
 
 interface UserForm {
   id?: string;
@@ -137,6 +147,8 @@ export default function AdminUsers() {
       return true;
     });
   }, [query, roleFilter, status, usersList]);
+
+  const { sorted, sort, toggleSort } = useTableSort(filtered, USER_SORT);
 
   const editing = Boolean(form.id);
   const editingRow = useMemo(() => usersList.find((row) => row.id === form.id), [usersList, form.id]);
@@ -320,22 +332,22 @@ export default function AdminUsers() {
             <table className="ops-grid w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="w-[28%] border-b border-border px-3 py-2 text-left font-medium">User</th>
-                  <th className="w-40 border-b border-border px-3 py-2 text-left font-medium">Role</th>
-                  <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">Status</th>
-                  <th className="border-b border-border px-3 py-2 text-left font-medium">Phone</th>
-                  <th className="w-40 border-b border-border px-3 py-2 text-left font-medium">Last seen</th>
-                  <th className="w-40 border-b border-border px-3 py-2 text-left font-medium">Updated</th>
-                  <th className="w-24 border-b border-border px-3 py-2 text-right font-medium">Actions</th>
+                  <SortableTh label="User" sortKey="user" sort={sort} onSort={toggleSort} className="w-[28%]" />
+                  <SortableTh label="Role" sortKey="role" sort={sort} onSort={toggleSort} className="w-40" />
+                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-24" />
+                  <SortableTh label="Phone" sortKey="phone" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="Last seen" sortKey="last_seen" sort={sort} onSort={toggleSort} className="w-40" />
+                  <SortableTh label="Updated" sortKey="updated" sort={sort} onSort={toggleSort} className="w-40" />
+                  <SortableTh label="Actions" sort={sort} onSort={toggleSort} align="right" className="w-24" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {sorted.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-muted-foreground">No users match the current filters.</td>
                   </tr>
                 )}
-                {filtered.map((row) => {
+                {sorted.map((row) => {
                   const rowSelf = row.id === user?.id;
                   // An app-wide super surfaced from another instance: visible to a super, but
                   // managed only on its home instance, so lock the row's controls here.

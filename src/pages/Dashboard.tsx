@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { checkInStatus, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
+
+// Column sort keys — declared at module level so the sorted list doesn't re-derive on every render.
+const JOB_SORT: SortAccessors<JobSummary> = {
+  address: (job) => job.address,
+  customer: (job) => job.customers[0]?.name ?? null,
+  state: (job) => job.current_state?.label ?? null,
+  progress: (job) => job.state_progress_pct,
+  expenses: (job) => job.total_expenses,
+  inspection: (job) => job.inspection_date,
+  checkin: (job) => job.last_log_date,
+  action: (job) => (needsCheckIn(job) || inspectionUnderway(job) || job.purchase_orders.some((po) => po.status === "pending_value") ? 1 : 0),
+};
 
 function inspectionDue(job: JobSummary) {
   if (!job.inspection_date) return false;
@@ -11,6 +24,7 @@ function inspectionDue(job: JobSummary) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState<JobsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +65,8 @@ export default function Dashboard() {
     .filter((job) => needsCheckIn(job) || inspectionDue(job) || job.purchase_orders.some((po) => po.status === "pending_value"))
     .slice(0, 8);
 
+  const { sorted: sortedJobs, sort, toggleSort } = useTableSort(activeJobs, JOB_SORT);
+
   return (
     <div className="flex h-full flex-col">
       {error && <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>}
@@ -74,32 +90,33 @@ export default function Dashboard() {
             <table className="ops-grid ops-grid-full w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="w-[30%] border-b border-border px-3 py-2 text-left font-medium">Address</th>
-                  <th className="w-[12%] border-b border-border px-3 py-2 text-left font-medium">Customer</th>
-                  <th className="w-[14%] border-b border-border px-3 py-2 text-left font-medium">State</th>
-                  <th className="w-[7%] border-b border-border px-3 py-2 text-left font-medium">State %</th>
-                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Expenses</th>
-                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Inspection ({inspections.length}/{inspectionsScheduled})</th>
-                  <th className="w-[9%] border-b border-border px-3 py-2 text-left font-medium">Check-in ({overdue.length}/{checkInEligible})</th>
-                  <th className="w-[10%] border-b border-border px-3 py-2 text-left font-medium">Action ({actionCount})</th>
+                  <SortableTh label="Address" sortKey="address" sort={sort} onSort={toggleSort} className="w-[30%]" />
+                  <SortableTh label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} className="w-[12%]" />
+                  <SortableTh label="State" sortKey="state" sort={sort} onSort={toggleSort} className="w-[14%]" />
+                  <SortableTh label="State %" sortKey="progress" sort={sort} onSort={toggleSort} className="w-[7%]" />
+                  <SortableTh label="Expenses" sortKey="expenses" sort={sort} onSort={toggleSort} className="w-[9%]" />
+                  <SortableTh label={`Inspection (${inspections.length}/${inspectionsScheduled})`} sortKey="inspection" sort={sort} onSort={toggleSort} className="w-[9%]" />
+                  <SortableTh label={`Check-in (${overdue.length}/${checkInEligible})`} sortKey="checkin" sort={sort} onSort={toggleSort} className="w-[9%]" />
+                  <SortableTh label={`Action (${actionCount})`} sortKey="action" sort={sort} onSort={toggleSort} className="w-[10%]" />
                 </tr>
               </thead>
               <tbody>
-                {activeJobs.map((job) => {
+                {sortedJobs.map((job) => {
                   const pendingPoCount = job.purchase_orders.filter((po) => po.status === "pending_value").length;
                   return (
-                    <tr key={job.id} className="ops-row">
+                    <tr key={job.id} className="ops-row cursor-pointer" onClick={(event) => { if (!shouldIgnoreRowClick(event)) navigate(`/jobs/${job.id}`); }}>
                       <td className="px-3 py-2">
+                        {/* The row itself opens the job, but the address stays a real link for
+                            keyboard, middle-click, and open-in-new-tab. No subtitle — rows stay
+                            one line tall (per Tyler). */}
                         <Link to={`/jobs/${job.id}`} className="font-medium text-foreground hover:text-accent">{job.address}</Link>
-                        <div className="mt-0.5 max-w-96 truncate text-muted-foreground">{job.scope_of_work ?? "-"}</div>
                       </td>
                       <td className="truncate px-3 py-2 text-muted-foreground">{job.customers[0]?.name ?? "-"}</td>
-                      <td className="px-3 py-2">
+                      {/* The state fills its whole cell (per Tyler) instead of a small pill inside it. */}
+                      <td className="px-3 py-2" style={job.current_state ? { backgroundColor: `${job.current_state.color}22` } : undefined}>
                         {job.current_state && (
-                          <span className="inline-flex flex-wrap items-center gap-1">
-                            <span className="pill" style={{ backgroundColor: `${job.current_state.color}22`, color: job.current_state.color }}>
-                              {job.current_state.label}
-                            </span>
+                          <span className="flex flex-wrap items-center gap-1 font-medium" style={{ color: job.current_state.color }}>
+                            {job.current_state.label}
                             {inspectionUnderway(job) && <span className="pill bg-info/10 text-info">inspection</span>}
                           </span>
                         )}
@@ -107,9 +124,9 @@ export default function Dashboard() {
                       <td className="px-3 py-2 font-mono-num">{job.state_progress_pct}%</td>
                       <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{shortDate(job.inspection_date)}</td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        <div>{shortDate(job.last_log_date)}</div>
-                        {checkInStatus(job) && <div className="text-2xs font-medium text-destructive">{checkInStatus(job)}</div>}
+                      {/* Single line; the overdue signal is the color (red date), detail on hover. */}
+                      <td className={`px-3 py-2 ${needsCheckIn(job) ? "font-medium text-destructive" : "text-muted-foreground"}`} title={checkInStatus(job) ?? undefined}>
+                        {shortDate(job.last_log_date)}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-col items-start gap-1">

@@ -9,6 +9,16 @@ import {
   type SupplyHousesResponse,
 } from "@/lib/supply-houses";
 import { useSession } from "@/lib/session";
+import { SortableTh, useTableSort, type SortAccessors } from "@/components/SortableTable";
+
+const HOUSE_SORT: SortAccessors<SupplyHouseRow> = {
+  name: (house) => house.name,
+  rep: (house) => house.rep_name,
+  phone: (house) => house.phone,
+  email: (house) => house.email,
+  account: (house) => house.account_number,
+  status: (house) => house.active,
+};
 
 interface SupplyHouseForm {
   id?: string;
@@ -85,6 +95,7 @@ export default function AdminSupplyHouses() {
     return houses.filter((house) => [house.name, house.rep_name, house.email, house.phone, house.address, house.account_number]
       .join(" ").toLowerCase().includes(needle));
   }, [houses, query]);
+  const { sorted, sort, toggleSort } = useTableSort(filtered, HOUSE_SORT);
 
   function update<K extends keyof SupplyHouseForm>(key: K, value: SupplyHouseForm[K]) {
     setNotice(null);
@@ -159,19 +170,19 @@ export default function AdminSupplyHouses() {
             <table className="ops-grid w-full table-fixed border-collapse text-xs">
               <thead className="sticky top-0 bg-muted text-2xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="w-[24%] border-b border-border px-3 py-2 text-left font-medium">Name</th>
-                  <th className="w-[18%] border-b border-border px-3 py-2 text-left font-medium">Rep</th>
-                  <th className="w-[18%] border-b border-border px-3 py-2 text-left font-medium">Phone</th>
-                  <th className="border-b border-border px-3 py-2 text-left font-medium">Email</th>
-                  <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">Account</th>
-                  <th className="w-20 border-b border-border px-3 py-2 text-left font-medium">Status</th>
+                  <SortableTh label="Name" sortKey="name" sort={sort} onSort={toggleSort} className="w-[24%]" />
+                  <SortableTh label="Rep" sortKey="rep" sort={sort} onSort={toggleSort} className="w-[18%]" />
+                  <SortableTh label="Phone" sortKey="phone" sort={sort} onSort={toggleSort} className="w-[18%]" />
+                  <SortableTh label="Email" sortKey="email" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="Account" sortKey="account" sort={sort} onSort={toggleSort} className="w-24" />
+                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-20" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {sorted.length === 0 && (
                   <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No supply houses yet. Add one to get started.</td></tr>
                 )}
-                {filtered.map((house) => (
+                {sorted.map((house) => (
                   <tr
                     key={house.id}
                     className={`ops-row ${canManage ? "cursor-pointer" : ""} ${form.id === house.id ? "bg-muted/50" : ""}`}

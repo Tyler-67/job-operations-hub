@@ -29,10 +29,10 @@ describe("checkInOverdueDays / needsCheckIn", () => {
     expect(checkInStatus(job(localDateString(1)))).toBe("1 day overdue");
   });
 
-  it("never logged reads as overdue with its own label", () => {
+  it("never logged is NOT an action (per Tyler 2026-07-31) — days stays null for display", () => {
     expect(checkInOverdueDays(job(null))).toBeNull();
-    expect(needsCheckIn(job(null))).toBe(true);
-    expect(checkInStatus(job(null))).toBe("never checked in");
+    expect(needsCheckIn(job(null))).toBe(false);
+    expect(checkInStatus(job(null))).toBeNull();
   });
 
   it("ineligible states (terminal / no check-ins) are never overdue", () => {
