@@ -154,6 +154,30 @@ describe("renderNotification", () => {
     expect(msg.body).toContain("owner will be asked to schedule");
   });
 
+  it("appends 'inspection' when the phase label is a tag-model WORK stage", () => {
+    // Tag-model jobs report the work stage's own label — without the suffix the notice
+    // read "ready for the Dirt Work." (the 2026-07-30 copy bug). Applies to every
+    // inspection template that interpolates phase_label, not just the requested notice.
+    const msg = renderNotification("inspection_requested_notice", {
+      address: "1420 Canyon Rd",
+      phase_label: "Dirt Work",
+    });
+    expect(msg.body).toContain("Crew marked the job at 1420 Canyon Rd ready for the Dirt Work inspection");
+
+    expect(renderNotification("inspection_result_ask", {
+      address: "1420 Canyon Rd", phase_label: "Dirt Work",
+      pass_link: "https://x/p", fail_link: "https://x/f",
+    }).body).toContain("Dirt Work inspection result at 1420 Canyon Rd?");
+
+    expect(renderNotification("inspection_date_link", {
+      address: "1420 Canyon Rd", phase_label: "Rough-In", link: "https://x/d",
+    }).body).toContain("Rough-In inspection at 1420 Canyon Rd - pick the date:");
+
+    expect(renderNotification("decision_outcome", {
+      address: "1420 Canyon Rd", phase_label: "Dirt Work", action: "inspection_pass",
+    }).body).toContain("Dirt Work inspection passed at 1420 Canyon Rd.");
+  });
+
   it("falls back to a generic inspection-requested notice when no phase label is given", () => {
     const msg = renderNotification("inspection_requested_notice", { address: "1420 Canyon Rd" });
     expect(msg.body).toContain("ready for inspection");
