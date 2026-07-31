@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
-import { canManageJobs, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
+import { canManageJobs, checkInStatus, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
@@ -14,7 +14,8 @@ const JOB_SORT: SortAccessors<JobSummary> = {
   crew: (job) => job.crew.map((contact) => contact.name).join(", ") || null,
   expenses: (job) => job.total_expenses,
   inspection: (job) => job.inspection_date,
-  // Office action = pending PO values only (check-in overdue lives on Progress, inspection in its column).
+  checkin: (job) => job.last_log_date,
+  // Office action = pending PO values only (check-in overdue has its own column, inspection too).
   action: (job) => job.purchase_orders.filter((po) => po.status === "pending_value").length,
   updated: (job) => job.updated_at,
 };
@@ -68,6 +69,7 @@ export default function JobsList() {
   const inspectionCount = jobs.filter(isInspectionSoon).length;
   const scheduledInspections = jobs.filter((job) => job.inspection_date).length;
   const activeCount = jobs.filter((job) => job.active && !job.current_state?.is_terminal).length;
+  const checkInEligible = jobs.filter((job) => job.current_state?.allow_check_ins && !job.current_state?.is_terminal).length;
   // The Office action column now carries ONLY pending PO values, so its head counts just those.
   const actionCount = jobs.filter((job) => job.purchase_orders.some((po) => po.status === "pending_value")).length;
   const canManage = canManageJobs(user?.role);
@@ -134,6 +136,7 @@ export default function JobsList() {
                 <SortableTh label="Crew" sortKey="crew" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Expenses" sortKey="expenses" sort={sort} onSort={toggleSort} />
                 <SortableTh label={`Inspection (${inspectionCount}/${scheduledInspections})`} sortKey="inspection" sort={sort} onSort={toggleSort} />
+                <SortableTh label={`Check-in (${overdueCount}/${checkInEligible})`} sortKey="checkin" sort={sort} onSort={toggleSort} />
                 <SortableTh label={`Office action (${actionCount})`} sortKey="action" sort={sort} onSort={toggleSort} />
                 <SortableTh label="Updated" sortKey="updated" sort={sort} onSort={toggleSort} />
               </tr>
@@ -146,26 +149,24 @@ export default function JobsList() {
                   <tr key={job.id} className="ops-row cursor-pointer" onClick={(event) => { if (!shouldIgnoreRowClick(event)) navigate(`/jobs/${job.id}`); }}>
                     <td className="px-3 py-2">
                       {/* The row itself opens the job, but the address stays a real link for
-                          keyboard, middle-click, and open-in-new-tab. No subtitle — rows stay
+                          keyboard, middle-click, and open-in-new-tab. Never wraps — rows stay
                           one line tall (per Tyler). */}
-                      <Link to={`/jobs/${job.id}`} className="font-medium text-foreground hover:text-accent">{job.address}</Link>
+                      <Link to={`/jobs/${job.id}`} className="whitespace-nowrap font-medium text-foreground hover:text-accent">{job.address}</Link>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{job.customers[0]?.name ?? "-"}</td>
                     {/* The state fills its whole cell (per Tyler); the inspection signal lives
                         in the Inspection column, not here. */}
                     <td className="px-3 py-2" style={job.current_state ? { backgroundColor: `${job.current_state.color}22` } : undefined}>
                       {job.current_state && (
-                        <span className="font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
+                        <span className="whitespace-nowrap font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
                       )}
                     </td>
-                    {/* Progress carries the check-in-overdue signal as the ONE pill kept (per Tyler). */}
                     <td className="px-3 py-2 font-mono-num">
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-2">
                         <div className="h-1.5 w-20 rounded-sm bg-secondary">
                           <div className="h-full rounded-sm bg-accent" style={{ width: `${job.state_progress_pct}%` }} />
                         </div>
                         {job.state_progress_pct}%
-                        {overdue && <span className="pill bg-destructive/10 text-destructive">check-in overdue</span>}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{job.crew.map((contact) => contact.name).join(", ") || "-"}</td>
@@ -173,6 +174,11 @@ export default function JobsList() {
                     {/* An active inspection fills its own column: the date, or "requested" until one is set. */}
                     <td className={`px-3 py-2 ${inspectionUnderway(job) ? "bg-info/10 font-medium text-info" : "text-muted-foreground"}`}>
                       {inspectionUnderway(job) && !job.inspection_date ? "requested" : shortDate(job.inspection_date)}
+                    </td>
+                    {/* An overdue check-in FILLS this cell (the moved pill): last check-in date,
+                        red, detail on hover. */}
+                    <td className={`px-3 py-2 ${overdue ? "bg-destructive/10 font-medium text-destructive" : "text-muted-foreground"}`} title={checkInStatus(job) ?? undefined}>
+                      {shortDate(job.last_log_date)}
                     </td>
                     {/* Office action = pending PO values only — one full-cell fill. */}
                     <td className={`px-3 py-2 ${pending > 0 ? "bg-warning/20 font-medium text-warning" : ""}`}>
@@ -184,7 +190,7 @@ export default function JobsList() {
               })}
               {/* Stretch row: keeps the column gridlines running to the base of the page. */}
               <tr aria-hidden className="ops-grid-fill">
-                {Array.from({ length: 9 }, (_, i) => <td key={i} />)}
+                {Array.from({ length: 10 }, (_, i) => <td key={i} />)}
               </tr>
             </tbody>
           </table>

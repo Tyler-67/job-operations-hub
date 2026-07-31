@@ -108,9 +108,9 @@ export default function Dashboard() {
                     <tr key={job.id} className="ops-row cursor-pointer" onClick={(event) => { if (!shouldIgnoreRowClick(event)) navigate(`/jobs/${job.id}`); }}>
                       <td className="px-3 py-2">
                         {/* The row itself opens the job, but the address stays a real link for
-                            keyboard, middle-click, and open-in-new-tab. No subtitle — rows stay
-                            one line tall (per Tyler). */}
-                        <Link to={`/jobs/${job.id}`} className="font-medium text-foreground hover:text-accent">{job.address}</Link>
+                            keyboard, middle-click, and open-in-new-tab. Truncates, never wraps —
+                            rows stay one line tall (per Tyler). */}
+                        <Link to={`/jobs/${job.id}`} className="block truncate font-medium text-foreground hover:text-accent">{job.address}</Link>
                       </td>
                       <td className="truncate px-3 py-2 text-muted-foreground">{job.customers[0]?.name ?? "-"}</td>
                       {/* The state fills its whole cell (per Tyler); the inspection signal
@@ -121,20 +121,15 @@ export default function Dashboard() {
                           <span className="block truncate font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
                         )}
                       </td>
-                      {/* Progress carries the check-in-overdue signal as the ONE pill kept (per Tyler). */}
-                      <td className="px-3 py-2 font-mono-num">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {job.state_progress_pct}%
-                          {needsCheckIn(job) && <span className="pill bg-destructive/10 text-destructive">{checkInStatus(job) ?? "check-in overdue"}</span>}
-                        </div>
-                      </td>
+                      <td className="px-3 py-2 font-mono-num">{job.state_progress_pct}%</td>
                       <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                       {/* An active inspection fills its own column: the date, or "requested" until one is set. */}
                       <td className={`px-3 py-2 ${inspectionUnderway(job) ? "bg-info/10 font-medium text-info" : "text-muted-foreground"}`}>
                         {inspectionUnderway(job) && !job.inspection_date ? "requested" : shortDate(job.inspection_date)}
                       </td>
-                      {/* Single line; the overdue signal is the color (red date), detail on hover. */}
-                      <td className={`px-3 py-2 ${needsCheckIn(job) ? "font-medium text-destructive" : "text-muted-foreground"}`} title={checkInStatus(job) ?? undefined}>
+                      {/* An overdue check-in FILLS this cell (the moved pill): last check-in
+                          date, red, detail on hover. */}
+                      <td className={`px-3 py-2 ${needsCheckIn(job) ? "bg-destructive/10 font-medium text-destructive" : "text-muted-foreground"}`} title={checkInStatus(job) ?? undefined}>
                         {shortDate(job.last_log_date)}
                       </td>
                       {/* Action = pending PO values only (check-in lives on Progress, inspection in
