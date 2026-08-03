@@ -946,9 +946,8 @@ function CheckInRow({ log, isOpen, crewName, phase, photoUrls, onToggle }: {
   );
 }
 
-// Signed-URL photo thumbnail for the Check-ins drill-down — same pattern as the Expenses
-// table: still-loading paths show a placeholder, PDFs render as links, images as 40px thumbs
-// that open full size in a new tab.
+// Signed-URL photo thumbnail for the Check-ins drill-down: still-loading paths show a
+// placeholder, PDFs render as links, images as 7rem thumbs that open full size in a new tab.
 function LogPhotoThumb({ path, urls, label }: { path: string; urls: Record<string, string | null>; label: string }) {
   const url = urls[path];
   if (!url) return <span className="text-2xs text-muted-foreground" title={path}>{label}…</span>;
@@ -957,7 +956,7 @@ function LogPhotoThumb({ path, urls, label }: { path: string; urls: Record<strin
   }
   return (
     <a href={url} target="_blank" rel="noreferrer" title={`${label} — open full size`}>
-      <img src={url} alt={label} className="h-10 w-10 rounded-sm border border-border object-cover" loading="lazy" />
+      <img src={url} alt={label} className="h-28 w-28 rounded-sm border border-border object-cover" loading="lazy" />
     </a>
   );
 }
