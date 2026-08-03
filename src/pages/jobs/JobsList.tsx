@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { canManageJobs, checkInStatus, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { useSession } from "@/lib/session";
 import { InlineSelect } from "@/components/InlineSelect";
 import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 const JOB_SORT: SortAccessors<JobSummary> = {
   job: (job) => job.address,
@@ -38,15 +39,22 @@ export default function JobsList() {
   const [stateId, setStateId] = useState("all");
   const [includeArchived, setIncludeArchived] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    fetchJobs(includeArchived)
-      .then((next) => { if (active) { setData(next); setError(null); } })
-      .catch((err) => { if (active) setError(err?.message ?? "Could not load jobs"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+  // `silent` = a background refresh: never flashes the loading state, and a transient
+  // failure keeps the rows already on screen (the next tick retries).
+  const load = useCallback(async (silent = false) => {
+    try {
+      const next = await fetchJobs(includeArchived);
+      setData(next);
+      setError(null);
+    } catch (err) {
+      if (!silent) setError(err instanceof Error ? err.message : "Could not load jobs");
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [includeArchived]);
+
+  useEffect(() => { setLoading(true); void load(); }, [load]);
+  useAutoRefresh(() => void load(true));
 
   const jobs = useMemo(() => data?.jobs ?? [], [data?.jobs]);
   const filtered = useMemo(() => jobs.filter((job) => {

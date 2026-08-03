@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { checkInStatus, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 // Column sort keys — declared at module level so the sorted list doesn't re-derive on every render.
 const JOB_SORT: SortAccessors<JobSummary> = {
@@ -30,14 +31,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    fetchJobs()
-      .then((next) => { if (active) { setData(next); setError(null); } })
-      .catch((err) => { if (active) setError(err?.message ?? "Could not load dashboard"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+  // `silent` = a background refresh: never flashes the loading state, and a transient
+  // failure keeps the data already on screen (the next tick retries).
+  const load = useCallback(async (silent = false) => {
+    try {
+      const next = await fetchJobs();
+      setData(next);
+      setError(null);
+    } catch (err) {
+      if (!silent) setError(err instanceof Error ? err.message : "Could not load dashboard");
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
+  // New check-ins, POs, and inspection requests land on their own schedule — pull them in
+  // while the page is open instead of waiting for the user to refresh.
+  useAutoRefresh(() => void load(true));
 
   const jobs = data?.jobs ?? [];
   const activeJobs = jobs.filter((job) => !job.current_state?.is_terminal);
@@ -121,7 +132,15 @@ export default function Dashboard() {
                           <span className="block truncate font-medium" style={{ color: job.current_state.color }}>{job.current_state.label}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono-num">{job.state_progress_pct}%</td>
+                      {/* Bar + % — same treatment as the Jobs list's Progress column. */}
+                      <td className="px-3 py-2 font-mono-num">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-20 rounded-sm bg-secondary">
+                            <div className="h-full rounded-sm bg-accent" style={{ width: `${job.state_progress_pct}%` }} />
+                          </div>
+                          {job.state_progress_pct}%
+                        </div>
+                      </td>
                       <td className="px-3 py-2 font-mono-num">{currency(job.total_expenses)}</td>
                       {/* An active inspection fills its own column: the date, or "requested" until one is set. */}
                       <td className={`px-3 py-2 ${inspectionUnderway(job) ? "bg-info/10 font-medium text-info" : "text-muted-foreground"}`}>
