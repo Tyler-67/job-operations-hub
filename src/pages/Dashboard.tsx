@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { checkInStatus, currency, fetchJobs, inspectionUnderway, needsCheckIn, shortDate, type JobSummary, type JobsResponse } from "@/lib/jobs";
 import { SortableTh, shouldIgnoreRowClick, useTableSort, type SortAccessors } from "@/components/SortableTable";
-import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 // Column sort keys — declared at module level so the sorted list doesn't re-derive on every render.
 const JOB_SORT: SortAccessors<JobSummary> = {
@@ -31,24 +30,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // `silent` = a background refresh: never flashes the loading state, and a transient
-  // failure keeps the data already on screen (the next tick retries).
-  const load = useCallback(async (silent = false) => {
-    try {
-      const next = await fetchJobs();
-      setData(next);
-      setError(null);
-    } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : "Could not load dashboard");
-    } finally {
-      if (!silent) setLoading(false);
-    }
+  useEffect(() => {
+    let active = true;
+    fetchJobs()
+      .then((next) => { if (active) { setData(next); setError(null); } })
+      .catch((err) => { if (active) setError(err?.message ?? "Could not load dashboard"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, []);
-
-  useEffect(() => { void load(); }, [load]);
-  // New check-ins, POs, and inspection requests land on their own schedule — pull them in
-  // while the page is open instead of waiting for the user to refresh.
-  useAutoRefresh(() => void load(true));
 
   const jobs = data?.jobs ?? [];
   const activeJobs = jobs.filter((job) => !job.current_state?.is_terminal);
